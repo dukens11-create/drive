@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import * as controller from './rides.controller';
-import { validateBody } from '../../shared/validate';
+import { validateBody } from './validate';
 import { genericSchema } from './rides.schemas';
 const router = Router();
 router.get('/health', controller.health);

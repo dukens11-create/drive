@@ -5,20 +5,20 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { errorHandler } from './shared/error-handler';
-import { registerTrackingSocket } from './realtime/tracking.socket';
+import { errorHandler } from './error-handler';
+import { registerTrackingSocket } from './tracking.socket';
 
-import authRoutes from './modules/auth/auth.routes';
-import ridesRoutes from './modules/rides/rides.routes';
-import driversRoutes from './modules/drivers/drivers.routes';
-import paymentsRoutes from './modules/payments/payments.routes';
-import walletRoutes from './modules/wallet/wallet.routes';
-import kycRoutes from './modules/kyc/kyc.routes';
-import safetyRoutes from './modules/safety/safety.routes';
-import supportRoutes from './modules/support/support.routes';
-import merchantRoutes from './modules/merchant/merchant.routes';
-import marketplaceRoutes from './modules/marketplace/marketplace.routes';
-import adminRoutes from './modules/admin/admin.routes';
+import authRoutes from './auth.routes';
+import ridesRoutes from './rides.routes';
+import driversRoutes from './drivers.routes';
+import paymentsRoutes from './payments.routes';
+import walletRoutes from './wallet.routes';
+import kycRoutes from './kyc.routes';
+import safetyRoutes from './safety.routes';
+import supportRoutes from './support.routes';
+import merchantRoutes from './merchant.routes';
+import marketplaceRoutes from './marketplace.routes';
+import adminRoutes from './admin.routes';
 
 dotenv.config();
 
