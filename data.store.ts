@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { randomBytes, randomUUID, scryptSync } from 'crypto';
 
 export type Role = 'rider' | 'driver' | 'merchant' | 'admin';
 
@@ -96,6 +96,12 @@ export function makeId(prefix: string) {
   return `${prefix}_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
 }
 
+function hashPassword(password: string) {
+  const salt = randomBytes(16);
+  const hash = scryptSync(password, salt, 64);
+  return `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`;
+}
+
 export const store = {
   users: new Map<string, User>(),
   refreshTokens: new Map<string, string>(),
@@ -114,7 +120,7 @@ const adminId = makeId('user');
 store.users.set(adminId, {
   id: adminId,
   email: 'admin@flupflap.com',
-  password: process.env.ADMIN_SEED_PASSWORD || 'change_me_admin_password',
+  password: hashPassword(process.env.ADMIN_SEED_PASSWORD || 'change_me_admin_password'),
   role: 'admin',
   createdAt: now()
 });
