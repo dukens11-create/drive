@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import * as controller from './auth.controller';
 import { validateBody } from './validate';
-import { genericSchema } from './auth.schemas';
+import { authSchema, genericSchema } from './auth.schemas';
 const router = Router();
 router.get('/health', controller.health);
-router.post('/signup', validateBody(genericSchema), controller.signup);
-router.post('/login', validateBody(genericSchema), controller.login);
+router.post('/signup', validateBody(authSchema), controller.signup);
+router.post('/login', validateBody(authSchema), controller.login);
 router.post('/refresh', validateBody(genericSchema), controller.refresh);
 export default router;
