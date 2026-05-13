@@ -1,0 +1,14 @@
+import { Router } from 'express';
+import * as controller from './rides.controller';
+import { validateBody } from '../../shared/validate';
+import { genericSchema } from './rides.schemas';
+const router = Router();
+router.get('/health', controller.health);
+router.post('/estimate', validateBody(genericSchema), controller.estimate);
+router.post('/request', validateBody(genericSchema), controller.request);
+router.post('/accept', validateBody(genericSchema), controller.accept);
+router.post('/start', validateBody(genericSchema), controller.start);
+router.post('/complete', validateBody(genericSchema), controller.complete);
+router.post('/cancel', validateBody(genericSchema), controller.cancel);
+router.post('/rate', validateBody(genericSchema), controller.rate);
+export default router;
