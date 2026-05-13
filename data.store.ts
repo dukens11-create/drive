@@ -122,6 +122,7 @@ type PersistedStore = {
 let isHydrating = false;
 let persistQueued = false;
 let lastSerializedStore = '';
+const MUTATING_ARRAY_METHODS = ['copyWithin', 'fill', 'pop', 'push', 'reverse', 'shift', 'sort', 'splice', 'unshift'] as const;
 
 function queuePersist() {
   if (env.dataStoreMode !== 'file' || isHydrating || persistQueued) return;
@@ -160,7 +161,7 @@ function createPersistentArray<T>() {
   const target: T[] = [];
   return new Proxy(target, {
     get(arr, prop, receiver) {
-      if (typeof prop === 'string' && ['copyWithin', 'fill', 'pop', 'push', 'reverse', 'shift', 'sort', 'splice', 'unshift'].includes(prop)) {
+      if (typeof prop === 'string' && MUTATING_ARRAY_METHODS.includes(prop as any)) {
         return (...args: any[]) => {
           const result = (Array.prototype as any)[prop].apply(arr, args);
           queuePersist();
@@ -171,6 +172,7 @@ function createPersistentArray<T>() {
     },
     set(arr, prop, value, receiver) {
       const result = Reflect.set(arr, prop, value, receiver);
+      // Skip direct "length" updates because mutating methods already queue persistence.
       if (prop !== 'length') queuePersist();
       return result;
     }

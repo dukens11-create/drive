@@ -6,6 +6,7 @@ import { createApp } from './app';
 
 async function withServer(run: (baseUrl: string) => Promise<void>) {
   const { httpServer } = createApp();
+  // Use port 0 so the OS assigns a free port for isolated parallel-safe test execution.
   await new Promise<void>(resolve => {
     httpServer.listen(0, '127.0.0.1', () => resolve());
   });

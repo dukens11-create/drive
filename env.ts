@@ -29,10 +29,10 @@ function getPort() {
 const dataStoreMode = getString('DATA_STORE_MODE', 'memory') === 'file' ? 'file' : 'memory';
 
 export const env = {
-  nodeEnv: getString('NODE_ENV', 'development')!,
+  nodeEnv: getString('NODE_ENV', 'development'),
   port: getPort(),
   jwtSecret: getRequiredInProduction('JWT_SECRET', 'dev-local-secret'),
   adminSeedPassword: getRequiredInProduction('ADMIN_SEED_PASSWORD', 'change_me_admin_password'),
   dataStoreMode,
-  dataStoreFile: getString('DATA_STORE_FILE', '.data/store.json')!
+  dataStoreFile: getString('DATA_STORE_FILE', '.data/store.json')
 };
