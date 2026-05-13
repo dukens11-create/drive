@@ -1,5 +1,5 @@
 import { handleStripeWebhook } from './stripe.webhook';
-import { makeId, pushWalletTx, store, timestamp } from './data.store';
+import { makeId, markStoreDirty, pushWalletTx, store, timestamp } from './data.store';
 
 export async function create_intent(body: any, _params?: any, _query?: any) {
   const amountCents = Number(body?.amountCents || body?.amount || 0);
@@ -28,6 +28,7 @@ export async function capture(body: any, _params?: any, _query?: any) {
 
   payment.status = 'captured';
   payment.updatedAt = timestamp();
+  markStoreDirty();
 
   if (payment.riderId) pushWalletTx(payment.riderId, 'debit', payment.amountCents, `payment:${payment.id}:capture`);
   if (payment.driverId) pushWalletTx(payment.driverId, 'credit', Math.round(payment.amountCents * 0.8), `payment:${payment.id}:driver_payout`);
@@ -42,6 +43,7 @@ export async function refund(body: any, _params?: any, _query?: any) {
 
   payment.status = 'refunded';
   payment.updatedAt = timestamp();
+  markStoreDirty();
 
   if (payment.riderId) pushWalletTx(payment.riderId, 'credit', payment.amountCents, `payment:${payment.id}:refund`);
   if (payment.driverId) pushWalletTx(payment.driverId, 'debit', Math.round(payment.amountCents * 0.8), `payment:${payment.id}:refund_reversal`);

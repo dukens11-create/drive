@@ -1,4 +1,4 @@
-import { makeId, store, timestamp } from './data.store';
+import { makeId, markStoreDirty, store, timestamp } from './data.store';
 
 export async function create_ticket(body: any, _params?: any, _query?: any) {
   const ticket = {
@@ -25,5 +25,6 @@ export async function refund_review(body: any, _params?: any, _query?: any) {
   const ticket = ticketId ? store.tickets.get(ticketId) : undefined;
   if (!ticket) return { module: 'support', action: 'refund-review', error: 'ticket not found' };
   ticket.status = approved ? 'closed' : 'in_review';
+  markStoreDirty();
   return { module: 'support', action: 'refund-review', ok: true, ticket, approved };
 }

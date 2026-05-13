@@ -1,4 +1,4 @@
-import { listUsersByRole, store } from './data.store';
+import { listUsersByRole, markStoreDirty, store } from './data.store';
 
 export async function drivers_pending(_body: any, _params?: any, _query?: any) {
   const pending = Array.from(store.drivers.values()).filter(d => d.status === 'pending');
@@ -9,6 +9,7 @@ export async function approve_driver(body: any, _params?: any, _query?: any) {
   const profile = store.drivers.get(body?.userId);
   if (!profile) return { module: 'admin', action: 'approve-driver', error: 'driver profile not found' };
   profile.status = body?.approved === false ? 'rejected' : 'approved';
+  markStoreDirty();
   return { module: 'admin', action: 'approve-driver', ok: true, profile };
 }
 

@@ -1,6 +1,6 @@
 import { dispatchRide } from './dispatch.engine';
 import { estimateRoute } from './eta.service';
-import { makeId, pushWalletTx, store, timestamp } from './data.store';
+import { makeId, markStoreDirty, pushWalletTx, store, timestamp } from './data.store';
 
 function getRide(id: string) {
   const ride = store.rides.get(id);
@@ -47,6 +47,7 @@ export async function accept(body: any, _params?: any, _query?: any) {
   ride.driverId = body?.driverId;
   ride.status = 'accepted';
   ride.updatedAt = timestamp();
+  markStoreDirty();
   return { module: 'rides', action: 'accept', ok: true, ride };
 }
 
@@ -55,6 +56,7 @@ export async function start(body: any, _params?: any, _query?: any) {
   if (ride.status !== 'accepted') return { module: 'rides', action: 'start', error: 'ride not accepted' };
   ride.status = 'started';
   ride.updatedAt = timestamp();
+  markStoreDirty();
   return { module: 'rides', action: 'start', ok: true, ride };
 }
 
@@ -64,6 +66,7 @@ export async function complete(body: any, _params?: any, _query?: any) {
 
   ride.status = 'completed';
   ride.updatedAt = timestamp();
+  markStoreDirty();
 
   const amountCents = Math.round(ride.fareEstimate * 100);
   if (ride.riderId) pushWalletTx(ride.riderId, 'debit', amountCents, `ride:${ride.id}:fare`);
@@ -77,6 +80,7 @@ export async function cancel(body: any, _params?: any, _query?: any) {
   if (ride.status === 'completed') return { module: 'rides', action: 'cancel', error: 'cannot cancel completed ride' };
   ride.status = 'canceled';
   ride.updatedAt = timestamp();
+  markStoreDirty();
   return { module: 'rides', action: 'cancel', ok: true, ride };
 }
 
@@ -86,5 +90,6 @@ export async function rate(body: any, _params?: any, _query?: any) {
   if (!Number.isFinite(rating) || rating < 1 || rating > 5) return { module: 'rides', action: 'rate', error: 'rating must be 1-5' };
   ride.rating = rating;
   ride.updatedAt = timestamp();
+  markStoreDirty();
   return { module: 'rides', action: 'rate', ok: true, rideId: ride.id, rating };
 }

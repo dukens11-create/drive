@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { AddressInfo } from 'node:net';
+import { randomUUID } from 'node:crypto';
 import { createApp } from './app';
 
 async function withServer(run: (baseUrl: string) => Promise<void>) {
@@ -34,7 +35,7 @@ test('POST /api/auth/signup creates user and returns tokens', async () => {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        email: `user-${Date.now()}@example.com`,
+        email: `user-${randomUUID()}@example.com`,
         password: 'password123',
         role: 'rider'
       })

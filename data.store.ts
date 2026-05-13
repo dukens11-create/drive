@@ -126,10 +126,11 @@ let lastSerializedStore = '';
 function queuePersist() {
   if (env.dataStoreMode !== 'file' || isHydrating || persistQueued) return;
   persistQueued = true;
-  setTimeout(() => {
+  const timer = setTimeout(() => {
     persistQueued = false;
     persistStore();
-  }, 0);
+  }, 250);
+  timer.unref();
 }
 
 class PersistentMap<K, V> extends Map<K, V> {
@@ -258,11 +259,11 @@ if (!hasAdmin) {
   });
 }
 
-if (env.dataStoreMode === 'file') {
-  setInterval(() => {
-    persistStore();
-  }, 1_000).unref();
+export function markStoreDirty() {
+  queuePersist();
+}
 
+if (env.dataStoreMode === 'file') {
   process.once('beforeExit', persistStore);
   process.once('SIGINT', persistStore);
   process.once('SIGTERM', persistStore);
