@@ -1,0 +1,11 @@
+import { Router } from 'express';
+import * as controller from './merchant.controller';
+import { validateBody } from '../../shared/validate';
+import { genericSchema } from './merchant.schemas';
+const router = Router();
+router.get('/health', controller.health);
+router.post('/create-product', validateBody(genericSchema), controller.create_product);
+router.post('/list-products', validateBody(genericSchema), controller.list_products);
+router.post('/orders', validateBody(genericSchema), controller.orders);
+router.post('/payouts', validateBody(genericSchema), controller.payouts);
+export default router;

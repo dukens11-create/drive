@@ -1,0 +1,10 @@
+import { Router } from 'express';
+import * as controller from './safety.controller';
+import { validateBody } from '../../shared/validate';
+import { genericSchema } from './safety.schemas';
+const router = Router();
+router.get('/health', controller.health);
+router.post('/sos', validateBody(genericSchema), controller.sos);
+router.post('/share-trip', validateBody(genericSchema), controller.share_trip);
+router.post('/incident-report', validateBody(genericSchema), controller.incident_report);
+export default router;

@@ -1,0 +1,12 @@
+import { Router } from 'express';
+import * as controller from './admin.controller';
+import { validateBody } from '../../shared/validate';
+import { genericSchema } from './admin.schemas';
+const router = Router();
+router.get('/health', controller.health);
+router.post('/drivers-pending', validateBody(genericSchema), controller.drivers_pending);
+router.post('/approve-driver', validateBody(genericSchema), controller.approve_driver);
+router.post('/live-rides', validateBody(genericSchema), controller.live_rides);
+router.post('/risk-alerts', validateBody(genericSchema), controller.risk_alerts);
+router.post('/refunds', validateBody(genericSchema), controller.refunds);
+export default router;

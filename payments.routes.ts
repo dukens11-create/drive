@@ -1,0 +1,11 @@
+import { Router } from 'express';
+import * as controller from './payments.controller';
+import { validateBody } from '../../shared/validate';
+import { genericSchema } from './payments.schemas';
+const router = Router();
+router.get('/health', controller.health);
+router.post('/create-intent', validateBody(genericSchema), controller.create_intent);
+router.post('/capture', validateBody(genericSchema), controller.capture);
+router.post('/refund', validateBody(genericSchema), controller.refund);
+router.post('/stripe-webhook', validateBody(genericSchema), controller.stripe_webhook);
+export default router;

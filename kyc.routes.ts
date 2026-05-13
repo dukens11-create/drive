@@ -1,0 +1,10 @@
+import { Router } from 'express';
+import * as controller from './kyc.controller';
+import { validateBody } from '../../shared/validate';
+import { genericSchema } from './kyc.schemas';
+const router = Router();
+router.get('/health', controller.health);
+router.post('/create-session', validateBody(genericSchema), controller.create_session);
+router.post('/status', validateBody(genericSchema), controller.status);
+router.post('/webhook', validateBody(genericSchema), controller.webhook);
+export default router;

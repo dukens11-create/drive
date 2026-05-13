@@ -1,0 +1,10 @@
+import { Router } from 'express';
+import * as controller from './support.controller';
+import { validateBody } from '../../shared/validate';
+import { genericSchema } from './support.schemas';
+const router = Router();
+router.get('/health', controller.health);
+router.post('/create-ticket', validateBody(genericSchema), controller.create_ticket);
+router.post('/list-tickets', validateBody(genericSchema), controller.list_tickets);
+router.post('/refund-review', validateBody(genericSchema), controller.refund_review);
+export default router;
