@@ -1,7 +1,7 @@
 import * as service from './drivers.service';
 export function health(_req:any,res:any){res.json({module:'drivers',ok:true})}
-export async function apply(req:any,res:any){res.json(await service.apply(req.body, req.params, req.query));}
-export async function availability(req:any,res:any){res.json(await service.availability(req.body, req.params, req.query));}
-export async function location(req:any,res:any){res.json(await service.location(req.body, req.params, req.query));}
-export async function earnings(req:any,res:any){res.json(await service.earnings(req.body, req.params, req.query));}
-export async function documents(req:any,res:any){res.json(await service.documents(req.body, req.params, req.query));}
+export async function apply(req:any,res:any){res.json(await service.apply({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function availability(req:any,res:any){res.json(await service.availability({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function location(req:any,res:any){res.json(await service.location({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function earnings(req:any,res:any){res.json(await service.earnings({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function documents(req:any,res:any){res.json(await service.documents({ ...req.body, actor: req.user }, req.params, req.query));}

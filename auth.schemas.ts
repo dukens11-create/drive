@@ -16,3 +16,7 @@ export const authSchema = z.object({
   phone: z.string().optional(),
   password: z.string().min(6).optional()
 }).passthrough();
+
+export const refreshSchema = z.object({
+  refreshToken: z.string().min(20)
+});
