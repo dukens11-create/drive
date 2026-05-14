@@ -51,9 +51,15 @@ export type Payment = {
   rideId?: string;
   riderId?: string;
   driverId?: string;
+  provider: 'stripe_mock';
+  providerIntentId: string;
+  providerCheckoutSessionId: string;
+  clientSecret: string;
   amountCents: number;
   currency: string;
-  status: 'requires_capture' | 'captured' | 'refunded';
+  status: 'requires_capture' | 'captured' | 'refunded' | 'failed';
+  capturedAt?: string;
+  refundedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -65,6 +71,12 @@ export type WalletTx = {
   amountCents: number;
   reason: string;
   createdAt: string;
+};
+
+export type WalletBalance = {
+  userId: string;
+  balanceCents: number;
+  updatedAt: string;
 };
 
 export type Ticket = {
@@ -112,6 +124,7 @@ type PersistedStore = {
   drivers: DriverProfile[];
   payments: Payment[];
   walletTx: WalletTx[];
+  walletBalances: WalletBalance[];
   kycStatus: Array<[string, 'pending' | 'verified' | 'rejected']>;
   tickets: Ticket[];
   safetyIncidents: any[];
@@ -186,6 +199,7 @@ export const store = {
   drivers: new PersistentMap<string, DriverProfile>(),
   payments: new PersistentMap<string, Payment>(),
   walletTx: createPersistentArray<WalletTx>(),
+  walletBalances: new PersistentMap<string, WalletBalance>(),
   kycStatus: new PersistentMap<string, 'pending' | 'verified' | 'rejected'>(),
   tickets: new PersistentMap<string, Ticket>(),
   safetyIncidents: createPersistentArray<any>(),
@@ -201,6 +215,7 @@ function toSerializableStore(): PersistedStore {
     drivers: Array.from(store.drivers.values()),
     payments: Array.from(store.payments.values()),
     walletTx: [...store.walletTx],
+    walletBalances: Array.from(store.walletBalances.values()),
     kycStatus: Array.from(store.kycStatus.entries()),
     tickets: Array.from(store.tickets.values()),
     safetyIncidents: [...store.safetyIncidents],
@@ -246,6 +261,7 @@ function hydrateStore() {
     for (const driver of parsed.drivers || []) store.drivers.set(driver.userId, driver);
     for (const payment of parsed.payments || []) store.payments.set(payment.id, payment);
     for (const tx of parsed.walletTx || []) store.walletTx.push(tx);
+    for (const walletBalance of parsed.walletBalances || []) store.walletBalances.set(walletBalance.userId, walletBalance);
     for (const [userId, status] of parsed.kycStatus || []) store.kycStatus.set(userId, status);
     for (const ticket of parsed.tickets || []) store.tickets.set(ticket.id, ticket);
     for (const incident of parsed.safetyIncidents || []) store.safetyIncidents.push(incident);
@@ -287,15 +303,22 @@ export function listUsersByRole(role: Role) {
 }
 
 export function getWalletBalanceCents(userId: string) {
-  return store.walletTx.reduce((sum, tx) => {
+  const cached = store.walletBalances.get(userId);
+  if (cached) return cached.balanceCents;
+  const computed = store.walletTx.reduce((sum, tx) => {
     if (tx.userId !== userId) return sum;
     return tx.kind === 'credit' ? sum + tx.amountCents : sum - tx.amountCents;
   }, 0);
+  store.walletBalances.set(userId, { userId, balanceCents: computed, updatedAt: now() });
+  return computed;
 }
 
 export function pushWalletTx(userId: string, kind: 'credit' | 'debit', amountCents: number, reason: string) {
   const tx = { id: makeId('wtx'), userId, kind, amountCents, reason, createdAt: now() };
   store.walletTx.push(tx);
+  const prior = store.walletBalances.get(userId)?.balanceCents || 0;
+  const next = kind === 'credit' ? prior + amountCents : prior - amountCents;
+  store.walletBalances.set(userId, { userId, balanceCents: next, updatedAt: now() });
   return tx;
 }
 
