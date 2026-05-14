@@ -67,12 +67,52 @@ export type WalletTx = {
   createdAt: string;
 };
 
+export type TicketReply = {
+  id: string;
+  ticketId: string;
+  authorId: string;
+  authorRole: string;
+  message: string;
+  createdAt: string;
+};
+
 export type Ticket = {
   id: string;
   userId: string;
   type: string;
   message: string;
   status: 'open' | 'in_review' | 'closed';
+  resolution?: string;
+  replies: TicketReply[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SafetyIncidentStatus = 'open' | 'under_review' | 'resolved' | 'dismissed';
+
+export type SafetyIncident = {
+  id: string;
+  userId?: string;
+  rideId?: string;
+  type: string;
+  details?: string;
+  lat?: number;
+  lng?: number;
+  level?: string;
+  status: SafetyIncidentStatus;
+  resolvedAt?: string;
+  resolvedBy?: string;
+  createdAt: string;
+};
+
+export type AuditLog = {
+  id: string;
+  actorId: string;
+  actorRole: string;
+  action: string;
+  targetId?: string;
+  targetType?: string;
+  details?: Record<string, unknown>;
   createdAt: string;
 };
 
@@ -114,9 +154,10 @@ type PersistedStore = {
   walletTx: WalletTx[];
   kycStatus: Array<[string, 'pending' | 'verified' | 'rejected']>;
   tickets: Ticket[];
-  safetyIncidents: any[];
+  safetyIncidents: SafetyIncident[];
   merchantProducts: MerchantProduct[];
   marketplaceDeliveries: MarketplaceDelivery[];
+  auditLogs: AuditLog[];
 };
 
 let isHydrating = false;
@@ -188,9 +229,10 @@ export const store = {
   walletTx: createPersistentArray<WalletTx>(),
   kycStatus: new PersistentMap<string, 'pending' | 'verified' | 'rejected'>(),
   tickets: new PersistentMap<string, Ticket>(),
-  safetyIncidents: createPersistentArray<any>(),
+  safetyIncidents: createPersistentArray<SafetyIncident>(),
   merchantProducts: new PersistentMap<string, MerchantProduct>(),
-  marketplaceDeliveries: new PersistentMap<string, MarketplaceDelivery>()
+  marketplaceDeliveries: new PersistentMap<string, MarketplaceDelivery>(),
+  auditLogs: createPersistentArray<AuditLog>()
 };
 
 function toSerializableStore(): PersistedStore {
@@ -205,7 +247,8 @@ function toSerializableStore(): PersistedStore {
     tickets: Array.from(store.tickets.values()),
     safetyIncidents: [...store.safetyIncidents],
     merchantProducts: Array.from(store.merchantProducts.values()),
-    marketplaceDeliveries: Array.from(store.marketplaceDeliveries.values())
+    marketplaceDeliveries: Array.from(store.marketplaceDeliveries.values()),
+    auditLogs: [...store.auditLogs]
   };
 }
 
@@ -240,6 +283,7 @@ function hydrateStore() {
     for (const incident of parsed.safetyIncidents || []) store.safetyIncidents.push(incident);
     for (const product of parsed.merchantProducts || []) store.merchantProducts.set(product.id, product);
     for (const delivery of parsed.marketplaceDeliveries || []) store.marketplaceDeliveries.set(delivery.id, delivery);
+    for (const log of parsed.auditLogs || []) store.auditLogs.push(log);
   } finally {
     isHydrating = false;
   }
@@ -280,6 +324,28 @@ export function getWalletBalanceCents(userId: string) {
     if (tx.userId !== userId) return sum;
     return tx.kind === 'credit' ? sum + tx.amountCents : sum - tx.amountCents;
   }, 0);
+}
+
+export function appendAuditLog(
+  actorId: string,
+  actorRole: string,
+  action: string,
+  targetId?: string,
+  targetType?: string,
+  details?: Record<string, unknown>
+) {
+  const entry: AuditLog = {
+    id: makeId('audit'),
+    actorId,
+    actorRole,
+    action,
+    targetId,
+    targetType,
+    details,
+    createdAt: now()
+  };
+  store.auditLogs.push(entry);
+  return entry;
 }
 
 export function pushWalletTx(userId: string, kind: 'credit' | 'debit', amountCents: number, reason: string) {
