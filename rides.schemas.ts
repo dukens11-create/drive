@@ -11,8 +11,24 @@ export const rideEstimateSchema = z.object({
   minutes: z.number().optional()
 }).passthrough();
 
-export const authSchema = z.object({
-  email: z.string().email().optional(),
-  phone: z.string().optional(),
-  password: z.string().min(6).optional()
+export const rideRequestSchema = z.object({
+  pickupLat: z.number().optional(),
+  pickupLng: z.number().optional(),
+  dropoffLat: z.number().optional(),
+  dropoffLng: z.number().optional(),
+  miles: z.number().optional(),
+  minutes: z.number().optional()
+}).passthrough();
+
+export const rideAcceptSchema = z.object({
+  rideId: z.string().min(1)
+}).passthrough();
+
+export const rideStartCompleteCancelSchema = z.object({
+  rideId: z.string().min(1)
+}).passthrough();
+
+export const rideRateSchema = z.object({
+  rideId: z.string().min(1),
+  rating: z.number().min(1).max(5)
 }).passthrough();

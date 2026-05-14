@@ -107,7 +107,7 @@ function hashPassword(password: string) {
 
 type PersistedStore = {
   users: User[];
-  refreshTokens: Array<[string, string]>;
+  refreshTokens: Array<[string, { userId: string; expiresAt: string }]>;
   rides: Ride[];
   drivers: DriverProfile[];
   payments: Payment[];
@@ -181,7 +181,7 @@ function createPersistentArray<T>() {
 
 export const store = {
   users: new PersistentMap<string, User>(),
-  refreshTokens: new PersistentMap<string, string>(),
+  refreshTokens: new PersistentMap<string, { userId: string; expiresAt: string }>(),
   rides: new PersistentMap<string, Ride>(),
   drivers: new PersistentMap<string, DriverProfile>(),
   payments: new PersistentMap<string, Payment>(),
@@ -230,7 +230,18 @@ function hydrateStore() {
   isHydrating = true;
   try {
     for (const user of parsed.users || []) store.users.set(user.id, user);
-    for (const [token, userId] of parsed.refreshTokens || []) store.refreshTokens.set(token, userId);
+    for (const [tokenHash, refreshToken] of parsed.refreshTokens || []) {
+      if (typeof refreshToken === 'string') {
+        store.refreshTokens.set(tokenHash, {
+          userId: refreshToken,
+          expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString()
+        });
+        continue;
+      }
+      if (refreshToken?.userId && refreshToken?.expiresAt) {
+        store.refreshTokens.set(tokenHash, refreshToken);
+      }
+    }
     for (const ride of parsed.rides || []) store.rides.set(ride.id, ride);
     for (const driver of parsed.drivers || []) store.drivers.set(driver.userId, driver);
     for (const payment of parsed.payments || []) store.payments.set(payment.id, payment);
