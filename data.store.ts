@@ -328,7 +328,7 @@ if (!hasAdmin) {
     email: 'admin@flupflap.com',
     password: hashPassword(env.adminSeedPassword),
     role: 'admin',
-    createdAt: now()
+    createdAt: timestamp()
   });
 }
 
