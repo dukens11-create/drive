@@ -86,7 +86,7 @@ export function isDriverDispatchEligible(profile: any) {
 
 export async function apply(body: any, _params?: any, _query?: any) {
   const userId = body?.actor?.id || body?.userId;
-  if (!userId) return { module: 'drivers', action: 'apply', error: 'actor id or userId is required' };
+  if (!userId) return { module: 'drivers', action: 'apply', error: 'actor.id or userId is required' };
 
   const existing = getProfile(userId);
   if (existing) {
