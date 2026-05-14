@@ -36,7 +36,7 @@ function setAvailability(profile: any, next: 'offline' | 'online' | 'assigned' |
   if (next === 'online') {
     if (profile.verificationState !== 'verified') return { error: 'driver is not verified' };
     if (!Number.isFinite(Number(profile.lat)) || !Number.isFinite(Number(profile.lng))) {
-      return { error: 'driver location must be set to valid coordinates before going online' };
+      return { error: 'driver location must be set to finite numeric coordinates before going online' };
     }
   }
   profile.availabilityStatus = next;
@@ -118,7 +118,13 @@ export async function availability(body: any, _params?: any, _query?: any) {
   } else if (body?.available === false) {
     requestedState = 'offline';
   }
-  if (!requestedState) return { module: 'drivers', action: 'availability', error: 'status must be one of offline, online, unavailable for this endpoint' };
+  if (!requestedState) {
+    return {
+      module: 'drivers',
+      action: 'availability',
+      error: 'status must be one of offline, online, unavailable for this endpoint (or use available: true/false)'
+    };
+  }
   const result = setAvailability(profile, requestedState);
   if ('error' in result) return { module: 'drivers', action: 'availability', error: result.error };
   markStoreDirty();

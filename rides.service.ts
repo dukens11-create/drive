@@ -53,7 +53,9 @@ export async function request(body: any, _params?: any, _query?: any) {
 
 export async function accept(body: any, _params?: any, _query?: any) {
   const ride = getRide(body?.rideId);
-  if (ride.status !== 'requested' && ride.status !== 'accepted') return { module: 'rides', action: 'accept', error: 'ride cannot be accepted in current status' };
+  if (ride.status !== 'requested' && ride.status !== 'accepted') {
+    return { module: 'rides', action: 'accept', error: `ride cannot be accepted: current status is ${ride.status}` };
+  }
   const driverId = body?.driverId;
   if (!driverId) return { module: 'rides', action: 'accept', error: 'driverId is required' };
   if (ride.status === 'accepted' && ride.driverId === driverId) return { module: 'rides', action: 'accept', ok: true, ride };
