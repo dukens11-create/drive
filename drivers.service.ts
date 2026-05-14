@@ -57,7 +57,7 @@ export function markDriverAssigned(userId: string) {
   if (!profile) return { ok: false, error: 'driver not found' as const };
   syncProfileState(profile);
   if (profile.verificationState !== 'verified') return { ok: false, error: 'driver is not verified' as const };
-  if (profile.availabilityStatus !== 'online') return { ok: false, error: `driver is ${profile.availabilityStatus}` as const };
+  if (profile.availabilityStatus !== 'online') return { ok: false, error: 'driver is not available for assignment' as const };
   setAvailability(profile, 'assigned');
   markStoreDirty();
   return { ok: true, profile } as const;
@@ -118,7 +118,7 @@ export async function availability(body: any, _params?: any, _query?: any) {
   } else if (body?.available === false) {
     requestedState = 'offline';
   }
-  if (!requestedState) return { module: 'drivers', action: 'availability', error: 'status must be one of offline, online, unavailable' };
+  if (!requestedState) return { module: 'drivers', action: 'availability', error: 'status must be one of offline, online, unavailable for this endpoint' };
   const result = setAvailability(profile, requestedState);
   if ('error' in result) return { module: 'drivers', action: 'availability', error: result.error };
   markStoreDirty();
