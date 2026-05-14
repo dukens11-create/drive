@@ -18,3 +18,19 @@ V7 includes:
 - QA and load-test templates
 
 Important: this is still not a finished Uber-scale production system. It is a stronger developer handoff package.
+
+## Backend quick start
+
+1. Copy `.env.example` to `.env`.
+2. Install dependencies: `npm install`
+3. Build TypeScript: `npm run build`
+4. Start API: `npm start`
+5. Run core backend tests: `npm test`
+
+## Current backend bootstrap additions
+
+- Centralized runtime environment loading and defaults in `env.ts`
+- Data store bootstrap supports:
+  - `DATA_STORE_MODE=memory` for scaffold/development
+  - `DATA_STORE_MODE=file` for lightweight persisted JSON state
+- Core route tests in `core.routes.test.ts` cover `/health` and auth signup flow

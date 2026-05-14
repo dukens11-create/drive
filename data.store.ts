@@ -1,4 +1,7 @@
 import { randomBytes, randomUUID, scryptSync } from 'crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import path from 'path';
+import { env } from './env';
 
 export type Role = 'rider' | 'driver' | 'merchant' | 'admin';
 
@@ -102,35 +105,171 @@ function hashPassword(password: string) {
   return `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`;
 }
 
-function getAdminSeedPassword() {
-  const fromEnv = process.env.ADMIN_SEED_PASSWORD;
-  if (fromEnv) return fromEnv;
-  if (process.env.NODE_ENV === 'production') throw new Error('ADMIN_SEED_PASSWORD is required in production');
-  return 'change_me_admin_password';
+type PersistedStore = {
+  users: User[];
+  refreshTokens: Array<[string, string]>;
+  rides: Ride[];
+  drivers: DriverProfile[];
+  payments: Payment[];
+  walletTx: WalletTx[];
+  kycStatus: Array<[string, 'pending' | 'verified' | 'rejected']>;
+  tickets: Ticket[];
+  safetyIncidents: any[];
+  merchantProducts: MerchantProduct[];
+  marketplaceDeliveries: MarketplaceDelivery[];
+};
+
+let isHydrating = false;
+let persistQueued = false;
+let lastSerializedStore = '';
+const MUTATING_ARRAY_METHODS = ['copyWithin', 'fill', 'pop', 'push', 'reverse', 'shift', 'sort', 'splice', 'unshift'] as const;
+
+function queuePersist() {
+  if (env.dataStoreMode !== 'file' || isHydrating || persistQueued) return;
+  persistQueued = true;
+  const timer = setTimeout(() => {
+    persistQueued = false;
+    persistStore();
+  }, 250);
+  timer.unref();
+}
+
+class PersistentMap<K, V> extends Map<K, V> {
+  override set(key: K, value: V) {
+    const result = super.set(key, value);
+    queuePersist();
+    return result;
+  }
+
+  override delete(key: K) {
+    const result = super.delete(key);
+    if (result) queuePersist();
+    return result;
+  }
+
+  override clear() {
+    if (this.size > 0) {
+      super.clear();
+      queuePersist();
+      return;
+    }
+    super.clear();
+  }
+}
+
+function createPersistentArray<T>() {
+  const target: T[] = [];
+  return new Proxy(target, {
+    get(arr, prop, receiver) {
+      if (typeof prop === 'string' && MUTATING_ARRAY_METHODS.includes(prop as any)) {
+        return (...args: any[]) => {
+          const result = (Array.prototype as any)[prop].apply(arr, args);
+          queuePersist();
+          return result;
+        };
+      }
+      return Reflect.get(arr, prop, receiver);
+    },
+    set(arr, prop, value, receiver) {
+      const result = Reflect.set(arr, prop, value, receiver);
+      // Skip direct "length" updates because mutating methods already queue persistence.
+      if (prop !== 'length') queuePersist();
+      return result;
+    }
+  }) as T[];
 }
 
 export const store = {
-  users: new Map<string, User>(),
-  refreshTokens: new Map<string, string>(),
-  rides: new Map<string, Ride>(),
-  drivers: new Map<string, DriverProfile>(),
-  payments: new Map<string, Payment>(),
-  walletTx: [] as WalletTx[],
-  kycStatus: new Map<string, 'pending' | 'verified' | 'rejected'>(),
-  tickets: new Map<string, Ticket>(),
-  safetyIncidents: [] as any[],
-  merchantProducts: new Map<string, MerchantProduct>(),
-  marketplaceDeliveries: new Map<string, MarketplaceDelivery>()
+  users: new PersistentMap<string, User>(),
+  refreshTokens: new PersistentMap<string, string>(),
+  rides: new PersistentMap<string, Ride>(),
+  drivers: new PersistentMap<string, DriverProfile>(),
+  payments: new PersistentMap<string, Payment>(),
+  walletTx: createPersistentArray<WalletTx>(),
+  kycStatus: new PersistentMap<string, 'pending' | 'verified' | 'rejected'>(),
+  tickets: new PersistentMap<string, Ticket>(),
+  safetyIncidents: createPersistentArray<any>(),
+  merchantProducts: new PersistentMap<string, MerchantProduct>(),
+  marketplaceDeliveries: new PersistentMap<string, MarketplaceDelivery>()
 };
 
-const adminId = makeId('user');
-store.users.set(adminId, {
-  id: adminId,
-  email: 'admin@flupflap.com',
-  password: hashPassword(getAdminSeedPassword()),
-  role: 'admin',
-  createdAt: now()
-});
+function toSerializableStore(): PersistedStore {
+  return {
+    users: Array.from(store.users.values()),
+    refreshTokens: Array.from(store.refreshTokens.entries()),
+    rides: Array.from(store.rides.values()),
+    drivers: Array.from(store.drivers.values()),
+    payments: Array.from(store.payments.values()),
+    walletTx: [...store.walletTx],
+    kycStatus: Array.from(store.kycStatus.entries()),
+    tickets: Array.from(store.tickets.values()),
+    safetyIncidents: [...store.safetyIncidents],
+    merchantProducts: Array.from(store.merchantProducts.values()),
+    marketplaceDeliveries: Array.from(store.marketplaceDeliveries.values())
+  };
+}
+
+function persistStore() {
+  if (env.dataStoreMode !== 'file') return;
+  const payload = JSON.stringify(toSerializableStore(), null, 2);
+  if (payload === lastSerializedStore) return;
+  const resolvedPath = path.resolve(env.dataStoreFile);
+  mkdirSync(path.dirname(resolvedPath), { recursive: true });
+  writeFileSync(resolvedPath, payload, 'utf8');
+  lastSerializedStore = payload;
+}
+
+function hydrateStore() {
+  if (env.dataStoreMode !== 'file') return;
+  const resolvedPath = path.resolve(env.dataStoreFile);
+  if (!existsSync(resolvedPath)) return;
+  const raw = readFileSync(resolvedPath, 'utf8');
+  if (!raw.trim()) return;
+  const parsed = JSON.parse(raw) as Partial<PersistedStore>;
+
+  isHydrating = true;
+  try {
+    for (const user of parsed.users || []) store.users.set(user.id, user);
+    for (const [token, userId] of parsed.refreshTokens || []) store.refreshTokens.set(token, userId);
+    for (const ride of parsed.rides || []) store.rides.set(ride.id, ride);
+    for (const driver of parsed.drivers || []) store.drivers.set(driver.userId, driver);
+    for (const payment of parsed.payments || []) store.payments.set(payment.id, payment);
+    for (const tx of parsed.walletTx || []) store.walletTx.push(tx);
+    for (const [userId, status] of parsed.kycStatus || []) store.kycStatus.set(userId, status);
+    for (const ticket of parsed.tickets || []) store.tickets.set(ticket.id, ticket);
+    for (const incident of parsed.safetyIncidents || []) store.safetyIncidents.push(incident);
+    for (const product of parsed.merchantProducts || []) store.merchantProducts.set(product.id, product);
+    for (const delivery of parsed.marketplaceDeliveries || []) store.marketplaceDeliveries.set(delivery.id, delivery);
+  } finally {
+    isHydrating = false;
+  }
+
+  lastSerializedStore = JSON.stringify(toSerializableStore(), null, 2);
+}
+
+hydrateStore();
+
+const hasAdmin = Array.from(store.users.values()).some(user => user.role === 'admin');
+if (!hasAdmin) {
+  const adminId = makeId('user');
+  store.users.set(adminId, {
+    id: adminId,
+    email: 'admin@flupflap.com',
+    password: hashPassword(env.adminSeedPassword),
+    role: 'admin',
+    createdAt: now()
+  });
+}
+
+export function markStoreDirty() {
+  queuePersist();
+}
+
+if (env.dataStoreMode === 'file') {
+  process.once('beforeExit', persistStore);
+  process.once('SIGINT', persistStore);
+  process.once('SIGTERM', persistStore);
+}
 
 export function listUsersByRole(role: Role) {
   return Array.from(store.users.values()).filter(u => u.role === role);

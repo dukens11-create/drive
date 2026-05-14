@@ -1,13 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { Server } from 'socket.io';
 import { store } from './data.store';
-
-function getJwtSecret() {
-  const secret = process.env.JWT_SECRET;
-  if (secret) return secret;
-  if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET is required in production');
-  return 'dev-local-secret';
-}
+import { env } from './env';
 
 export function registerTrackingSocket(io: Server) {
   io.use((socket, next) => {
@@ -15,7 +9,7 @@ export function registerTrackingSocket(io: Server) {
     const token = typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '') : '';
     if (!token) return next(new Error('Missing auth token'));
     try {
-      (socket.data as any).user = jwt.verify(token, getJwtSecret());
+      (socket.data as any).user = jwt.verify(token, env.jwtSecret);
       next();
     } catch {
       next(new Error('Invalid auth token'));

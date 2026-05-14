@@ -1,16 +1,10 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import jwt from 'jsonwebtoken';
 import { makeId, store, timestamp, type Role } from './data.store';
-
-function getJwtSecret() {
-  const secret = process.env.JWT_SECRET;
-  if (secret) return secret;
-  if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET is required in production');
-  return 'dev-local-secret';
-}
+import { env } from './env';
 
 function signAccessToken(user: { id: string; role: string; email?: string; phone?: string }) {
-  return jwt.sign({ sub: user.id, role: user.role, email: user.email, phone: user.phone }, getJwtSecret(), { expiresIn: '1h' });
+  return jwt.sign({ sub: user.id, role: user.role, email: user.email, phone: user.phone }, env.jwtSecret, { expiresIn: '1h' });
 }
 
 function hashPassword(password: string) {
