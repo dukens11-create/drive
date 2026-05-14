@@ -50,8 +50,8 @@ test('ride request auto-assigns an eligible online driver and releases on comple
   assert.equal(request.dispatch.selected?.driverId, 'driver_dispatch');
   assert.equal(store.drivers.get('driver_dispatch')?.availabilityStatus, 'assigned');
 
-  await rides.start({ rideId: request.ride.id });
-  const complete = await rides.complete({ rideId: request.ride.id });
+  await rides.start({ rideId: request.ride.id, driverId: 'driver_dispatch' });
+  const complete = await rides.complete({ rideId: request.ride.id, driverId: 'driver_dispatch' });
   assert.equal(complete.ok, true);
   assert.equal(store.drivers.get('driver_dispatch')?.availabilityStatus, 'online');
 });

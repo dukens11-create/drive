@@ -1,17 +1,21 @@
 import jwt from 'jsonwebtoken';
-
-function getJwtSecret() {
-  const secret = process.env.JWT_SECRET;
-  if (secret) return secret;
-  if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET is required in production');
-  return 'dev-local-secret';
-}
+import { env } from './env';
 
 export function requireAuth(req: any, res: any, next: any) {
   const header = req.headers.authorization;
-  if (!header?.startsWith('Bearer ')) return res.status(401).json({ error: 'Missing token' });
+  if (typeof header !== 'string' || !header.startsWith('Bearer ')) return res.status(401).json({ error: 'Missing token' });
   try {
-    req.user = jwt.verify(header.replace('Bearer ', ''), getJwtSecret());
+    const token = header.slice('Bearer '.length).trim();
+    const payload = jwt.verify(token, env.jwtSecret, {
+      issuer: 'flupflap-ride-api',
+      audience: 'flupflap-ride-clients'
+    }) as any;
+
+    if (!payload || typeof payload !== 'object' || typeof payload.sub !== 'string' || typeof payload.role !== 'string') {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    req.user = { id: payload.sub, role: payload.role, email: payload.email, phone: payload.phone };
     next();
   } catch {
     res.status(401).json({ error: 'Invalid token' });

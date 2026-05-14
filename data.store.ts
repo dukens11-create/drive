@@ -53,9 +53,15 @@ export type Payment = {
   rideId?: string;
   riderId?: string;
   driverId?: string;
+  provider: 'stripe_mock';
+  providerIntentId: string;
+  providerCheckoutSessionId: string;
+  clientSecret: string;
   amountCents: number;
   currency: string;
-  status: 'requires_capture' | 'captured' | 'refunded';
+  status: 'requires_capture' | 'captured' | 'refunded' | 'failed';
+  capturedAt?: string;
+  refundedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -67,6 +73,12 @@ export type WalletTx = {
   amountCents: number;
   reason: string;
   createdAt: string;
+};
+
+export type WalletBalance = {
+  userId: string;
+  balanceCents: number;
+  updatedAt: string;
 };
 
 export type Ticket = {
@@ -109,11 +121,12 @@ function hashPassword(password: string) {
 
 type PersistedStore = {
   users: User[];
-  refreshTokens: Array<[string, string]>;
+  refreshTokens: Array<[string, { userId: string; expiresAt: string }]>;
   rides: Ride[];
   drivers: DriverProfile[];
   payments: Payment[];
   walletTx: WalletTx[];
+  walletBalances: WalletBalance[];
   kycStatus: Array<[string, 'pending' | 'verified' | 'rejected']>;
   tickets: Ticket[];
   safetyIncidents: any[];
@@ -183,11 +196,12 @@ function createPersistentArray<T>() {
 
 export const store = {
   users: new PersistentMap<string, User>(),
-  refreshTokens: new PersistentMap<string, string>(),
+  refreshTokens: new PersistentMap<string, { userId: string; expiresAt: string }>(),
   rides: new PersistentMap<string, Ride>(),
   drivers: new PersistentMap<string, DriverProfile>(),
   payments: new PersistentMap<string, Payment>(),
   walletTx: createPersistentArray<WalletTx>(),
+  walletBalances: new PersistentMap<string, WalletBalance>(),
   kycStatus: new PersistentMap<string, 'pending' | 'verified' | 'rejected'>(),
   tickets: new PersistentMap<string, Ticket>(),
   safetyIncidents: createPersistentArray<any>(),
@@ -203,6 +217,7 @@ function toSerializableStore(): PersistedStore {
     drivers: Array.from(store.drivers.values()),
     payments: Array.from(store.payments.values()),
     walletTx: [...store.walletTx],
+    walletBalances: Array.from(store.walletBalances.values()),
     kycStatus: Array.from(store.kycStatus.entries()),
     tickets: Array.from(store.tickets.values()),
     safetyIncidents: [...store.safetyIncidents],
@@ -232,11 +247,23 @@ function hydrateStore() {
   isHydrating = true;
   try {
     for (const user of parsed.users || []) store.users.set(user.id, user);
-    for (const [token, userId] of parsed.refreshTokens || []) store.refreshTokens.set(token, userId);
+    for (const [tokenHash, refreshToken] of parsed.refreshTokens || []) {
+      if (typeof refreshToken === 'string') {
+        store.refreshTokens.set(tokenHash, {
+          userId: refreshToken,
+          expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString()
+        });
+        continue;
+      }
+      if (refreshToken?.userId && refreshToken?.expiresAt) {
+        store.refreshTokens.set(tokenHash, refreshToken);
+      }
+    }
     for (const ride of parsed.rides || []) store.rides.set(ride.id, ride);
     for (const driver of parsed.drivers || []) store.drivers.set(driver.userId, driver);
     for (const payment of parsed.payments || []) store.payments.set(payment.id, payment);
     for (const tx of parsed.walletTx || []) store.walletTx.push(tx);
+    for (const walletBalance of parsed.walletBalances || []) store.walletBalances.set(walletBalance.userId, walletBalance);
     for (const [userId, status] of parsed.kycStatus || []) store.kycStatus.set(userId, status);
     for (const ticket of parsed.tickets || []) store.tickets.set(ticket.id, ticket);
     for (const incident of parsed.safetyIncidents || []) store.safetyIncidents.push(incident);
@@ -278,15 +305,22 @@ export function listUsersByRole(role: Role) {
 }
 
 export function getWalletBalanceCents(userId: string) {
-  return store.walletTx.reduce((sum, tx) => {
+  const cached = store.walletBalances.get(userId);
+  if (cached) return cached.balanceCents;
+  const computed = store.walletTx.reduce((sum, tx) => {
     if (tx.userId !== userId) return sum;
     return tx.kind === 'credit' ? sum + tx.amountCents : sum - tx.amountCents;
   }, 0);
+  store.walletBalances.set(userId, { userId, balanceCents: computed, updatedAt: now() });
+  return computed;
 }
 
 export function pushWalletTx(userId: string, kind: 'credit' | 'debit', amountCents: number, reason: string) {
   const tx = { id: makeId('wtx'), userId, kind, amountCents, reason, createdAt: now() };
   store.walletTx.push(tx);
+  const prior = store.walletBalances.get(userId)?.balanceCents || 0;
+  const next = kind === 'credit' ? prior + amountCents : prior - amountCents;
+  store.walletBalances.set(userId, { userId, balanceCents: next, updatedAt: now() });
   return tx;
 }
 

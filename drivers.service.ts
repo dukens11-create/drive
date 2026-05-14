@@ -1,4 +1,4 @@
-import { makeId, markStoreDirty, store } from './data.store';
+import { markStoreDirty, store } from './data.store';
 
 function getProfile(userId: string) {
   return store.drivers.get(userId);
@@ -85,7 +85,22 @@ export function isDriverDispatchEligible(profile: any) {
 }
 
 export async function apply(body: any, _params?: any, _query?: any) {
-  const userId = body?.userId || makeId('driver_user');
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'drivers', action: 'apply', error: 'actor id or userId is required' };
+
+  const existing = getProfile(userId);
+  if (existing) {
+    existing.lat = body?.lat ?? existing.lat;
+    existing.lng = body?.lng ?? existing.lng;
+    if (existing.status === 'rejected') {
+      existing.status = 'pending';
+      existing.documents = [];
+      existing.available = false;
+    }
+    markStoreDirty();
+    return { module: 'drivers', action: 'apply', ok: true, profile: existing };
+  }
+
   const profile = {
     userId,
     status: 'pending' as const,
@@ -105,7 +120,7 @@ export async function apply(body: any, _params?: any, _query?: any) {
 }
 
 export async function availability(body: any, _params?: any, _query?: any) {
-  const userId = body?.userId;
+  const userId = body?.actor?.id || body?.userId;
   const profile = getProfile(userId);
   if (!profile) return { module: 'drivers', action: 'availability', error: 'driver not found' };
   syncProfileState(profile);
@@ -132,7 +147,7 @@ export async function availability(body: any, _params?: any, _query?: any) {
 }
 
 export async function location(body: any, _params?: any, _query?: any) {
-  const userId = body?.userId;
+  const userId = body?.actor?.id || body?.userId;
   const profile = getProfile(userId);
   if (!profile) return { module: 'drivers', action: 'location', error: 'driver not found' };
   const lat = Number(body?.lat);
@@ -145,7 +160,7 @@ export async function location(body: any, _params?: any, _query?: any) {
 }
 
 export async function earnings(body: any, _params?: any, _query?: any) {
-  const userId = body?.userId;
+  const userId = body?.actor?.id || body?.userId;
   const profile = getProfile(userId);
   if (!profile) return { module: 'drivers', action: 'earnings', error: 'driver not found' };
   const total = store.walletTx
@@ -157,7 +172,7 @@ export async function earnings(body: any, _params?: any, _query?: any) {
 }
 
 export async function documents(body: any, _params?: any, _query?: any) {
-  const userId = body?.userId;
+  const userId = body?.actor?.id || body?.userId;
   const profile = getProfile(userId);
   if (!profile) return { module: 'drivers', action: 'documents', error: 'driver not found' };
   const docs = Array.isArray(body?.documents) ? body.documents : [];

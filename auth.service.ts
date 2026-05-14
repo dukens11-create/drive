@@ -1,10 +1,26 @@
-import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import jwt from 'jsonwebtoken';
 import { makeId, store, timestamp, type Role } from './data.store';
 import { env } from './env';
 
 function signAccessToken(user: { id: string; role: string; email?: string; phone?: string }) {
-  return jwt.sign({ sub: user.id, role: user.role, email: user.email, phone: user.phone }, env.jwtSecret, { expiresIn: '1h' });
+  return jwt.sign({ sub: user.id, role: user.role, email: user.email, phone: user.phone }, env.jwtSecret, {
+    expiresIn: '1h',
+    issuer: 'flupflap-ride-api',
+    audience: 'flupflap-ride-clients'
+  });
+}
+
+function hashRefreshToken(refreshToken: string) {
+  return createHash('sha256').update(`${refreshToken}:${env.jwtSecret}`).digest('hex');
+}
+
+function issueRefreshToken(userId: string) {
+  const refreshToken = randomBytes(48).toString('hex');
+  const tokenHash = hashRefreshToken(refreshToken);
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString();
+  store.refreshTokens.set(tokenHash, { userId, expiresAt });
+  return refreshToken;
 }
 
 function hashPassword(password: string) {
@@ -53,8 +69,7 @@ export async function signup(body: any, _params?: any, _query?: any) {
   store.users.set(user.id, user);
 
   const accessToken = signAccessToken(user);
-  const refreshToken = makeId('refresh');
-  store.refreshTokens.set(refreshToken, user.id);
+  const refreshToken = issueRefreshToken(user.id);
 
   return { module: 'auth', action: 'signup', ok: true, user: sanitizeUser(user), accessToken, refreshToken };
 }
@@ -70,8 +85,7 @@ export async function login(body: any, _params?: any, _query?: any) {
   }
 
   const accessToken = signAccessToken(user);
-  const refreshToken = makeId('refresh');
-  store.refreshTokens.set(refreshToken, user.id);
+  const refreshToken = issueRefreshToken(user.id);
 
   return { module: 'auth', action: 'login', ok: true, user: sanitizeUser(user), accessToken, refreshToken };
 }
@@ -80,12 +94,27 @@ export async function refresh(body: any, _params?: any, _query?: any) {
   const refreshToken = body?.refreshToken;
   if (!refreshToken) return { module: 'auth', action: 'refresh', error: 'refreshToken is required' };
 
-  const userId = store.refreshTokens.get(refreshToken);
-  if (!userId) return { module: 'auth', action: 'refresh', error: 'invalid refresh token' };
+  const tokenHash = hashRefreshToken(refreshToken);
+  const session = store.refreshTokens.get(tokenHash);
+  if (!session) return { module: 'auth', action: 'refresh', error: 'invalid refresh token' };
+  if (new Date(session.expiresAt).getTime() <= Date.now()) {
+    store.refreshTokens.delete(tokenHash);
+    return { module: 'auth', action: 'refresh', error: 'refresh token expired' };
+  }
 
-  const user = store.users.get(userId);
+  const user = store.users.get(session.userId);
   if (!user) return { module: 'auth', action: 'refresh', error: 'user not found' };
 
+  store.refreshTokens.delete(tokenHash);
   const accessToken = signAccessToken(user);
-  return { module: 'auth', action: 'refresh', ok: true, accessToken };
+  const nextRefreshToken = issueRefreshToken(user.id);
+  return { module: 'auth', action: 'refresh', ok: true, accessToken, refreshToken: nextRefreshToken };
+}
+
+export async function logout(body: any, _params?: any, _query?: any) {
+  const refreshToken = body?.refreshToken;
+  if (!refreshToken) return { module: 'auth', action: 'logout', error: 'refreshToken is required' };
+  const tokenHash = hashRefreshToken(refreshToken);
+  const deleted = store.refreshTokens.delete(tokenHash);
+  return { module: 'auth', action: 'logout', ok: true, revoked: deleted };
 }

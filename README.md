@@ -33,4 +33,21 @@ Important: this is still not a finished Uber-scale production system. It is a st
 - Data store bootstrap supports:
   - `DATA_STORE_MODE=memory` for scaffold/development
   - `DATA_STORE_MODE=file` for lightweight persisted JSON state
-- Core route tests in `core.routes.test.ts` cover `/health` and auth signup flow
+- Core route tests in `core.routes.test.ts` cover `/health`, auth token lifecycle, and ride/driver core flow
+
+## Backend core completion scope (current PR)
+
+Added in scope:
+- Structured persistence-backed in-memory/file store models for users, driver profiles, rides, wallet transactions, and refresh token sessions.
+- Auth hardening with JWT issuer/audience validation, refresh-token hashing, refresh-token rotation, and logout revocation.
+- Ride/driver core flow improvements: rider-only request/cancel/rate, driver-only accept/start/complete, assignment checks, and driver availability transitions.
+- Route-level validation and tests for auth and ride/driver lifecycle.
+
+Assumptions:
+- Single-process API runtime with lightweight local persistence (`DATA_STORE_MODE=file`) is acceptable for this stage.
+- Driver availability and approval are the minimum required gates for ride acceptance.
+
+Out of scope:
+- Full relational database migrations/ORM and distributed locking.
+- Payments provider integration, surge/advanced dispatch optimization, and full admin/support workflows.
+- Production-grade observability, multi-region scaling, and mobile/frontend feature completion.
