@@ -40,9 +40,9 @@ export async function request(body: any, _params?: any, _query?: any) {
   store.rides.set(ride.id, ride);
   const dispatch = await dispatchRide({ id: ride.id, pickupLat: ride.pickupLat, pickupLng: ride.pickupLng });
   if (dispatch.selected?.driverId) {
-    const assignedProfile = markDriverAssigned(dispatch.selected.driverId);
-    if (assignedProfile) {
-      ride.driverId = assignedProfile.userId;
+    const assigned = markDriverAssigned(dispatch.selected.driverId);
+    if (assigned.ok) {
+      ride.driverId = assigned.profile.userId;
       ride.status = 'accepted';
       ride.updatedAt = timestamp();
       markStoreDirty();
@@ -57,7 +57,8 @@ export async function accept(body: any, _params?: any, _query?: any) {
   const driverId = body?.driverId;
   if (!driverId) return { module: 'rides', action: 'accept', error: 'driverId is required' };
   if (ride.status === 'accepted' && ride.driverId === driverId) return { module: 'rides', action: 'accept', ok: true, ride };
-  if (!markDriverAssigned(driverId)) return { module: 'rides', action: 'accept', error: 'driver is not dispatch eligible' };
+  const assigned = markDriverAssigned(driverId);
+  if (!assigned.ok) return { module: 'rides', action: 'accept', error: assigned.error };
   ride.driverId = driverId;
   ride.status = 'accepted';
   ride.updatedAt = timestamp();

@@ -36,7 +36,7 @@ function setAvailability(profile: any, next: 'offline' | 'online' | 'assigned' |
   if (next === 'online') {
     if (profile.verificationState !== 'verified') return { error: 'driver is not verified' };
     if (!Number.isFinite(Number(profile.lat)) || !Number.isFinite(Number(profile.lng))) {
-      return { error: 'driver location is required before going online' };
+      return { error: 'driver location must be set to valid coordinates before going online' };
     }
   }
   profile.availabilityStatus = next;
@@ -54,19 +54,22 @@ export function syncDriverVerificationState(userId: string) {
 
 export function markDriverAssigned(userId: string) {
   const profile = getProfile(userId);
-  if (!profile) return null;
+  if (!profile) return { ok: false, error: 'driver not found' as const };
   syncProfileState(profile);
-  if (profile.verificationState !== 'verified' || profile.availabilityStatus !== 'online') return null;
+  if (profile.verificationState !== 'verified') return { ok: false, error: 'driver is not verified' as const };
+  if (profile.availabilityStatus !== 'online') return { ok: false, error: `driver is ${profile.availabilityStatus}` as const };
   setAvailability(profile, 'assigned');
   markStoreDirty();
-  return profile;
+  return { ok: true, profile } as const;
 }
 
 export function releaseDriverFromRide(userId: string) {
   const profile = getProfile(userId);
   if (!profile) return null;
   syncProfileState(profile);
-  if (profile.verificationState === 'verified') setAvailability(profile, 'online');
+  if (profile.verificationState === 'verified' && profile.availabilityStatus === 'assigned') {
+    setAvailability(profile, 'online');
+  }
   markStoreDirty();
   return profile;
 }
