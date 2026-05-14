@@ -17,7 +17,7 @@ test('driver onboarding progresses through documents and KYC before online', asy
   await drivers.apply({ userId: 'driver_onboarding' });
 
   const earlyOnline = await drivers.availability({ userId: 'driver_onboarding', status: 'online' });
-  assert.equal(earlyOnline.ok, undefined);
+  assert.ok(earlyOnline.error);
   assert.equal(earlyOnline.error, 'driver is not verified');
 
   await drivers.documents({ userId: 'driver_onboarding', documents: ['license', 'insurance'] });
