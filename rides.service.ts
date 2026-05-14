@@ -1,6 +1,6 @@
 import { dispatchRide } from './dispatch.engine';
 import { estimateRoute } from './eta.service';
-import { makeId, markStoreDirty, pushWalletTx, store, timestamp } from './data.store';
+import { makeId, markStoreDirty, pushWalletTx, store, timestamp, type Ride } from './data.store';
 import { markDriverAssigned, releaseDriverFromRide } from './drivers.service';
 
 function getRide(id: string) {
@@ -23,7 +23,7 @@ export async function request(body: any, _params?: any, _query?: any) {
 
   const estimated = await estimate(body);
   const now = timestamp();
-  const ride: any = {
+  const ride: Ride = {
     id: makeId('ride'),
     riderId,
     pickupLat: body?.pickupLat,
@@ -33,7 +33,7 @@ export async function request(body: any, _params?: any, _query?: any) {
     miles: estimated.route.distanceMiles,
     minutes: estimated.route.etaMinutes,
     fareEstimate: estimated.fareEstimate,
-    status: 'requested' as const,
+    status: 'requested',
     createdAt: now,
     updatedAt: now
   };

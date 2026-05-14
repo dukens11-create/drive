@@ -107,14 +107,14 @@ export async function availability(body: any, _params?: any, _query?: any) {
   if (!profile) return { module: 'drivers', action: 'availability', error: 'driver not found' };
   syncProfileState(profile);
   const rawState = body?.status;
-  const requestedState =
-    rawState === 'offline' || rawState === 'online' || rawState === 'unavailable'
-      ? rawState
-      : body?.available === true
-        ? 'online'
-        : body?.available === false
-          ? 'offline'
-          : null;
+  let requestedState: 'offline' | 'online' | 'unavailable' | null = null;
+  if (rawState === 'offline' || rawState === 'online' || rawState === 'unavailable') {
+    requestedState = rawState;
+  } else if (body?.available === true) {
+    requestedState = 'online';
+  } else if (body?.available === false) {
+    requestedState = 'offline';
+  }
   if (!requestedState) return { module: 'drivers', action: 'availability', error: 'status must be one of offline, online, unavailable' };
   const result = setAvailability(profile, requestedState);
   if ('error' in result) return { module: 'drivers', action: 'availability', error: result.error };
@@ -128,7 +128,7 @@ export async function location(body: any, _params?: any, _query?: any) {
   if (!profile) return { module: 'drivers', action: 'location', error: 'driver not found' };
   const lat = Number(body?.lat);
   const lng = Number(body?.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return { module: 'drivers', action: 'location', error: 'lat and lng are required numbers' };
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return { module: 'drivers', action: 'location', error: 'lat and lng must be valid finite numbers' };
   profile.lat = lat;
   profile.lng = lng;
   markStoreDirty();
