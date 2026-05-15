@@ -27,6 +27,37 @@ Important: this is still not a finished Uber-scale production system. It is a st
 4. Start API: `npm start`
 5. Run core backend tests: `npm test`
 
+## Environment configuration
+
+Required in production:
+- `JWT_SECRET`
+- `ADMIN_SEED_PASSWORD`
+
+Optional with safe defaults:
+- `NODE_ENV` (default `development`)
+- `PORT` (default `8080`)
+- `LOG_LEVEL` (default `info`; supported: `debug|info|warn|error`)
+- `DATA_STORE_MODE` (default `memory`; use `file` for lightweight persistence)
+- `DATA_STORE_FILE` (default `.data/store.json`)
+
+Use `.env.example` as the baseline and override values per environment.
+
+## Containerization
+
+Build and run with Docker:
+
+1. `docker build -t flupflap-ride .`
+2. `docker run --rm -p 8080:8080 --env-file .env flupflap-ride`
+
+The Docker image builds TypeScript and runs the compiled server from `dist/server.js`.
+
+## CI foundation
+
+A GitHub Actions workflow is available at `.github/workflows/ci.yml` and runs:
+- dependency install (`npm ci`)
+- TypeScript build (`npm run build`)
+- backend tests (`node --test dist/*.test.js`)
+
 ## Current backend bootstrap additions
 
 - Centralized runtime environment loading and defaults in `env.ts`
@@ -34,6 +65,7 @@ Important: this is still not a finished Uber-scale production system. It is a st
   - `DATA_STORE_MODE=memory` for scaffold/development
   - `DATA_STORE_MODE=file` for lightweight persisted JSON state
 - Core route tests in `core.routes.test.ts` cover `/health`, auth token lifecycle, and ride/driver core flow
+- Operational probes include `/health`, `/livez`, and `/readyz`
 
 ## Backend core completion scope (current PR)
 

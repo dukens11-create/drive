@@ -53,6 +53,17 @@ test('GET /health returns service status payload', async () => {
   });
 });
 
+test('GET /readyz returns readiness payload', async () => {
+  await withServer(async baseUrl => {
+    const response = await fetch(`${baseUrl}/readyz`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.ok, true);
+    assert.equal(typeof body.uptimeSeconds, 'number');
+    assert.equal(body.uptimeSeconds >= 0, true);
+  });
+});
+
 test('POST /api/auth/signup creates user and returns tokens', async () => {
   await withServer(async baseUrl => {
     const response = await postJson(baseUrl, '/api/auth/signup', {

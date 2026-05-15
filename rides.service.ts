@@ -96,6 +96,10 @@ export async function complete(body: any, _params?: any, _query?: any) {
   const amountCents = Math.round(ride.fareEstimate * 100);
   if (ride.riderId) pushWalletTx(ride.riderId, 'debit', amountCents, `ride:${ride.id}:fare`);
   if (ride.driverId) pushWalletTx(ride.driverId, 'credit', Math.round(amountCents * 0.8), `ride:${ride.id}:payout`);
+  if (ride.driverId) {
+    const profile = store.drivers.get(ride.driverId);
+    if (profile) profile.available = true;
+  }
 
   return { module: 'rides', action: 'complete', ok: true, ride, amountCents };
 }
@@ -108,6 +112,10 @@ export async function cancel(body: any, _params?: any, _query?: any) {
   if (ride.status === 'started') return { module: 'rides', action: 'cancel', error: 'cannot cancel started ride' };
   ride.status = 'canceled';
   ride.updatedAt = timestamp();
+  if (ride.driverId) {
+    const profile = store.drivers.get(ride.driverId);
+    if (profile) profile.available = true;
+  }
   markStoreDirty();
   if (ride.driverId) releaseDriverFromRide(ride.driverId);
   return { module: 'rides', action: 'cancel', ok: true, ride };
