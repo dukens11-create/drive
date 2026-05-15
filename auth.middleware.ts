@@ -21,7 +21,7 @@ export function requireAuth(req: any, res: any, next: any) {
     if (user.deletedAt) return res.status(403).json({ error: 'Account unavailable' });
     if (user.suspended) return res.status(403).json({ error: 'Account suspended' });
 
-    req.user = { id: user.id, role: user.role, email: user.email, phone: user.phone };
+    req.user = { id: payload.sub, role: user.role, email: user.email, phone: user.phone };
     next();
   } catch {
     res.status(401).json({ error: 'Invalid token' });
