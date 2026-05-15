@@ -29,7 +29,9 @@ function canAccessTicket(actor: any, ticket: { userId: string }) {
 
 function maybeCreateGovernanceRequest(ticket: { id: string; userId: string; type: string; message: string }, actor: any) {
   if (!PRIVACY_REQUEST_TYPES.has(ticket.type)) return undefined;
-  const type = ticket.type.includes('export') ? 'data_export' as const : 'account_deletion' as const;
+  const type = ticket.type === 'data_export' || ticket.type === 'privacy_export'
+    ? 'data_export' as const
+    : 'account_deletion' as const;
   return createGovernanceRequest({
     userId: ticket.userId,
     type,

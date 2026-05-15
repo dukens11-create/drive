@@ -213,7 +213,7 @@ export async function review_governance_request(body: any, _params?: any, _query
     return { module: 'admin', action: 'review-governance-request', ok: true, request };
   }
 
-  request.status = 'approved';
+  request.status = 'under_review';
   let affectedUser: any;
   let revokedTokens = 0;
   if (request.type === 'account_deletion') {
