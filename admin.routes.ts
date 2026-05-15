@@ -14,11 +14,10 @@ router.post('/governance-requests', requireRole('admin', 'compliance'), validate
 router.post('/review-governance-request', requireRole('admin', 'compliance'), validateBody(genericSchema), controller.review_governance_request);
 router.post('/retention-sweep', requireRole('admin', 'compliance'), validateBody(genericSchema), controller.retention_sweep);
 router.get('/backup-plan', requireRole('admin', 'compliance'), controller.backup_plan);
-router.use(requireRole('admin'));
-router.post('/drivers-pending', validateBody(genericSchema), controller.drivers_pending);
-router.post('/approve-driver', validateBody(genericSchema), controller.approve_driver);
-router.post('/live-rides', validateBody(genericSchema), controller.live_rides);
-router.post('/refunds', validateBody(genericSchema), controller.refunds);
-router.post('/suspend-user', validateBody(genericSchema), controller.suspend_user);
-router.post('/update-ticket', validateBody(genericSchema), controller.update_ticket);
+router.post('/drivers-pending', requireRole('admin'), validateBody(genericSchema), controller.drivers_pending);
+router.post('/approve-driver', requireRole('admin'), validateBody(genericSchema), controller.approve_driver);
+router.post('/live-rides', requireRole('admin'), validateBody(genericSchema), controller.live_rides);
+router.post('/refunds', requireRole('admin'), validateBody(genericSchema), controller.refunds);
+router.post('/suspend-user', requireRole('admin'), validateBody(genericSchema), controller.suspend_user);
+router.post('/update-ticket', requireRole('admin'), validateBody(genericSchema), controller.update_ticket);
 export default router;

@@ -30,13 +30,21 @@ function getPort() {
   return parsed;
 }
 
-function getPositiveInteger(name: string, fallback: number) {
+function getPositiveNumber(name: string, fallback: number) {
   const raw = getString(name, String(fallback));
   const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive integer`);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive number`);
   }
   return parsed;
+}
+
+function getPositiveInteger(name: string, fallback: number) {
+  const value = getPositiveNumber(name, fallback);
+  if (!Number.isInteger(value)) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return value;
 }
 
 const dataStoreMode = getString('DATA_STORE_MODE', 'memory') === 'file' ? 'file' : 'memory';
@@ -49,8 +57,10 @@ export const env = {
   stripeWebhookSecret: getString('STRIPE_WEBHOOK_SECRET'),
   dataStoreMode,
   dataStoreFile: getString('DATA_STORE_FILE', '.data/store.json'),
-  supportTicketRetentionDays: getPositiveInteger('SUPPORT_TICKET_RETENTION_DAYS', 365),
-  fraudSignalRetentionDays: getPositiveInteger('FRAUD_SIGNAL_RETENTION_DAYS', 365),
-  governanceRequestRetentionDays: getPositiveInteger('GOVERNANCE_REQUEST_RETENTION_DAYS', 730),
-  backupExportDir: getString('BACKUP_EXPORT_DIR', '.data/backups')
+  supportTicketRetentionDays: getPositiveNumber('SUPPORT_TICKET_RETENTION_DAYS', 365),
+  fraudSignalRetentionDays: getPositiveNumber('FRAUD_SIGNAL_RETENTION_DAYS', 365),
+  governanceRequestRetentionDays: getPositiveNumber('GOVERNANCE_REQUEST_RETENTION_DAYS', 730),
+  fraudRepeatedRefundThreshold: getPositiveInteger('FRAUD_REPEATED_REFUND_THRESHOLD', 3),
+  backupExportDir: getString('BACKUP_EXPORT_DIR', '.data/backups'),
+  anonymizedEmailDomain: getString('ANONYMIZED_EMAIL_DOMAIN', 'redacted.local')
 };

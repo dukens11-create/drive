@@ -42,7 +42,9 @@ Optional with safe defaults:
 - `SUPPORT_TICKET_RETENTION_DAYS` (default `365`)
 - `FRAUD_SIGNAL_RETENTION_DAYS` (default `365`)
 - `GOVERNANCE_REQUEST_RETENTION_DAYS` (default `730`)
+- `FRAUD_REPEATED_REFUND_THRESHOLD` (default `3`)
 - `BACKUP_EXPORT_DIR` (default `.data/backups`)
+- `ANONYMIZED_EMAIL_DOMAIN` (default `redacted.local`)
 
 Use `.env.example` as the baseline and override values per environment.
 
@@ -80,8 +82,9 @@ Implemented:
 - Governance request foundations for privacy-related ticket types (`account_deletion`, `data_export`) with admin/compliance review endpoints and audit logging.
 - Account anonymization for approved deletion requests, including refresh-token revocation and auth checks that block suspended/deleted accounts.
 - Basic fraud signaling for repeated refund-style support requests and admin risk views that now include both safety incidents and fraud signals.
+- Fraud thresholds and anonymized email domains are configurable so operators can tune policy behavior without code changes.
 - Retention sweep foundations for expired refresh tokens, aged closed tickets, and completed governance/fraud records.
-- Backup/recovery planning hooks via runtime configuration and an admin/compliance backup-plan endpoint.
+- Backup/recovery planning hooks via runtime configuration and an admin/compliance backup-plan endpoint that assumes backup encryption is handled by external infrastructure.
 
 Assumptions:
 - Privacy requests are initiated through the existing support workflow rather than a new dedicated portal.

@@ -8,9 +8,11 @@ import {
   store,
   timestamp
 } from './data.store';
+import { env } from './env';
 
 const PRIVACY_REQUEST_TYPES = new Set(['privacy', 'account_deletion', 'data_export', 'privacy_delete', 'privacy_export']);
 const REFUND_RELATED_TYPES = new Set(['billing', 'refund', 'chargeback']);
+const DAY_MS = 1000 * 60 * 60 * 24;
 
 function actorId(actor: any) {
   return actor?.sub || actor?.id;
@@ -39,19 +41,19 @@ function maybeCreateGovernanceRequest(ticket: { id: string; userId: string; type
 
 function maybeFlagSupportFraudSignal(ticket: { id: string; userId: string; type: string }) {
   if (!REFUND_RELATED_TYPES.has(ticket.type)) return undefined;
-  const cutoff = Date.now() - 1000 * 60 * 60 * 24;
+  const cutoff = Date.now() - DAY_MS;
   const recentTickets = Array.from(store.tickets.values()).filter(existing =>
     existing.userId === ticket.userId
     && REFUND_RELATED_TYPES.has(existing.type)
     && new Date(existing.createdAt).getTime() >= cutoff
   );
-  if (recentTickets.length < 3) return undefined;
+  if (recentTickets.length < env.fraudRepeatedRefundThreshold) return undefined;
   return openFraudSignal({
     kind: 'repeated_refund_requests',
     severity: 'medium',
     userId: ticket.userId,
     ticketId: ticket.id,
-    details: { recentTicketCount: recentTickets.length }
+    details: { recentTicketCount: recentTickets.length, threshold: env.fraudRepeatedRefundThreshold }
   });
 }
 

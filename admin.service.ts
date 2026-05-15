@@ -31,26 +31,26 @@ function removeClosedTicketsOlderThan(cutoff: number) {
 }
 
 function removeResolvedFraudSignalsOlderThan(cutoff: number) {
-  let removed = 0;
-  for (let index = store.fraudSignals.length - 1; index >= 0; index -= 1) {
-    const signal = store.fraudSignals[index];
+  const retainedSignals = store.fraudSignals.filter(signal => {
     const effectiveTimestamp = signal.reviewedAt || signal.createdAt;
-    if (signal.status === 'open' || new Date(effectiveTimestamp).getTime() > cutoff) continue;
-    store.fraudSignals.splice(index, 1);
-    removed += 1;
+    return signal.status === 'open' || new Date(effectiveTimestamp).getTime() > cutoff;
+  });
+  const removed = store.fraudSignals.length - retainedSignals.length;
+  if (removed > 0) {
+    store.fraudSignals.splice(0, store.fraudSignals.length, ...retainedSignals);
   }
   return removed;
 }
 
 function removeCompletedGovernanceRequestsOlderThan(cutoff: number) {
-  let removed = 0;
-  for (let index = store.governanceRequests.length - 1; index >= 0; index -= 1) {
-    const request = store.governanceRequests[index];
+  const retainedRequests = store.governanceRequests.filter(request => {
     const effectiveTimestamp = request.completedAt || request.reviewedAt || request.requestedAt;
-    if (request.status === 'requested' || request.status === 'under_review') continue;
-    if (new Date(effectiveTimestamp).getTime() > cutoff) continue;
-    store.governanceRequests.splice(index, 1);
-    removed += 1;
+    if (request.status === 'requested' || request.status === 'under_review') return true;
+    return new Date(effectiveTimestamp).getTime() > cutoff;
+  });
+  const removed = store.governanceRequests.length - retainedRequests.length;
+  if (removed > 0) {
+    store.governanceRequests.splice(0, store.governanceRequests.length, ...retainedRequests);
   }
   return removed;
 }
@@ -276,7 +276,7 @@ export async function backup_plan(_body: any, _params?: any, _query?: any) {
       dataStoreFile: env.dataStoreFile,
       backupExportDir: env.backupExportDir,
       recommendations: [
-        'Take encrypted snapshots of the primary store before deployments and at least daily when DATA_STORE_MODE=file.',
+        'Take externally encrypted snapshots of the primary store before deployments and at least daily when DATA_STORE_MODE=file.',
         'Test restore into a clean environment and verify /readyz plus admin governance statistics after recovery.',
         'Keep backup access restricted to admin/compliance operators and store secrets outside the repository.'
       ]

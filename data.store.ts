@@ -492,7 +492,7 @@ export function revokeRefreshTokensForUser(userId: string) {
 export function anonymizeUser(userId: string) {
   const user = store.users.get(userId);
   if (!user) return undefined;
-  user.email = user.email ? `deleted+${user.id}@redacted.local` : undefined;
+  user.email = user.email ? `deleted+${user.id}@${env.anonymizedEmailDomain}` : undefined;
   user.phone = undefined;
   user.password = hashPassword(randomBytes(24).toString('hex'));
   user.suspended = true;
