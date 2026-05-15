@@ -1,13 +1,26 @@
 import { Router } from 'express';
 import * as controller from './rides.controller';
 import { validateBody } from './validate';
-import { rideAcceptSchema, rideEstimateSchema, rideRateSchema, rideRequestSchema, rideStartCompleteCancelSchema } from './rides.schemas';
+import {
+  rideAcceptSchema,
+  rideEstimateSchema,
+  rideHistorySchema,
+  rideLookupSchema,
+  rideNotificationsSchema,
+  rideRateSchema,
+  rideRequestSchema,
+  rideStartCompleteCancelSchema
+} from './rides.schemas';
 import { requireAuth, requireRole } from './auth.middleware';
 const router = Router();
 router.get('/health', controller.health);
 router.use(requireAuth);
 router.post('/estimate', validateBody(rideEstimateSchema), controller.estimate);
 router.post('/request', requireRole('rider'), validateBody(rideRequestSchema), controller.request);
+router.post('/history', requireRole('rider'), validateBody(rideHistorySchema), controller.history);
+router.post('/detail', requireRole('rider'), validateBody(rideLookupSchema), controller.detail);
+router.post('/receipt', requireRole('rider'), validateBody(rideLookupSchema), controller.receipt);
+router.post('/notifications', requireRole('rider'), validateBody(rideNotificationsSchema), controller.notifications);
 router.post('/accept', requireRole('driver'), validateBody(rideAcceptSchema), controller.accept);
 router.post('/start', requireRole('driver'), validateBody(rideStartCompleteCancelSchema), controller.start);
 router.post('/complete', requireRole('driver'), validateBody(rideStartCompleteCancelSchema), controller.complete);
