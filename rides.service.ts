@@ -22,7 +22,7 @@ function getDriverId(body: any) {
   return body?.actor?.id || body?.driverId;
 }
 
-function roundCurrency(amount: number) {
+function roundToTwoDecimals(amount: number) {
   return Math.round(amount * 100) / 100;
 }
 
@@ -48,11 +48,11 @@ function appendRideEvent(
 
 function buildFareDetails(miles: number, minutes: number) {
   const baseFare = BASE_FARE;
-  const distanceFare = roundCurrency(miles * DISTANCE_RATE);
-  const timeFare = roundCurrency(minutes * TIME_RATE);
-  const subtotal = roundCurrency(baseFare + distanceFare + timeFare);
-  const low = roundCurrency(Math.max(baseFare, subtotal * 0.9));
-  const high = roundCurrency(subtotal * 1.15);
+  const distanceFare = roundToTwoDecimals(miles * DISTANCE_RATE);
+  const timeFare = roundToTwoDecimals(minutes * TIME_RATE);
+  const subtotal = roundToTwoDecimals(baseFare + distanceFare + timeFare);
+  const low = roundToTwoDecimals(Math.max(baseFare, subtotal * 0.9));
+  const high = roundToTwoDecimals(subtotal * 1.15);
   return {
     currency: CURRENCY,
     baseFare,
@@ -91,7 +91,7 @@ function getRideReceipt(ride: Ride) {
   const walletEntries = store.walletTx.filter(tx => tx.reason.startsWith(`ride:${ride.id}:`));
   return {
     receiptType: ride.status === 'completed' ? 'ride_receipt' : 'ride_cancellation',
-    invoiceNumber: `INV-${ride.id.replace(/[^a-z0-9]/gi, '').toUpperCase()}`,
+    invoiceNumber: `INV-${ride.id.toUpperCase()}`,
     rideId: ride.id,
     riderId: ride.riderId,
     driverId: ride.driverId,
@@ -120,7 +120,7 @@ function updateDriverRating(driverId?: string) {
     .filter(ride => ride.driverId === driverId && typeof ride.rating === 'number')
     .map(ride => Number(ride.rating));
   if (!ratings.length) return profile.rating;
-  profile.rating = roundCurrency(ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length);
+  profile.rating = roundToTwoDecimals(ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length);
   markStoreDirty();
   return profile.rating;
 }

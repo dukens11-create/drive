@@ -64,7 +64,7 @@ test('rider-facing trip history, detail, receipt, notification, cancellation, an
     const estimateBody = await estimateResponse.json();
     assert.equal(estimateBody.ok, true);
     assert.equal(estimateBody.currency, 'USD');
-    assert.equal(estimateBody.fareEstimateRange.low < estimateBody.fareEstimateRange.high, true);
+    assert.ok(estimateBody.fareEstimateRange.low < estimateBody.fareEstimateRange.high);
     assert.equal(estimateBody.fareBreakdown.fareEstimate, estimateBody.fareEstimate);
 
     const firstRideRequest = await postJson(
