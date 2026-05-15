@@ -11,4 +11,9 @@ router.post('/approve-driver', validateBody(genericSchema), controller.approve_d
 router.post('/live-rides', validateBody(genericSchema), controller.live_rides);
 router.post('/risk-alerts', validateBody(genericSchema), controller.risk_alerts);
 router.post('/refunds', validateBody(genericSchema), controller.refunds);
+router.get('/stats', controller.platform_stats);
+router.post('/list-users', validateBody(genericSchema), controller.list_users);
+router.post('/suspend-user', validateBody(genericSchema), controller.suspend_user);
+router.post('/update-ticket', validateBody(genericSchema), controller.update_ticket);
+router.get('/audit-log', controller.audit_log);
 export default router;
