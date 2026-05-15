@@ -15,3 +15,14 @@
 ## Basic test run
 
 Run `npm test` to compile and execute core API route tests.
+
+## Health endpoints
+
+- `/health` basic service status
+- `/livez` liveness probe
+- `/readyz` readiness probe with process uptime
+
+## Docker quick run
+
+1. `docker build -t flupflap-ride .`
+2. `docker run --rm -p 8080:8080 --env-file .env flupflap-ride`
