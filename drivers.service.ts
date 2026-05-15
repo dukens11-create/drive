@@ -168,7 +168,7 @@ export async function me(body: any, _params?: any, _query?: any) {
   return { module: 'drivers', action: 'me', ok: true, profile };
 }
 
-export async function current_trip(body: any, _params?: any, _query?: any) {
+export async function currentTrip(body: any, _params?: any, _query?: any) {
   const userId = body?.actor?.id || body?.userId;
   const profile = getProfile(userId);
   if (!profile) return { module: 'drivers', action: 'current-trip', error: 'driver not found' };
