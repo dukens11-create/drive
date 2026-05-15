@@ -1,4 +1,5 @@
 import { store } from './data.store';
+import { isDriverDispatchEligible } from './drivers.service';
 
 type Candidate = {
   driverId: string;
@@ -26,7 +27,7 @@ export function rankDrivers(candidates: Candidate[]) {
 
 export async function findNearbyDrivers(lat: number, lng: number) {
   const drivers = Array.from(store.drivers.values())
-    .filter(d => d.available && d.status === 'approved')
+    .filter(d => isDriverDispatchEligible(d))
     .map(d => ({
       driverId: d.userId,
       distanceMiles: toMiles(lat, lng, Number(d.lat), Number(d.lng)),

@@ -122,7 +122,16 @@ test('ride and driver core flow enforces auth boundaries and status transitions'
 
     const documentsResponse = await postJson(baseUrl, '/api/drivers/documents', { documents: ['license', 'insurance'] }, driver.accessToken);
     const documentsBody = await documentsResponse.json();
-    assert.equal(documentsBody.profile.status, 'approved');
+    assert.equal(documentsBody.profile.status, 'pending');
+    assert.equal(documentsBody.profile.verificationState, 'kyc_pending');
+
+    const kycWebhookResponse = await postJson(baseUrl, '/api/kyc/webhook', { userId: driver.user.id, status: 'verified' });
+    const kycWebhookBody = await kycWebhookResponse.json();
+    assert.equal(kycWebhookBody.ok, true);
+
+    const locationResponse = await postJson(baseUrl, '/api/drivers/location', { lat: 37.72, lng: -122.41 }, driver.accessToken);
+    const locationBody = await locationResponse.json();
+    assert.equal(locationBody.ok, true);
 
     const availabilityResponse = await postJson(baseUrl, '/api/drivers/availability', { available: true }, driver.accessToken);
     const availabilityBody = await availabilityResponse.json();

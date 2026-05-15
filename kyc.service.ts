@@ -1,5 +1,6 @@
 import { createKycSession, handleKycWebhook } from './kyc.provider';
 import { store } from './data.store';
+import { syncDriverVerificationState } from './drivers.service';
 
 export async function create_session(body: any, _params?: any, _query?: any) {
   const userId = body?.userId;
@@ -23,6 +24,7 @@ export async function webhook(body: any, _params?: any, _query?: any) {
   const outcome = event?.status;
   if (userId && (outcome === 'verified' || outcome === 'rejected' || outcome === 'pending')) {
     store.kycStatus.set(userId, outcome);
+    syncDriverVerificationState(userId);
   }
 
   return { module: 'kyc', action: 'webhook', ok: true, result };
