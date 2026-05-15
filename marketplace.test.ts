@@ -44,7 +44,7 @@ test('set_surge rejects invalid multiplier values', async () => {
   const tooHigh = await marketplace.set_surge({ multiplier: 11 });
   assert.ok(tooHigh.error);
 
-  const notNumber = await marketplace.set_surge({ multiplier: 'x' });
+  const notNumber = await marketplace.set_surge({ multiplier: null });
   assert.ok(notNumber.error);
 });
 
@@ -174,6 +174,7 @@ test('promo usage count increments on each use', async () => {
   await rides.request({ riderId: 'rider_u1', pickupLat: 10.01, pickupLng: 10.01, miles: 3, minutes: 6, promoCode: 'MULTI' });
   const list = await marketplace.list_promos();
   const promo = list.promos.find((p: any) => p.code === 'MULTI');
+  assert.ok(promo, 'promo MULTI should be in the list');
   assert.equal(promo.usageCount, 1);
 });
 

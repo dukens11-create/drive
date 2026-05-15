@@ -33,9 +33,9 @@ router.get('/markets', requireAuth, controller.list_markets);
 router.post('/markets', requireAuth, requireRole('admin'), validateBody(createMarketSchema), controller.create_market);
 router.post('/markets/status', requireAuth, requireRole('admin'), validateBody(updateMarketStatusSchema), controller.update_market_status);
 
-router.use(requireAuth);
-router.post('/same-day-dispatch', validateBody(genericSchema), controller.same_day_dispatch);
-router.post('/delivery-options', validateBody(genericSchema), controller.delivery_options);
+// Same-day delivery (existing)
+router.post('/same-day-dispatch', requireAuth, validateBody(genericSchema), controller.same_day_dispatch);
+router.post('/delivery-options', requireAuth, validateBody(genericSchema), controller.delivery_options);
 
 export default router;
 
