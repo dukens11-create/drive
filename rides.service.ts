@@ -9,9 +9,9 @@ function getRide(id: string) {
   return ride;
 }
 
-function canAccessRide(actor: any, ride: Ride) {
-  if (!actor?.id || !actor?.role) return false;
-  return actor.role === 'admin' || ride.riderId === actor.id || ride.driverId === actor.id;
+function canAccessRide(authenticatedUser: any, ride: Ride) {
+  if (!authenticatedUser?.id || !authenticatedUser?.role) return false;
+  return authenticatedUser.role === 'admin' || ride.riderId === authenticatedUser.id || ride.driverId === authenticatedUser.id;
 }
 
 export async function estimate(body: any, _params?: any, _query?: any) {
