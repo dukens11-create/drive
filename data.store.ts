@@ -27,8 +27,56 @@ export type Ride = {
   miles: number;
   minutes: number;
   fareEstimate: number;
+  surgeMultiplier?: number;
+  promoId?: string;
+  discountCents?: number;
   status: RideStatus;
   rating?: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SurgeConfig = {
+  multiplier: number;
+  reason?: string;
+  updatedAt: string;
+};
+
+export type Promo = {
+  id: string;
+  code: string;
+  discountType: 'flat' | 'percent';
+  discountValue: number;
+  minFareCents?: number;
+  maxUsages?: number;
+  usageCount: number;
+  expiresAt?: string;
+  createdAt: string;
+};
+
+export type ReferralCode = {
+  code: string;
+  userId: string;
+  createdAt: string;
+};
+
+export type ReferralEvent = {
+  id: string;
+  referrerUserId: string;
+  referredUserId: string;
+  bonusCents: number;
+  paid: boolean;
+  rideId?: string;
+  createdAt: string;
+};
+
+export type MarketConfig = {
+  id: string;
+  name: string;
+  city: string;
+  country: string;
+  status: 'pre_launch' | 'active' | 'paused' | 'sunset';
+  launchedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -172,6 +220,11 @@ type PersistedStore = {
   merchantProducts: MerchantProduct[];
   marketplaceDeliveries: MarketplaceDelivery[];
   auditLogs: AuditLog[];
+  surgeConfig: Array<[string, SurgeConfig]>;
+  promos: Array<[string, Promo]>;
+  referralCodes: Array<[string, ReferralCode]>;
+  referralEvents: ReferralEvent[];
+  markets: Array<[string, MarketConfig]>;
 };
 
 let isHydrating = false;
@@ -247,7 +300,12 @@ export const store = {
   safetyIncidents: createPersistentArray<SafetyIncident>(),
   merchantProducts: new PersistentMap<string, MerchantProduct>(),
   marketplaceDeliveries: new PersistentMap<string, MarketplaceDelivery>(),
-  auditLogs: createPersistentArray<AuditLog>()
+  auditLogs: createPersistentArray<AuditLog>(),
+  surgeConfig: new PersistentMap<string, SurgeConfig>(),
+  promos: new PersistentMap<string, Promo>(),
+  referralCodes: new PersistentMap<string, ReferralCode>(),
+  referralEvents: createPersistentArray<ReferralEvent>(),
+  markets: new PersistentMap<string, MarketConfig>()
 };
 
 function toSerializableStore(): PersistedStore {
@@ -264,7 +322,12 @@ function toSerializableStore(): PersistedStore {
     safetyIncidents: [...store.safetyIncidents],
     merchantProducts: Array.from(store.merchantProducts.values()),
     marketplaceDeliveries: Array.from(store.marketplaceDeliveries.values()),
-    auditLogs: [...store.auditLogs]
+    auditLogs: [...store.auditLogs],
+    surgeConfig: Array.from(store.surgeConfig.entries()),
+    promos: Array.from(store.promos.entries()),
+    referralCodes: Array.from(store.referralCodes.entries()),
+    referralEvents: [...store.referralEvents],
+    markets: Array.from(store.markets.entries())
   };
 }
 
@@ -312,6 +375,11 @@ function hydrateStore() {
     for (const product of parsed.merchantProducts || []) store.merchantProducts.set(product.id, product);
     for (const delivery of parsed.marketplaceDeliveries || []) store.marketplaceDeliveries.set(delivery.id, delivery);
     for (const log of parsed.auditLogs || []) store.auditLogs.push(log);
+    for (const [key, cfg] of parsed.surgeConfig || []) store.surgeConfig.set(key, cfg);
+    for (const [code, promo] of parsed.promos || []) store.promos.set(code, promo);
+    for (const [code, ref] of parsed.referralCodes || []) store.referralCodes.set(code, ref);
+    for (const ev of parsed.referralEvents || []) store.referralEvents.push(ev);
+    for (const [id, market] of parsed.markets || []) store.markets.set(id, market);
   } finally {
     isHydrating = false;
   }
@@ -387,6 +455,28 @@ export function pushWalletTx(userId: string, kind: 'credit' | 'debit', amountCen
   const next = kind === 'credit' ? prior + amountCents : prior - amountCents;
   store.walletBalances.set(userId, { userId, balanceCents: next, updatedAt: now() });
   return tx;
+}
+
+export function getActiveSurgeMultiplier(): number {
+  const cfg = store.surgeConfig.get('global');
+  if (!cfg) return 1.0;
+  return cfg.multiplier;
+}
+
+export function getPromoByCode(code: string): Promo | undefined {
+  return store.promos.get(code.toUpperCase());
+}
+
+export function hasUserUsedPromo(userId: string, promoId: string): boolean {
+  return Array.from(store.rides.values()).some(r => r.riderId === userId && r.promoId === promoId);
+}
+
+export function getPendingReferralEvent(referredUserId: string): ReferralEvent | undefined {
+  return store.referralEvents.find(ev => ev.referredUserId === referredUserId && !ev.paid);
+}
+
+export function countCompletedRidesForRider(riderId: string): number {
+  return Array.from(store.rides.values()).filter(r => r.riderId === riderId && r.status === 'completed').length;
 }
 
 export function timestamp() {

@@ -163,12 +163,23 @@ export async function earnings(body: any, _params?: any, _query?: any) {
   const userId = body?.actor?.id || body?.userId;
   const profile = getProfile(userId);
   if (!profile) return { module: 'drivers', action: 'earnings', error: 'driver not found' };
-  const total = store.walletTx
-    .filter(tx => tx.userId === userId && tx.kind === 'credit')
-    .reduce((sum, tx) => sum + tx.amountCents, 0);
+  const txs = store.walletTx.filter(tx => tx.userId === userId && tx.kind === 'credit');
+  const total = txs.reduce((sum, tx) => sum + tx.amountCents, 0);
   profile.earningsCents = total;
   markStoreDirty();
-  return { module: 'drivers', action: 'earnings', ok: true, earningsCents: total };
+  const rideTxs = txs.filter(tx => tx.reason.startsWith('ride:') && tx.reason.endsWith(':payout'));
+  const rideEarnings = rideTxs.map(tx => {
+    const rideId = tx.reason.split(':')[1];
+    return { rideId, amountCents: tx.amountCents, createdAt: tx.createdAt };
+  });
+  return {
+    module: 'drivers',
+    action: 'earnings',
+    ok: true,
+    earningsCents: total,
+    rideCount: rideEarnings.length,
+    rideEarnings
+  };
 }
 
 export async function documents(body: any, _params?: any, _query?: any) {
