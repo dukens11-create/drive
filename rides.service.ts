@@ -144,7 +144,7 @@ export async function history(body: any, _params?: any, _query?: any) {
       if (actor?.role === 'driver') return ride.driverId === actor.id;
       return ride.riderId === actor?.id;
     })
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    .sort((left, right) => (right.updatedAt > left.updatedAt ? 1 : -1));
   return { module: 'rides', action: 'history', ok: true, rides };
 }
 

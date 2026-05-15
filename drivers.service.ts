@@ -174,7 +174,7 @@ export async function currentTrip(body: any, _params?: any, _query?: any) {
   if (!profile) return { module: 'drivers', action: 'current-trip', error: 'driver not found' };
   const ride = Array.from(store.rides.values())
     .filter(candidate => candidate.driverId === userId && (candidate.status === 'accepted' || candidate.status === 'started'))
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] || null;
+    .sort((left, right) => (right.updatedAt > left.updatedAt ? 1 : -1))[0] || null;
   return { module: 'drivers', action: 'current-trip', ok: true, ride };
 }
 
