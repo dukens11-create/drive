@@ -9,7 +9,7 @@ function getString(name: string, fallback?: string) {
 }
 
 function getRequiredInProduction(name: string, fallback: string) {
-  const value = getString(name);
+  const value = getString(name)?.trim();
   if (process.env.NODE_ENV === 'production') {
     if (!value) {
       throw new Error(`${name} is required in production`);

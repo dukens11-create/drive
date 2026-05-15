@@ -18,6 +18,7 @@ export function requireAuth(req: any, res: any, next: any) {
 
     const user = store.users.get(payload.sub);
     if (!user) return res.status(401).json({ error: 'Invalid token' });
+    if (payload.role !== user.role) return res.status(403).json({ error: 'Role changed, please sign in again' });
     if (user.deletedAt) return res.status(403).json({ error: 'Account unavailable' });
     if (user.suspended) return res.status(403).json({ error: 'Account suspended' });
 
