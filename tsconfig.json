@@ -8,7 +8,6 @@
     "rootDir": ".",
     "strict": false,
     "esModuleInterop": true,
-    "ignoreDeprecations": "5.0",
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },

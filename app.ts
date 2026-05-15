@@ -30,6 +30,8 @@ export function createApp() {
   app.use(rateLimit({ windowMs: 60_000, limit: 300 }));
 
   app.get('/health', (_, res) => res.json({ ok: true, service: 'flupflap-ride-v7' }));
+  app.get('/livez', (_, res) => res.json({ ok: true }));
+  app.get('/readyz', (_, res) => res.json({ ok: true, uptimeSeconds: parseFloat(process.uptime().toFixed(3)) }));
 
   app.use('/api/auth', authRoutes);
   app.use('/api/rides', ridesRoutes);
