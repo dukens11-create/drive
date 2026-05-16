@@ -67,19 +67,21 @@ A GitHub Actions workflow is available at `.github/workflows/ci.yml` and runs:
 - Core route tests in `core.routes.test.ts` cover `/health`, auth token lifecycle, and ride/driver core flow
 - Operational probes include `/health`, `/livez`, and `/readyz`
 
-## Backend core completion scope (current PR)
+## Rider experience completion scope (current PR)
 
 Added in scope:
-- Structured persistence-backed in-memory/file store models for users, driver profiles, rides, wallet transactions, and refresh token sessions.
-- Auth hardening with JWT issuer/audience validation, refresh-token hashing, refresh-token rotation, and logout revocation.
-- Ride/driver core flow improvements: rider-only request/cancel/rate, ride detail/history retrieval, driver-only accept/start/complete, assignment checks, driver profile/current-trip visibility, and driver availability transitions.
-- Route-level validation and tests for auth and ride/driver lifecycle.
+- Rider-facing ride history, ride detail, receipt, and notification retrieval endpoints that fit the existing backend route/service structure.
+- Richer fare estimate responses with estimate ranges, currency, surge multiplier, and fare breakdown data for client-side trip previews.
+- Rider cancellation validation tied to ride status plus cancellation receipt-oriented response data.
+- Foundational rider ratings/reviews support with stored review text and driver rating rollups.
+- Ride lifecycle timeline events that power rider-visible notifications without introducing a separate messaging subsystem yet.
 
 Assumptions:
-- Single-process API runtime with lightweight local persistence (`DATA_STORE_MODE=file`) is acceptable for this stage.
-- Driver availability and approval are the minimum required gates for ride acceptance.
+- Lightweight in-process notifications derived from persisted ride events are sufficient for this phase.
+- Wallet-ledger settlement remains the receipt source of truth until a fuller payment-provider receipt flow is added.
+- Single-process API runtime with lightweight local persistence (`DATA_STORE_MODE=file`) is still acceptable for this stage.
 
 Out of scope:
-- Full relational database migrations/ORM and distributed locking.
-- Payments provider integration, surge/advanced dispatch optimization, and full admin/support workflows.
-- Production-grade observability, multi-region scaling, and mobile/frontend feature completion.
+- Push delivery infrastructure (APNS/FCM/email/SMS), unread-state sync, and user notification preferences.
+- Production-grade surge pricing, taxes, tolls, promo codes, and multi-currency fare computation.
+- Full invoice PDF generation, payment processor reconciliation, and dispute/refund operations depth.

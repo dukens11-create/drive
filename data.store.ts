@@ -16,6 +16,16 @@ export type User = {
 
 export type RideStatus = 'requested' | 'accepted' | 'started' | 'completed' | 'canceled';
 
+export type RideEvent = {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  actorId?: string;
+  actorRole?: string;
+  createdAt: string;
+};
+
 export type Ride = {
   id: string;
   riderId: string;
@@ -32,6 +42,11 @@ export type Ride = {
   discountCents?: number;
   status: RideStatus;
   rating?: number;
+  review?: string;
+  ratedAt?: string;
+  canceledAt?: string;
+  cancellationReason?: string;
+  events?: RideEvent[];
   createdAt: string;
   updatedAt: string;
 };
