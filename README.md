@@ -72,7 +72,7 @@ A GitHub Actions workflow is available at `.github/workflows/ci.yml` and runs:
 Added in scope:
 - Structured persistence-backed in-memory/file store models for users, driver profiles, rides, wallet transactions, and refresh token sessions.
 - Auth hardening with JWT issuer/audience validation, refresh-token hashing, refresh-token rotation, and logout revocation.
-- Ride/driver core flow improvements: rider-only request/cancel/rate, driver-only accept/start/complete, assignment checks, and driver availability transitions.
+- Ride/driver core flow improvements: rider-only request/cancel/rate, ride detail/history retrieval, driver-only accept/start/complete, assignment checks, driver profile/current-trip visibility, and driver availability transitions.
 - Route-level validation and tests for auth and ride/driver lifecycle.
 
 Assumptions:

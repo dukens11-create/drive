@@ -1,13 +1,9 @@
+import { env } from './env';
+
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 const orderedLevels: LogLevel[] = ['debug', 'info', 'warn', 'error'];
-
-function getConfiguredLevel(): LogLevel {
-  const raw = (process.env.LOG_LEVEL || 'info').toLowerCase();
-  return orderedLevels.includes(raw as LogLevel) ? (raw as LogLevel) : 'info';
-}
-
-const configuredLevel = getConfiguredLevel();
+const configuredLevel = env.logLevel as LogLevel;
 
 function shouldLog(level: LogLevel) {
   return orderedLevels.indexOf(level) >= orderedLevels.indexOf(configuredLevel);

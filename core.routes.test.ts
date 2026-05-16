@@ -32,6 +32,12 @@ async function postJson(baseUrl: string, path: string, body: Record<string, unkn
   });
 }
 
+async function getJson(baseUrl: string, path: string, token?: string) {
+  return fetch(`${baseUrl}${path}`, {
+    headers: token ? { authorization: `Bearer ${token}` } : {}
+  });
+}
+
 async function signup(baseUrl: string, role: 'rider' | 'driver' | 'merchant' = 'rider') {
   const response = await postJson(baseUrl, '/api/auth/signup', {
     email: `${role}-${randomUUID()}@example.com`,
@@ -133,9 +139,15 @@ test('ride and driver core flow enforces auth boundaries and status transitions'
     const locationBody = await locationResponse.json();
     assert.equal(locationBody.ok, true);
 
-    const availabilityResponse = await postJson(baseUrl, '/api/drivers/availability', { available: true }, driver.accessToken);
+    const availabilityResponse = await postJson(baseUrl, '/api/drivers/availability', { status: 'online' }, driver.accessToken);
     const availabilityBody = await availabilityResponse.json();
     assert.equal(availabilityBody.profile.available, true);
+
+    const driverProfileResponse = await getJson(baseUrl, '/api/drivers/me', driver.accessToken);
+    const driverProfileBody = await driverProfileResponse.json();
+    assert.equal(driverProfileBody.ok, true);
+    assert.equal(driverProfileBody.profile.verificationState, 'verified');
+    assert.equal(driverProfileBody.profile.availabilityStatus, 'online');
 
     const rideRequestResponse = await postJson(baseUrl, '/api/rides/request', { pickupLat: 37.7, pickupLng: -122.4 }, rider.accessToken);
     const rideRequestBody = await rideRequestResponse.json();
@@ -144,6 +156,21 @@ test('ride and driver core flow enforces auth boundaries and status transitions'
     assert.equal(rideRequestBody.dispatch.selected.driverId, driver.user.id);
 
     const rideId = rideRequestBody.ride.id;
+
+    const riderHistoryResponse = await getJson(baseUrl, '/api/rides/history', rider.accessToken);
+    const riderHistoryBody = await riderHistoryResponse.json();
+    assert.equal(riderHistoryBody.ok, true);
+    assert.equal(riderHistoryBody.rides.some((ride: { id: string }) => ride.id === rideId), true);
+
+    const riderDetailResponse = await getJson(baseUrl, `/api/rides/${rideId}`, rider.accessToken);
+    const riderDetailBody = await riderDetailResponse.json();
+    assert.equal(riderDetailBody.ok, true);
+    assert.equal(riderDetailBody.ride.id, rideId);
+
+    const unrelatedRider = await signup(baseUrl, 'rider');
+    const unrelatedRiderDetailResponse = await getJson(baseUrl, `/api/rides/${rideId}`, unrelatedRider.accessToken);
+    const unrelatedRiderDetailBody = await unrelatedRiderDetailResponse.json();
+    assert.equal(unrelatedRiderDetailBody.error, 'forbidden');
 
     const riderAcceptAttempt = await postJson(baseUrl, '/api/rides/accept', { rideId }, rider.accessToken);
     assert.equal(riderAcceptAttempt.status, 403);
@@ -157,6 +184,12 @@ test('ride and driver core flow enforces auth boundaries and status transitions'
     const startBody = await startResponse.json();
     assert.equal(startBody.ride.status, 'started');
 
+    const currentTripResponse = await getJson(baseUrl, '/api/drivers/current-trip', driver.accessToken);
+    const currentTripBody = await currentTripResponse.json();
+    assert.equal(currentTripBody.ok, true);
+    assert.equal(currentTripBody.ride.id, rideId);
+    assert.equal(currentTripBody.ride.status, 'started');
+
     const riderCompleteAttempt = await postJson(baseUrl, '/api/rides/complete', { rideId }, rider.accessToken);
     assert.equal(riderCompleteAttempt.status, 403);
 
@@ -164,6 +197,11 @@ test('ride and driver core flow enforces auth boundaries and status transitions'
     const completeBody = await completeResponse.json();
     assert.equal(completeBody.ride.status, 'completed');
     assert.equal(completeBody.amountCents > 0, true);
+
+    const emptyCurrentTripResponse = await getJson(baseUrl, '/api/drivers/current-trip', driver.accessToken);
+    const emptyCurrentTripBody = await emptyCurrentTripResponse.json();
+    assert.equal(emptyCurrentTripBody.ok, true);
+    assert.equal(emptyCurrentTripBody.ride, null);
 
     const ratingResponse = await postJson(baseUrl, '/api/rides/rate', { rideId, rating: 5 }, rider.accessToken);
     const ratingBody = await ratingResponse.json();
@@ -174,5 +212,10 @@ test('ride and driver core flow enforces auth boundaries and status transitions'
     const earningsBody = await earningsResponse.json();
     assert.equal(earningsBody.ok, true);
     assert.equal(earningsBody.earningsCents > 0, true);
+
+    const driverHistoryResponse = await getJson(baseUrl, '/api/rides/history', driver.accessToken);
+    const driverHistoryBody = await driverHistoryResponse.json();
+    assert.equal(driverHistoryBody.ok, true);
+    assert.equal(driverHistoryBody.rides.some((ride: { id: string; status: string }) => ride.id === rideId && ride.status === 'completed'), true);
   });
 });

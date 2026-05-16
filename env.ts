@@ -26,11 +26,20 @@ function getPort() {
   return parsed;
 }
 
+function getLogLevel() {
+  const value = getString('LOG_LEVEL', 'info')?.toLowerCase();
+  if (value === 'debug' || value === 'info' || value === 'warn' || value === 'error') {
+    return value;
+  }
+  throw new Error('LOG_LEVEL must be one of debug, info, warn, error');
+}
+
 const dataStoreMode = getString('DATA_STORE_MODE', 'memory') === 'file' ? 'file' : 'memory';
 
 export const env = {
   nodeEnv: getString('NODE_ENV', 'development'),
   port: getPort(),
+  logLevel: getLogLevel(),
   jwtSecret: getRequiredInProduction('JWT_SECRET', 'dev-local-secret'),
   adminSeedPassword: getRequiredInProduction('ADMIN_SEED_PASSWORD', 'change_me_admin_password'),
   stripeWebhookSecret: getString('STRIPE_WEBHOOK_SECRET'),

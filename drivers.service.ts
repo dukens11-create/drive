@@ -159,6 +159,25 @@ export async function location(body: any, _params?: any, _query?: any) {
   return { module: 'drivers', action: 'location', ok: true, profile };
 }
 
+export async function me(body: any, _params?: any, _query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  const profile = getProfile(userId);
+  if (!profile) return { module: 'drivers', action: 'me', error: 'driver not found' };
+  syncProfileState(profile);
+  markStoreDirty();
+  return { module: 'drivers', action: 'me', ok: true, profile };
+}
+
+export async function currentTrip(body: any, _params?: any, _query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  const profile = getProfile(userId);
+  if (!profile) return { module: 'drivers', action: 'current-trip', error: 'driver not found' };
+  const ride = Array.from(store.rides.values())
+    .filter(candidate => candidate.driverId === userId && (candidate.status === 'accepted' || candidate.status === 'started'))
+    .sort((left, right) => (right.updatedAt > left.updatedAt ? 1 : -1))[0] || null;
+  return { module: 'drivers', action: 'current-trip', ok: true, ride };
+}
+
 export async function earnings(body: any, _params?: any, _query?: any) {
   const userId = body?.actor?.id || body?.userId;
   const profile = getProfile(userId);

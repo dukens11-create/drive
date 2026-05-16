@@ -7,6 +7,8 @@ const router = Router();
 router.get('/health', controller.health);
 router.use(requireAuth);
 router.post('/estimate', validateBody(rideEstimateSchema), controller.estimate);
+router.get('/history', controller.history);
+router.get('/:rideId', controller.detail);
 router.post('/request', requireRole('rider'), validateBody(rideRequestSchema), controller.request);
 router.post('/accept', requireRole('driver'), validateBody(rideAcceptSchema), controller.accept);
 router.post('/start', requireRole('driver'), validateBody(rideStartCompleteCancelSchema), controller.start);
