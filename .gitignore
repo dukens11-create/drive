@@ -2,3 +2,8 @@ node_modules/
 dist/
 .env
 .data/
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/build/

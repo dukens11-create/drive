@@ -1,0 +1,28 @@
+workflows:
+  mobile-ci:
+    name: Drive Flutter app
+    environment:
+      flutter: stable
+      vars:
+        PROJECT_DIR: mobile
+    triggering:
+      events:
+        - push
+        - pull_request
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          cd "$PROJECT_DIR"
+          flutter pub get
+      - name: Analyze Flutter app
+        script: |
+          cd "$PROJECT_DIR"
+          flutter analyze
+      - name: Run Flutter tests
+        script: |
+          cd "$PROJECT_DIR"
+          flutter test
