@@ -38,4 +38,4 @@ workflows:
           flutter build ios --release --no-codesign
     artifacts:
       - build/app/outputs/flutter-apk/app-release.apk
-      - build/ios/iphoneos/*.app
+      - build/ios/iphoneos/Runner.app
