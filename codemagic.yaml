@@ -5,6 +5,8 @@ workflows:
       flutter: stable
       vars:
         PROJECT_DIR: mobile
+        PROJECT_NAME: drive_mobile
+    working_directory: $PROJECT_DIR
     triggering:
       events:
         - push
@@ -16,30 +18,24 @@ workflows:
     scripts:
       - name: Bootstrap Flutter platforms
         script: |
-          cd "$PROJECT_DIR"
           if [ ! -d android ] || [ ! -d ios ]; then
-            flutter create --project-name drive_mobile --platforms=android,ios .
+            flutter create --project-name "$PROJECT_NAME" --platforms=android,ios .
           fi
       - name: Get Flutter packages
         script: |
-          cd "$PROJECT_DIR"
           flutter pub get
       - name: Analyze Flutter app
         script: |
-          cd "$PROJECT_DIR"
           flutter analyze
       - name: Run Flutter tests
         script: |
-          cd "$PROJECT_DIR"
           flutter test
       - name: Build Android release APK
         script: |
-          cd "$PROJECT_DIR"
           flutter build apk --release
       - name: Build iOS release app bundle
         script: |
-          cd "$PROJECT_DIR"
           flutter build ios --release --no-codesign
     artifacts:
-      - mobile/build/app/outputs/flutter-apk/app-release.apk
-      - mobile/build/ios/iphoneos/*.app
+      - build/app/outputs/flutter-apk/app-release.apk
+      - build/ios/iphoneos/*.app
