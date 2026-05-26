@@ -13,8 +13,8 @@ git add -f ios/
 git status --short
 ```
 
-Then commit and push, and do not open another PR for Runner-scheme failures until this exact procedure is completed.
-For this Runner-scheme remediation, the force-add command is intentionally limited to `ios/` to avoid unintentionally committing unrelated Android artifact changes.
+Then commit and push. Do not open duplicate PRs for Runner-scheme failures; complete this exact procedure on the current branch first.
+For this iOS-specific remediation, the force-add command is intentionally limited to `ios/` (and excludes `android`) to avoid unintentionally committing unrelated Android artifact changes.
 
 Before committing, confirm neither the repository root `.gitignore` nor `mobile/ios/.gitignore` excludes required iOS artifacts (`Runner.xcworkspace`, `Runner.xcodeproj`, `Runner/Info.plist`, and required `ios/Flutter/*.xcconfig` files).
 
