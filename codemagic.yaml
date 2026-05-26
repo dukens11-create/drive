@@ -33,31 +33,32 @@ workflows:
           )
 
           check_required_platform_files() {
-            local missing=0
+            local has_missing=0
             for file in "${required_platform_files[@]}"; do
               if [ ! -e "$file" ]; then
                 echo "Missing required committed platform file: $file"
-                missing=1
+                has_missing=1
               fi
             done
-            return "$missing"
+            return "$has_missing"
           }
 
           ensure_files_are_tracked() {
-            local untracked=0
+            local has_untracked=0
             for file in "${required_platform_files[@]}"; do
               if ! git ls-files --error-unmatch "$file" >/dev/null 2>&1; then
                 echo "Required platform file is not tracked in git: $file"
-                untracked=1
+                has_untracked=1
               fi
             done
-            return "$untracked"
+            return "$has_untracked"
           }
 
           if ! check_required_platform_files || ! ensure_files_are_tracked; then
             cat <<'EOF'
 BLOCKING: Codemagic requires committed iOS Runner project artifacts from the repository.
-Run the following locally on a Mac from mobile/ and commit the result before retrying CI:
+First verify these files are already tracked in your branch on GitHub.
+If any are missing, run the following locally on a Mac from mobile/ and commit the result before retrying CI:
   flutter create .
   git add -f ios/
 

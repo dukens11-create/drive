@@ -16,4 +16,3 @@ mobile/build/
 !mobile/ios/Runner/Info.plist
 !mobile/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
 !mobile/ios/Flutter/**
-!mobile/ios/Flutter/*.xcconfig
