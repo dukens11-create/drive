@@ -17,6 +17,12 @@ V7 includes:
 - Security/compliance/operations docs
 - QA and load-test templates
 
+## Repository layout
+
+- Backend API code lives at the repository root.
+- Flutter mobile code lives in `/home/runner/work/drive/drive/mobile`.
+- Codemagic configuration lives at `/home/runner/work/drive/drive/codemagic.yaml` and changes into `mobile/` before running Flutter commands.
+
 Important: this is still not a finished Uber-scale production system. It is a stronger developer handoff package.
 
 ## Backend quick start
