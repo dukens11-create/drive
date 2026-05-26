@@ -32,7 +32,9 @@ Runner/GeneratedPluginRegistrant.*
 !default.mode2v3
 !default.pbxuser
 !default.perspectivev3
+# Keep all Xcode project and workspace files needed by Codemagic CI.
 !Podfile
+!Podfile.lock
 !Runner.xcodeproj/project.pbxproj
 !Runner.xcodeproj/xcshareddata/**
 !Runner.xcworkspace/**

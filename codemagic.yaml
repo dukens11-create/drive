@@ -3,6 +3,8 @@ workflows:
     name: Drive Flutter app (mobile subfolder)
     environment:
       flutter: stable
+      xcode: latest
+      cocoapods: default
       vars:
         PROJECT_NAME: drive_mobile
     triggering:
@@ -15,8 +17,8 @@ workflows:
           source: true
     scripts:
       - name: Bootstrap Flutter platforms
+        working_directory: mobile
         script: |
-          cd mobile || exit 1
           required_platform_files=(
             android/gradlew
             android/gradlew.bat
@@ -49,21 +51,28 @@ workflows:
               exit 1
             fi
           fi
+
+          echo "All required platform files are present."
+          echo "Runner.xcscheme path: ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme"
+          ls -la ios/Runner.xcodeproj/xcshareddata/xcschemes/
       - name: Get Flutter packages
-        script: |
-          cd mobile && flutter pub get
+        working_directory: mobile
+        script: flutter pub get
       - name: Analyze Flutter app
-        script: |
-          cd mobile && flutter analyze
+        working_directory: mobile
+        script: flutter analyze
       - name: Run Flutter tests
-        script: |
-          cd mobile && flutter test
+        working_directory: mobile
+        script: flutter test
       - name: Build Android release APK
-        script: |
-          cd mobile && flutter build apk --release
+        working_directory: mobile
+        script: flutter build apk --release
+      - name: Install iOS CocoaPods
+        working_directory: mobile/ios
+        script: pod install
       - name: Build iOS release app bundle
-        script: |
-          cd mobile && flutter build ios --release --no-codesign
+        working_directory: mobile
+        script: flutter build ios --release --no-codesign
     artifacts:
       - mobile/build/app/outputs/flutter-apk/app-release.apk
       - mobile/build/ios/iphoneos/Runner.app
