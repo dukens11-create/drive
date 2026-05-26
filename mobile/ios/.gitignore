@@ -35,7 +35,17 @@ Runner/GeneratedPluginRegistrant.*
 # Keep all Xcode project and workspace files needed by Codemagic CI.
 !Podfile
 !Podfile.lock
+!Flutter/AppFrameworkInfo.plist
+!Flutter/Debug.xcconfig
+!Flutter/Release.xcconfig
 !Runner.xcodeproj/project.pbxproj
+!Runner.xcodeproj/project.xcworkspace/**
 !Runner.xcodeproj/xcshareddata/**
 !Runner.xcworkspace/**
 !Runner/Info.plist
+!Runner/AppDelegate.swift
+!Runner/Runner-Bridging-Header.h
+!Runner/SceneDelegate.swift
+!Runner/Base.lproj/**
+!Runner/Assets.xcassets/**
+!RunnerTests/**
