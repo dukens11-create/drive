@@ -4,7 +4,7 @@ Apple developer account, signing, privacy labels, location explanation, screensh
 
 ## Codemagic Runner scheme checklist
 
-If Codemagic reports `Scheme "Runner" not found from repository`, verify the committed Flutter iOS project files from the `mobile/` app:
+If Codemagic reports "Scheme \"Runner\" not found from repository", verify the committed Flutter iOS project files from the `mobile/` app:
 
 ```bash
 cd mobile
