@@ -1,12 +1,10 @@
 workflows:
-  mobile-ci:
-    name: Drive Flutter app
+  mobile-flutter-build:
+    name: Drive Flutter app (mobile subfolder)
     environment:
       flutter: stable
       vars:
-        PROJECT_DIR: mobile
         PROJECT_NAME: drive_mobile
-    working_directory: $PROJECT_DIR
     triggering:
       events:
         - push
@@ -18,6 +16,7 @@ workflows:
     scripts:
       - name: Bootstrap Flutter platforms
         script: |
+          cd mobile || exit 1
           platforms=""
           if [ ! -d android ]; then
             platforms="android"
@@ -35,19 +34,19 @@ workflows:
           fi
       - name: Get Flutter packages
         script: |
-          flutter pub get
+          cd mobile && flutter pub get
       - name: Analyze Flutter app
         script: |
-          flutter analyze
+          cd mobile && flutter analyze
       - name: Run Flutter tests
         script: |
-          flutter test
+          cd mobile && flutter test
       - name: Build Android release APK
         script: |
-          flutter build apk --release
+          cd mobile && flutter build apk --release
       - name: Build iOS release app bundle
         script: |
-          flutter build ios --release --no-codesign
+          cd mobile && flutter build ios --release --no-codesign
     artifacts:
-      - build/app/outputs/flutter-apk/app-release.apk
-      - build/ios/iphoneos/Runner.app
+      - mobile/build/app/outputs/flutter-apk/app-release.apk
+      - mobile/build/ios/iphoneos/Runner.app
