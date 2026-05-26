@@ -11,6 +11,6 @@ mobile/build/
 # Keep committed Flutter platform projects in version control for Codemagic.
 !mobile/android/
 !mobile/ios/
-!mobile/ios/**/*.xcodeproj/**
-!mobile/ios/**/*.xcworkspace/**
+!mobile/ios/Runner.xcodeproj/**
+!mobile/ios/Runner.xcworkspace/**
 !mobile/ios/Flutter/*.xcconfig
