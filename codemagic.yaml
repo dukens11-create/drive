@@ -18,8 +18,15 @@ workflows:
     scripts:
       - name: Bootstrap Flutter platforms
         script: |
-          if [ ! -d android ] || [ ! -d ios ]; then
-            flutter create --project-name "$PROJECT_NAME" --platforms=android,ios .
+          platforms=""
+          if [ ! -d android ]; then
+            platforms="android"
+          fi
+          if [ ! -d ios ]; then
+            platforms="${platforms:+$platforms,}ios"
+          fi
+          if [ -n "$platforms" ]; then
+            flutter create --project-name "$PROJECT_NAME" --platforms="$platforms" .
           fi
       - name: Get Flutter packages
         script: |
