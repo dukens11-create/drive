@@ -21,7 +21,7 @@ V7 includes:
 
 - Backend API code lives at the repository root.
 - Flutter mobile code lives in `mobile/`.
-- Codemagic configuration lives in `codemagic.yaml` and changes into `mobile/` before running Flutter commands.
+- Codemagic configuration lives in `codemagic.yaml`, changes into `mobile/`, bootstraps missing Android/iOS folders, and builds Android/iOS release artifacts from there.
 
 Important: this is still not a finished Uber-scale production system. It is a stronger developer handoff package.
 

@@ -14,6 +14,12 @@ workflows:
           include: true
           source: true
     scripts:
+      - name: Bootstrap Flutter platforms
+        script: |
+          cd "$PROJECT_DIR"
+          if [ ! -d android ] || [ ! -d ios ]; then
+            flutter create --project-name drive_mobile --platforms=android,ios .
+          fi
       - name: Get Flutter packages
         script: |
           cd "$PROJECT_DIR"
@@ -26,3 +32,14 @@ workflows:
         script: |
           cd "$PROJECT_DIR"
           flutter test
+      - name: Build Android release APK
+        script: |
+          cd "$PROJECT_DIR"
+          flutter build apk --release
+      - name: Build iOS release app bundle
+        script: |
+          cd "$PROJECT_DIR"
+          flutter build ios --release --no-codesign
+    artifacts:
+      - mobile/build/app/outputs/flutter-apk/app-release.apk
+      - mobile/build/ios/iphoneos/*.app
