@@ -30,26 +30,24 @@ workflows:
             ios/Runner.xcworkspace/contents.xcworkspacedata
           )
 
-          regenerate_platforms=0
-          for file in "${required_platform_files[@]}"; do
-            if [ ! -e "$file" ]; then
-              echo "Platform file missing, will attempt regeneration: $file"
-              regenerate_platforms=1
-              break
-            fi
-          done
+          check_required_platform_files() {
+            local error_prefix="$1"
+            for file in "${required_platform_files[@]}"; do
+              if [ ! -e "$file" ]; then
+                echo "${error_prefix}${file}"
+                return 1
+              fi
+            done
+          }
 
-          if [ "$regenerate_platforms" -eq 1 ]; then
+          if ! check_required_platform_files "Platform file missing, will attempt regeneration: "; then
             echo "Regenerating Flutter platform files with flutter create ."
             flutter create .
-          fi
 
-          for file in "${required_platform_files[@]}"; do
-            if [ ! -e "$file" ]; then
-              echo "Required Flutter platform file is still missing after regeneration: $file"
+            if ! check_required_platform_files "Required Flutter platform file is still missing after regeneration: "; then
               exit 1
             fi
-          done
+          fi
       - name: Get Flutter packages
         script: |
           cd mobile && flutter pub get

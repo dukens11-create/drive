@@ -10,6 +10,4 @@ mobile/build/
 
 # Keep committed Flutter platform projects in version control for Codemagic.
 !mobile/android/
-!mobile/android/**
 !mobile/ios/
-!mobile/ios/**
