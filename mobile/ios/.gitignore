@@ -41,7 +41,9 @@ Runner/GeneratedPluginRegistrant.*
 !Runner.xcodeproj/project.pbxproj
 !Runner.xcodeproj/project.xcworkspace/**
 !Runner.xcodeproj/xcshareddata/**
+!Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
 !Runner.xcworkspace/**
+!Runner.xcworkspace/contents.xcworkspacedata
 !Runner/Info.plist
 !Runner/AppDelegate.swift
 !Runner/Runner-Bridging-Header.h

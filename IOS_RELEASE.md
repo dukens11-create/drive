@@ -4,14 +4,18 @@ Apple developer account, signing, privacy labels, location explanation, screensh
 
 ## Codemagic Runner scheme checklist
 
-If Codemagic reports "Scheme \"Runner\" not found from repository", verify the committed Flutter iOS project files from the `mobile/` app:
+If Codemagic reports `Scheme "Runner" not found from repository`, treat this as **BLOCKING** until the full local regeneration and force-add process is completed on the same branch.
 
 ```bash
 cd mobile
 flutter create .
-git add -f ios android
+git add -f ios/
 git status --short
 ```
+
+Then commit and push, and do not open another PR for this same root cause until this exact procedure is completed.
+
+Before committing, confirm neither the repository root `.gitignore` nor `mobile/ios/.gitignore` excludes required iOS artifacts (`Runner.xcworkspace`, `Runner.xcodeproj`, `Runner/Info.plist`, and required `ios/Flutter/*.xcconfig` files).
 
 Required iOS files include:
 
