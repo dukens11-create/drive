@@ -32,3 +32,8 @@ Runner/GeneratedPluginRegistrant.*
 !default.mode2v3
 !default.pbxuser
 !default.perspectivev3
+!Podfile
+!Runner.xcodeproj/project.pbxproj
+!Runner.xcodeproj/xcshareddata/**
+!Runner.xcworkspace/**
+!Runner/Info.plist

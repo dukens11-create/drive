@@ -17,20 +17,37 @@ workflows:
       - name: Bootstrap Flutter platforms
         script: |
           cd mobile || exit 1
-          platforms=""
-          if [ ! -d android ]; then
-            platforms="android"
-          fi
-          if [ ! -d ios ]; then
-            if [ -n "$platforms" ]; then
-              platforms="$platforms,ios"
-            else
-              platforms="ios"
+          required_platform_files=(
+            android/gradlew
+            android/gradlew.bat
+            android/gradle/wrapper/gradle-wrapper.jar
+            android/gradle/wrapper/gradle-wrapper.properties
+            android/app/src/main/AndroidManifest.xml
+            ios/Podfile
+            ios/Runner/Info.plist
+            ios/Runner.xcodeproj/project.pbxproj
+            ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
+            ios/Runner.xcworkspace/contents.xcworkspacedata
+          )
+
+          check_required_platform_files() {
+            local error_prefix="$1"
+            for file in "${required_platform_files[@]}"; do
+              if [ ! -e "$file" ]; then
+                echo "${error_prefix}${file}"
+                return 1
+              fi
+            done
+            return 0
+          }
+
+          if ! check_required_platform_files "Platform file missing, will attempt regeneration: "; then
+            echo "Regenerating Flutter platform files with flutter create ."
+            flutter create .
+
+            if ! check_required_platform_files "Required Flutter platform file is still missing after regeneration: "; then
+              exit 1
             fi
-          fi
-          if [ -n "$platforms" ]; then
-            echo "Generating missing Flutter platform folders: $platforms"
-            flutter create --project-name "$PROJECT_NAME" --platforms="$platforms" .
           fi
       - name: Get Flutter packages
         script: |
