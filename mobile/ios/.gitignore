@@ -34,13 +34,6 @@ Runner/GeneratedPluginRegistrant.*
 !default.perspectivev3
 !Podfile
 !Runner.xcodeproj/project.pbxproj
-!Runner.xcodeproj/project.xcworkspace/**
 !Runner.xcodeproj/xcshareddata/**
 !Runner.xcworkspace/**
-!Runner/AppDelegate.swift
-!Runner/Assets.xcassets/**
-!Runner/Base.lproj/**
 !Runner/Info.plist
-!Runner/Runner-Bridging-Header.h
-!Runner/SceneDelegate.swift
-!RunnerTests/RunnerTests.swift
