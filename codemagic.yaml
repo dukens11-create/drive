@@ -58,20 +58,20 @@ workflows:
 
           if ! check_required_platform_files || ! ensure_files_are_tracked; then
             cat <<'EOF'
-BLOCKING: Codemagic requires committed iOS Runner project artifacts from the repository.
-First verify these files are already tracked in your branch on GitHub.
-If any are missing, run the following locally on a Mac from mobile/ and commit the result before retrying CI:
-  flutter create .
-  git add -f ios/
+          BLOCKING: Codemagic requires committed iOS Runner project artifacts from the repository.
+          First verify these files are already tracked in your branch on GitHub.
+          If any are missing, run the following locally on a Mac from mobile/ and commit the result before retrying CI:
+            flutter create .
+            git add -f ios/
 
-Then verify in GitHub that these files exist:
-  mobile/ios/Runner.xcworkspace/contents.xcworkspacedata
-  mobile/ios/Runner.xcodeproj/project.pbxproj
-  mobile/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
-  mobile/ios/Runner/Info.plist
-  mobile/ios/Flutter/Debug.xcconfig
-  mobile/ios/Flutter/Release.xcconfig
-EOF
+          Then verify in GitHub that these files exist:
+            mobile/ios/Runner.xcworkspace/contents.xcworkspacedata
+            mobile/ios/Runner.xcodeproj/project.pbxproj
+            mobile/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
+            mobile/ios/Runner/Info.plist
+            mobile/ios/Flutter/Debug.xcconfig
+            mobile/ios/Flutter/Release.xcconfig
+          EOF
             if [ -f ios/.gitignore ]; then
               echo "Check ios/.gitignore for accidental exclusions."
             fi
