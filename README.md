@@ -52,6 +52,10 @@ Run backend tests:
 npm test
 ```
 
+## Android builds (APK / AAB)
+
+See **[PRODUCTION_BUILD.md](./PRODUCTION_BUILD.md)** for a full step-by-step guide on generating APK and AAB files for testing and Play Store submission using Expo EAS (recommended) or React Native CLI.
+
 ## CI
 
 - GitHub Actions (`.github/workflows/ci.yml`) runs backend install/build/tests.
