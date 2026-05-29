@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Drive Home",
+    "slug": "drive-home",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "drivehome",
+    "plugins": [
+      "expo-router",
+      "expo-location",
+      "expo-av"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dukens11.drivehome",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Drive Home needs your location to track live trips and nearby riders."
+      }
+    },
+    "android": {
+      "package": "com.dukens11.drivehome",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "extra": {
+      "firebase": {
+        "apiKey": "",
+        "authDomain": "",
+        "projectId": "",
+        "databaseURL": "",
+        "storageBucket": "",
+        "messagingSenderId": "",
+        "appId": ""
+      }
+    }
+  }
+}

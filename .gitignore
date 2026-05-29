@@ -2,17 +2,11 @@ node_modules/
 dist/
 .env
 .data/
-mobile/.dart_tool/
-mobile/.flutter-plugins
-mobile/.flutter-plugins-dependencies
-mobile/.packages
-mobile/build/
 
-# Keep committed Flutter platform projects in version control for Codemagic.
-!mobile/android/
-!mobile/ios/
-!mobile/ios/Runner.xcodeproj/**
-!mobile/ios/Runner.xcworkspace/**
-!mobile/ios/Runner/Info.plist
-!mobile/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
-!mobile/ios/Flutter/**
+# Expo mobile app artifacts
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+mobile/web-build/
+mobile/android/
+mobile/ios/
