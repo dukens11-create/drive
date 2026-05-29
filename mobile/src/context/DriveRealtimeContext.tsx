@@ -32,6 +32,13 @@ const rideTemplates = [
   { pickupAddress: '300 Howard St, SoMa', dropoffAddress: 'Ferry Building, Embarcadero' },
   { pickupAddress: '1 Market St, Financial District', dropoffAddress: 'Mission Dolores Park' },
 ];
+const riderNames = ['Janelle R.', 'Marcus T.', 'Lina O.', 'Chris P.'];
+const pickupDistances = [0.7, 1.2, 1.9, 2.4];
+const tripDistances = [4.6, 7.2, 5.4, 8.1];
+const estimatedFares = [12.8, 18.4, 21.9, 26.7];
+const pickupEtas = [3, 4, 6, 5];
+const riderRatings = [4.92, 4.88, 4.95, 4.9];
+let requestCursor = 0;
 
 const seedProfile: DriverProfile = {
   id: 'driver-1',
@@ -49,20 +56,22 @@ const seedMetrics: DriverMetrics = {
 };
 
 const buildRequest = (): RideRequest => {
-  const route = rideTemplates[Math.floor(Math.random() * rideTemplates.length)];
+  const currentIndex = requestCursor % rideTemplates.length;
+  requestCursor += 1;
+  const route = rideTemplates[currentIndex];
 
   return {
     id: `request-${Date.now()}`,
-    riderName: ['Janelle R.', 'Marcus T.', 'Lina O.', 'Chris P.'][Math.floor(Math.random() * 4)],
+    riderName: riderNames[currentIndex],
     pickupAddress: route.pickupAddress,
     dropoffAddress: route.dropoffAddress,
-    pickupPosition: buildTripPoint(0.012),
-    dropoffPosition: buildTripPoint(0.03),
-    pickupDistanceKm: Number((0.4 + Math.random() * 2.8).toFixed(1)),
-    tripDistanceKm: Number((2.4 + Math.random() * 9.2).toFixed(1)),
-    estimatedFare: Number((8 + Math.random() * 24).toFixed(2)),
-    pickupEtaMinutes: Math.floor(2 + Math.random() * 6),
-    riderRating: Number((4.7 + Math.random() * 0.3).toFixed(2)),
+    pickupPosition: buildTripPoint(currentIndex, 0.012),
+    dropoffPosition: buildTripPoint(currentIndex + 3, 0.03),
+    pickupDistanceKm: pickupDistances[currentIndex],
+    tripDistanceKm: tripDistances[currentIndex],
+    estimatedFare: estimatedFares[currentIndex],
+    pickupEtaMinutes: pickupEtas[currentIndex],
+    riderRating: riderRatings[currentIndex],
     expiresAt: Date.now() + 15_000,
   };
 };

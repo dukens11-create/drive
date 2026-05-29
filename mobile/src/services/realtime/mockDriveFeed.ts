@@ -1,22 +1,23 @@
 import type { LatLng, NearbyRequest, RideHistoryItem } from '../../types/drive';
 
 const downtown: LatLng = { latitude: 37.7749, longitude: -122.4194 };
-
-const randomOffset = (spread = 0.04) => (Math.random() - 0.5) * spread;
+const pointOffsets = [0.22, -0.18, 0.3, -0.12, 0.14, -0.26];
+const nearbyDistances = [0.9, 1.3, 2.1, 3.2];
+const nearbySurge = [1.1, 1.4, 1.2, 1.5];
 
 export const getSeedLocation = (): LatLng => downtown;
 
-export const buildTripPoint = (spread = 0.018): LatLng => ({
-  latitude: downtown.latitude + randomOffset(spread),
-  longitude: downtown.longitude + randomOffset(spread),
+export const buildTripPoint = (index = 0, spread = 0.018): LatLng => ({
+  latitude: downtown.latitude + pointOffsets[index % pointOffsets.length] * spread,
+  longitude: downtown.longitude + pointOffsets[(index + 2) % pointOffsets.length] * spread,
 });
 
 export const buildNearbyRequests = (): NearbyRequest[] =>
-  Array.from({ length: 4 }).map((_, index) => ({
+  nearbyDistances.map((distanceKm, index) => ({
     id: `nearby-${index + 1}`,
-    position: buildTripPoint(),
-    distanceKm: Number((0.6 + Math.random() * 3.4).toFixed(1)),
-    surgeMultiplier: Number((1 + Math.random() * 1.2).toFixed(1)),
+    position: buildTripPoint(index + 1),
+    distanceKm,
+    surgeMultiplier: nearbySurge[index],
   }));
 
 export const seedRideHistory = (): RideHistoryItem[] => [
