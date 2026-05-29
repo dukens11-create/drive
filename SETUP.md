@@ -1,18 +1,22 @@
 # Setup
 
+## Backend
+
 1. Copy `.env.example` to `.env`.
 2. Run `npm install`.
 3. Run `npm run build`.
 4. Start the API with `npm start`.
 
-## Optional local persistence bootstrap
+## Mobile (Expo)
 
-- Default mode is in-memory (`DATA_STORE_MODE=memory`).
-- To persist data across restarts, set:
-  - `DATA_STORE_MODE=file`
-  - `DATA_STORE_FILE=.data/store.json` (or another writable path)
+1. `cd mobile`
+2. `npm install`
+3. `npm start`
 
-## Basic test run
+Optional mobile validation:
+- `npm run typecheck`
+
+## Basic backend test run
 
 Run `npm test` to compile and execute core API route tests.
 

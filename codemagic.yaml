@@ -1,12 +1,8 @@
 workflows:
-  mobile-flutter-build:
-    name: Drive Flutter app (mobile subfolder)
+  mobile-expo-build:
+    name: Drive Expo app (mobile subfolder)
     environment:
-      flutter: stable
-      xcode: latest
-      cocoapods: default
-      vars:
-        PROJECT_NAME: drive_mobile
+      node: 20
     triggering:
       events:
         - push
@@ -16,89 +12,14 @@ workflows:
           include: true
           source: true
     scripts:
-      - name: Validate required platform files are tracked (blocking)
+      - name: Install mobile dependencies
         working_directory: mobile
-        script: |
-          required_platform_files=(
-            android/gradlew
-            android/gradlew.bat
-            android/gradle/wrapper/gradle-wrapper.jar
-            android/gradle/wrapper/gradle-wrapper.properties
-            android/app/src/main/AndroidManifest.xml
-            ios/Podfile
-            ios/Runner/Info.plist
-            ios/Runner.xcodeproj/project.pbxproj
-            ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
-            ios/Runner.xcworkspace/contents.xcworkspacedata
-            ios/Flutter/Debug.xcconfig
-            ios/Flutter/Release.xcconfig
-          )
-
-          check_required_platform_files() {
-            local has_missing=0
-            for file in "${required_platform_files[@]}"; do
-              if [ ! -e "$file" ]; then
-                echo "Missing required committed platform file: $file"
-                has_missing=1
-              fi
-            done
-            return "$has_missing"
-          }
-
-          ensure_files_are_tracked() {
-            local has_untracked=0
-            for file in "${required_platform_files[@]}"; do
-              if ! git ls-files --error-unmatch "$file" >/dev/null 2>&1; then
-                echo "Required platform file is not tracked in git: $file"
-                has_untracked=1
-              fi
-            done
-            return "$has_untracked"
-          }
-
-          if ! check_required_platform_files || ! ensure_files_are_tracked; then
-            cat <<'EOF'
-          BLOCKING: Codemagic requires committed iOS Runner project artifacts from the repository.
-          First verify these files are already tracked in your branch on GitHub.
-          If any are missing, run the following locally on a Mac from mobile/ and commit the result before retrying CI:
-            flutter create .
-            git add -f ios/
-
-          Then verify in GitHub that these files exist:
-            mobile/ios/Runner.xcworkspace/contents.xcworkspacedata
-            mobile/ios/Runner.xcodeproj/project.pbxproj
-            mobile/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
-            mobile/ios/Runner/Info.plist
-            mobile/ios/Flutter/Debug.xcconfig
-            mobile/ios/Flutter/Release.xcconfig
-          EOF
-            if [ -f ios/.gitignore ]; then
-              echo "Check ios/.gitignore for accidental exclusions."
-            fi
-            exit 1
-          fi
-
-          echo "All required platform files are present."
-          echo "Runner.xcscheme path: ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme"
-          ls -la ios/Runner.xcodeproj/xcshareddata/xcschemes/
-      - name: Get Flutter packages
+        script: npm ci
+      - name: Typecheck Expo app
         working_directory: mobile
-        script: flutter pub get
-      - name: Analyze Flutter app
+        script: npm run typecheck
+      - name: Export Expo bundle
         working_directory: mobile
-        script: flutter analyze
-      - name: Run Flutter tests
-        working_directory: mobile
-        script: flutter test
-      - name: Build Android release APK
-        working_directory: mobile
-        script: flutter build apk --release
-      - name: Install iOS CocoaPods
-        working_directory: mobile/ios
-        script: pod install
-      - name: Build iOS release app bundle
-        working_directory: mobile
-        script: flutter build ios --release --no-codesign
+        script: npx expo export --platform android --platform ios
     artifacts:
-      - mobile/build/app/outputs/flutter-apk/app-release.apk
-      - mobile/build/ios/iphoneos/Runner.app
+      - mobile/dist/**
