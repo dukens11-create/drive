@@ -1,8 +1,10 @@
 workflows:
-  mobile-expo-build:
-    name: Drive Expo app (mobile subfolder)
+  android-release:
+    name: Drive Android release APK (Expo + EAS)
     environment:
       node: 20.11.1
+      vars:
+        EAS_LOCAL_BUILD_SKIP_CLEANUP: "1" # Keep local build outputs so Gradle APK path can be validated.
     triggering:
       events:
         - push
@@ -18,8 +20,42 @@ workflows:
       - name: Typecheck Expo app
         working_directory: mobile
         script: npm run typecheck
-      - name: Export Expo bundle
+      - name: Install EAS CLI
+        script: npm install --global eas-cli
+      - name: Validate EAS authentication
+        # Keep EXPO_TOKEN in Codemagic secure environment variables for non-interactive production builds.
+        script: test -n "$EXPO_TOKEN"
+      - name: Ensure Android project exists for Gradle release build
         working_directory: mobile
-        script: npx expo export --platform android --platform ios
+        script: npx expo prebuild --platform android
+      - name: Configure release signing + assembleRelease in Gradle
+        working_directory: mobile/android
+        script: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("app/build.gradle")
+          text = path.read_text()
+
+          signing_block = "    signingConfigs {\n        debug {\n            storeFile file('debug.keystore')\n            storePassword 'android'\n            keyAlias 'androiddebugkey'\n            keyPassword 'android'\n        }\n    }\n\n"
+          if "signingConfigs {" not in text:
+              text = text.replace("android {", "android {\n" + signing_block, 1)
+
+          release_block = "        release {\n            signingConfig signingConfigs.debug\n            minifyEnabled false\n            shrinkResources false\n            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'\n        }"
+          if "signingConfig signingConfigs.debug" not in text:
+              text = text.replace("        release {", release_block, 1)
+
+          path.write_text(text)
+          PY
+      - name: Build APK with EAS production profile
+        working_directory: mobile
+        script: npx eas build --platform android --profile production --local --non-interactive --output app-release.apk
+      - name: Verify Gradle release APK path
+        working_directory: mobile/android
+        script: |
+          ./gradlew :app:assembleRelease
+          ls -lah app/build/outputs/apk/release/app-release.apk
+      - name: Copy final APK artifact
+        script: cp mobile/app-release.apk app-release.apk
     artifacts:
-      - mobile/dist/**
+      - app-release.apk
+      - mobile/android/app/build/outputs/apk/release/app-release.apk
