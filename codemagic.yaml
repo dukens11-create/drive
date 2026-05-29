@@ -4,7 +4,7 @@ workflows:
     environment:
       node: 20.11.1
       vars:
-        EAS_LOCAL_BUILD_SKIP_CLEANUP: "1" # Keep local build outputs so Gradle APK path can be validated.
+        EAS_LOCAL_BUILD_SKIP_CLEANUP: "1" # Keep local build outputs so APK verification can inspect generated files.
     triggering:
       events:
         - push
@@ -24,38 +24,20 @@ workflows:
         script: npm install --global eas-cli
       - name: Validate EAS authentication
         # Keep EXPO_TOKEN in Codemagic secure environment variables for non-interactive production builds.
-        script: test -n "$EXPO_TOKEN"
+        script: test -n "$EXPO_TOKEN" || { echo "EXPO_TOKEN environment variable is not set. Configure it in Codemagic secure environment variables."; exit 1; }
       - name: Ensure Android project exists for Gradle release build
         working_directory: mobile
         script: npx expo prebuild --platform android
-      - name: Configure release signing + assembleRelease in Gradle
+      - name: Verify Gradle release settings for APK assembly
         working_directory: mobile/android
         script: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path("app/build.gradle")
-          text = path.read_text()
-
-          signing_block = "    signingConfigs {\n        debug {\n            storeFile file('debug.keystore')\n            storePassword 'android'\n            keyAlias 'androiddebugkey'\n            keyPassword 'android'\n        }\n    }\n\n"
-          if "signingConfigs {" not in text:
-              text = text.replace("android {", "android {\n" + signing_block, 1)
-
-          release_block = "        release {\n            signingConfig signingConfigs.debug\n            minifyEnabled false\n            shrinkResources false\n            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'\n        }"
-          if "signingConfig signingConfigs.debug" not in text:
-              text = text.replace("        release {", release_block, 1)
-
-          path.write_text(text)
-          PY
+          ./gradlew :app:assembleRelease --dry-run
+          grep -Eq "signingConfig\\s+" app/build.gradle || { echo "Missing signingConfig in app/build.gradle release settings"; exit 1; }
       - name: Build APK with EAS production profile
         working_directory: mobile
+        # output path is relative to `mobile/` because this step runs with `working_directory: mobile`
         script: npx eas build --platform android --profile production --local --non-interactive --output app-release.apk
-      - name: Verify Gradle release APK path
-        working_directory: mobile/android
-        script: |
-          ./gradlew :app:assembleRelease
-          ls -lah app/build/outputs/apk/release/app-release.apk
-      - name: Copy final APK artifact
-        script: cp mobile/app-release.apk app-release.apk
+      - name: Verify APK artifact exists
+        script: test -f mobile/app-release.apk
     artifacts:
-      - app-release.apk
-      - mobile/android/app/build/outputs/apk/release/app-release.apk
+      - mobile/app-release.apk
