@@ -2,17 +2,19 @@ import type { LatLng, NearbyRequest, RideHistoryItem } from '../../types/drive';
 
 const downtown: LatLng = { latitude: 37.7749, longitude: -122.4194 };
 
-const randomOffset = () => (Math.random() - 0.5) * 0.04;
+const randomOffset = (spread = 0.04) => (Math.random() - 0.5) * spread;
 
 export const getSeedLocation = (): LatLng => downtown;
+
+export const buildTripPoint = (spread = 0.018): LatLng => ({
+  latitude: downtown.latitude + randomOffset(spread),
+  longitude: downtown.longitude + randomOffset(spread),
+});
 
 export const buildNearbyRequests = (): NearbyRequest[] =>
   Array.from({ length: 4 }).map((_, index) => ({
     id: `nearby-${index + 1}`,
-    position: {
-      latitude: downtown.latitude + randomOffset(),
-      longitude: downtown.longitude + randomOffset(),
-    },
+    position: buildTripPoint(),
     distanceKm: Number((0.6 + Math.random() * 3.4).toFixed(1)),
     surgeMultiplier: Number((1 + Math.random() * 1.2).toFixed(1)),
   }));

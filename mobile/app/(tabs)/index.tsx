@@ -11,7 +11,7 @@ import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
 export default function DriveHomeScreen() {
   const mapRef = useRef<MapView | null>(null);
   const scheme = useColorScheme();
-  const { location, nearbyRequests } = useDriveRealtime();
+  const { location, nearbyRequests, activeTrip } = useDriveRealtime();
   const lastCameraCenterRef = useRef(location);
 
   useEffect(() => {
@@ -50,9 +50,18 @@ export default function DriveHomeScreen() {
         showsTraffic
         customMapStyle={scheme === 'dark' ? darkMapStyle : undefined}
       >
-        {nearbyRequests.map((request) => (
-          <Marker key={request.id} coordinate={request.position} pinColor={request.surgeMultiplier > 1.3 ? '#F97316' : '#22C55E'} />
-        ))}
+        <Marker coordinate={location} pinColor="#2563EB" title="You" description="Current driver location" />
+
+        {activeTrip ? (
+          <>
+            <Marker coordinate={activeTrip.pickupPosition} pinColor="#22C55E" title="Pickup" description={activeTrip.pickupAddress} />
+            <Marker coordinate={activeTrip.dropoffPosition} pinColor="#F59E0B" title="Dropoff" description={activeTrip.dropoffAddress} />
+          </>
+        ) : (
+          nearbyRequests.map((request) => (
+            <Marker key={request.id} coordinate={request.position} pinColor={request.surgeMultiplier > 1.3 ? '#F97316' : '#22C55E'} />
+          ))
+        )}
       </MapView>
 
       <TopOverlay />
@@ -69,5 +78,5 @@ const darkMapStyle = [
   { elementType: 'labels.text.fill', stylers: [{ color: '#9ca3af' }] },
   { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#374151' }] },
   { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#4b5563' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0f172a' }] }
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0f172a' }] },
 ];

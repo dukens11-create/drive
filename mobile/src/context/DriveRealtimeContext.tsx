@@ -1,10 +1,11 @@
 import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-import { buildNearbyRequests, getSeedLocation, seedRideHistory } from '../services/realtime/mockDriveFeed';
-import type { DriverMetrics, DriverProfile, LatLng, RideHistoryItem, RideRequest } from '../types/drive';
+import { buildNearbyRequests, buildTripPoint, getSeedLocation, seedRideHistory } from '../services/realtime/mockDriveFeed';
+import type { ActiveTrip, DriverMetrics, DriverProfile, LatLng, RideHistoryItem, RideRequest } from '../types/drive';
+import { getNextTripStatus } from '../utils/driveStatus';
 
 type DriveContextValue = {
   profile: DriverProfile;
@@ -12,16 +13,25 @@ type DriveContextValue = {
   location: LatLng;
   nearbyRequests: ReturnType<typeof buildNearbyRequests>;
   activeRequest: RideRequest | null;
+  activeTrip: ActiveTrip | null;
   rideHistory: RideHistoryItem[];
   requestTimeLeft: number;
   setOnline: (isOnline: boolean) => void;
   acceptRequest: () => void;
   declineRequest: () => void;
+  advanceTrip: () => void;
 };
 
 const DriveRealtimeContext = createContext<DriveContextValue | undefined>(undefined);
 
 const requestTone = require('../../assets/sounds/incoming-request.wav');
+
+const rideTemplates = [
+  { pickupAddress: '102 Main St, Downtown', dropoffAddress: 'Pier 39, North Beach' },
+  { pickupAddress: '88 3rd St, Civic Center', dropoffAddress: 'Oracle Park, SoMa' },
+  { pickupAddress: '300 Howard St, SoMa', dropoffAddress: 'Ferry Building, Embarcadero' },
+  { pickupAddress: '1 Market St, Financial District', dropoffAddress: 'Mission Dolores Park' },
+];
 
 const seedProfile: DriverProfile = {
   id: 'driver-1',
@@ -29,7 +39,7 @@ const seedProfile: DriverProfile = {
   avatarUrl: 'https://images.unsplash.com/photo-1542909168-82c3e7fdca5c?auto=format&fit=crop&w=200&q=80',
   vehicleStatus: 'good',
   isOnline: true,
-  status: 'available',
+  status: 'waiting',
 };
 
 const seedMetrics: DriverMetrics = {
@@ -38,14 +48,24 @@ const seedMetrics: DriverMetrics = {
   hoursOnline: 6.8,
 };
 
-const buildRequest = (): RideRequest => ({
-  id: `request-${Date.now()}`,
-  riderName: ['Janelle R.', 'Marcus T.', 'Lina O.'][Math.floor(Math.random() * 3)],
-  pickupAddress: ['102 Main St, Downtown', '88 3rd St, Civic Center', '300 Howard St, SoMa'][Math.floor(Math.random() * 3)],
-  distanceKm: Number((0.4 + Math.random() * 2.8).toFixed(1)),
-  estimatedFare: Number((8 + Math.random() * 24).toFixed(2)),
-  expiresAt: Date.now() + 15_000,
-});
+const buildRequest = (): RideRequest => {
+  const route = rideTemplates[Math.floor(Math.random() * rideTemplates.length)];
+
+  return {
+    id: `request-${Date.now()}`,
+    riderName: ['Janelle R.', 'Marcus T.', 'Lina O.', 'Chris P.'][Math.floor(Math.random() * 4)],
+    pickupAddress: route.pickupAddress,
+    dropoffAddress: route.dropoffAddress,
+    pickupPosition: buildTripPoint(0.012),
+    dropoffPosition: buildTripPoint(0.03),
+    pickupDistanceKm: Number((0.4 + Math.random() * 2.8).toFixed(1)),
+    tripDistanceKm: Number((2.4 + Math.random() * 9.2).toFixed(1)),
+    estimatedFare: Number((8 + Math.random() * 24).toFixed(2)),
+    pickupEtaMinutes: Math.floor(2 + Math.random() * 6),
+    riderRating: Number((4.7 + Math.random() * 0.3).toFixed(2)),
+    expiresAt: Date.now() + 15_000,
+  };
+};
 
 const playIncomingRequestSound = async () => {
   try {
@@ -67,8 +87,9 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
   const [location, setLocation] = useState<LatLng>(getSeedLocation());
   const [nearbyRequests, setNearbyRequests] = useState(buildNearbyRequests());
   const [activeRequest, setActiveRequest] = useState<RideRequest | null>(null);
+  const [activeTrip, setActiveTrip] = useState<ActiveTrip | null>(null);
   const [rideHistory, setRideHistory] = useState<RideHistoryItem[]>(seedRideHistory());
-  const tripResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [requestTimeLeft, setRequestTimeLeft] = useState(0);
 
   useEffect(() => {
     let watcher: Location.LocationSubscription | null = null;
@@ -92,20 +113,14 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
     return () => watcher?.remove();
   }, []);
 
-  useEffect(() => () => {
-    if (tripResetTimeoutRef.current) {
-      clearTimeout(tripResetTimeoutRef.current);
-    }
-  }, []);
-
   useEffect(() => {
     const metricsTicker = setInterval(() => {
       if (!profile.isOnline) {
         return;
       }
+
       setMetrics((current) => ({
-        earningsToday: Number((current.earningsToday + Math.random() * 1.8).toFixed(2)),
-        tripsCompleted: current.tripsCompleted,
+        ...current,
         hoursOnline: Number((current.hoursOnline + 0.01).toFixed(2)),
       }));
       setNearbyRequests(buildNearbyRequests());
@@ -115,80 +130,118 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
   }, [profile.isOnline]);
 
   useEffect(() => {
-    const requestTicker = setInterval(() => {
-      if (!profile.isOnline || activeRequest) {
-        return;
-      }
-      const nextRequest = buildRequest();
-      setActiveRequest(nextRequest);
-      void playIncomingRequestSound();
-    }, 26000);
-
-    return () => clearInterval(requestTicker);
-  }, [activeRequest, profile.isOnline]);
-
-  useEffect(() => {
-    if (!activeRequest) {
+    if (!profile.isOnline || activeRequest || activeTrip) {
       return;
     }
 
-    const timer = setInterval(() => {
-      if (Date.now() > activeRequest.expiresAt) {
+    const pushRequest = () => {
+      const nextRequest = buildRequest();
+      setActiveRequest(nextRequest);
+      void playIncomingRequestSound();
+    };
+
+    const warmup = setTimeout(pushRequest, 4500);
+    const requestTicker = setInterval(pushRequest, 28_000);
+
+    return () => {
+      clearTimeout(warmup);
+      clearInterval(requestTicker);
+    };
+  }, [activeRequest, activeTrip, profile.isOnline]);
+
+  useEffect(() => {
+    if (!activeRequest) {
+      setRequestTimeLeft(0);
+      return;
+    }
+
+    const syncRequestTimer = () => {
+      const secondsLeft = Math.max(0, Math.ceil((activeRequest.expiresAt - Date.now()) / 1000));
+      setRequestTimeLeft(secondsLeft);
+
+      if (secondsLeft === 0) {
         setActiveRequest(null);
       }
-    }, 250);
+    };
+
+    syncRequestTimer();
+    const timer = setInterval(syncRequestTimer, 250);
 
     return () => clearInterval(timer);
   }, [activeRequest]);
 
   const acceptRequest = useCallback(() => {
-    if (!activeRequest || !profile.isOnline || profile.status !== 'available') {
+    if (!activeRequest || !profile.isOnline || profile.status !== 'waiting') {
       return;
     }
 
-    setProfile((current) => ({ ...current, status: 'on-trip' }));
-    setMetrics((current) => ({
-      ...current,
-      tripsCompleted: current.tripsCompleted + 1,
-      earningsToday: Number((current.earningsToday + activeRequest.estimatedFare * 0.72).toFixed(2)),
-    }));
-    setRideHistory((current) => [
-      {
-        id: activeRequest.id,
-        riderName: activeRequest.riderName,
-        route: `Pickup: ${activeRequest.pickupAddress}`,
-        fare: activeRequest.estimatedFare,
-        timeLabel: 'Now',
-      },
-      ...current,
-    ]);
+    const nextTrip: ActiveTrip = {
+      ...activeRequest,
+      status: 'accepted',
+    };
+
+    setActiveTrip(nextTrip);
+    setProfile((current) => ({ ...current, status: 'accepted' }));
     setActiveRequest(null);
-
-    if (tripResetTimeoutRef.current) {
-      clearTimeout(tripResetTimeoutRef.current);
-    }
-
-    tripResetTimeoutRef.current = setTimeout(() => {
-      setProfile((current) => ({ ...current, status: current.isOnline ? 'available' : 'break' }));
-      tripResetTimeoutRef.current = null;
-    }, 10_000);
   }, [activeRequest, profile.isOnline, profile.status]);
 
   const declineRequest = useCallback(() => {
     setActiveRequest(null);
   }, []);
 
-  const requestTimeLeft = activeRequest ? Math.max(0, Math.ceil((activeRequest.expiresAt - Date.now()) / 1000)) : 0;
+  const advanceTrip = useCallback(() => {
+    if (!activeTrip) {
+      return;
+    }
+
+    if (activeTrip.status === 'completed') {
+      setActiveTrip(null);
+      setProfile((current) => ({ ...current, status: current.isOnline ? 'waiting' : 'offline' }));
+      return;
+    }
+
+    const nextStatus = getNextTripStatus(activeTrip.status);
+    if (!nextStatus) {
+      return;
+    }
+
+    setActiveTrip((current) => (current ? { ...current, status: nextStatus } : current));
+    setProfile((current) => ({ ...current, status: nextStatus }));
+
+    if (nextStatus === 'completed') {
+      setMetrics((current) => ({
+        ...current,
+        tripsCompleted: current.tripsCompleted + 1,
+        earningsToday: Number((current.earningsToday + activeTrip.estimatedFare * 0.78).toFixed(2)),
+      }));
+      setRideHistory((current) => [
+        {
+          id: activeTrip.id,
+          riderName: activeTrip.riderName,
+          route: `${activeTrip.pickupAddress} → ${activeTrip.dropoffAddress}`,
+          fare: activeTrip.estimatedFare,
+          timeLabel: 'Now',
+        },
+        ...current,
+      ]);
+    }
+  }, [activeTrip]);
 
   const setOnline = useCallback((isOnline: boolean) => {
     setProfile((current) => ({
       ...current,
       isOnline,
-      status: isOnline ? 'available' : 'break',
+      status: isOnline ? 'waiting' : 'offline',
     }));
-    if (!isOnline) {
-      setActiveRequest(null);
+
+    if (isOnline) {
+      setNearbyRequests(buildNearbyRequests());
+      return;
     }
+
+    setActiveRequest(null);
+    setActiveTrip(null);
+    setRequestTimeLeft(0);
   }, []);
 
   const value = useMemo(
@@ -198,13 +251,15 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       location,
       nearbyRequests,
       activeRequest,
+      activeTrip,
       rideHistory,
       requestTimeLeft,
       setOnline,
       acceptRequest,
       declineRequest,
+      advanceTrip,
     }),
-    [acceptRequest, activeRequest, declineRequest, location, metrics, nearbyRequests, profile, requestTimeLeft, rideHistory, setOnline]
+    [acceptRequest, activeRequest, activeTrip, advanceTrip, declineRequest, location, metrics, nearbyRequests, profile, requestTimeLeft, rideHistory, setOnline]
   );
 
   return <DriveRealtimeContext.Provider value={value}>{children}</DriveRealtimeContext.Provider>;
