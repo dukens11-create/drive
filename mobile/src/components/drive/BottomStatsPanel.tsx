@@ -1,22 +1,42 @@
-import { Pressable, Text, View } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { Text, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 import { useDriveRealtime } from '../../context/DriveRealtimeContext';
 import { driverStatusMeta } from '../../utils/driveStatus';
 
-const COLLAPSED_PANEL_HEIGHT = 176;
-const EXPANDED_PANEL_HEIGHT = 436;
+const SNAP_PEEK = 96;
+const SNAP_HALF = 224;
+const SNAP_FULL = 464;
+const SNAP_POINTS = [SNAP_PEEK, SNAP_HALF, SNAP_FULL];
+
+const clampToBounds = (value: number) => {
+  'worklet';
+  return Math.max(SNAP_PEEK, Math.min(SNAP_FULL, value));
+};
+
+const findClosestSnapPoint = (value: number) => {
+  'worklet';
+  return SNAP_POINTS.reduce((prev, curr) =>
+    Math.abs(curr - value) < Math.abs(prev - value) ? curr : prev
+  );
+};
 
 export const BottomStatsPanel = () => {
   const { metrics, rideHistory, profile, activeTrip, nearbyRequests } = useDriveRealtime();
-  const panelHeight = useSharedValue(COLLAPSED_PANEL_HEIGHT);
+  const panelHeight = useSharedValue(SNAP_HALF);
+  const startHeight = useSharedValue(SNAP_HALF);
 
-  const toggleExpanded = () => {
-    panelHeight.value = withTiming(
-      panelHeight.value === COLLAPSED_PANEL_HEIGHT ? EXPANDED_PANEL_HEIGHT : COLLAPSED_PANEL_HEIGHT,
-      { duration: 250 }
-    );
-  };
+  const gesture = Gesture.Pan()
+    .onBegin(() => {
+      startHeight.value = panelHeight.value;
+    })
+    .onUpdate((e) => {
+      panelHeight.value = clampToBounds(startHeight.value - e.translationY);
+    })
+    .onEnd(() => {
+      panelHeight.value = withSpring(findClosestSnapPoint(panelHeight.value), { damping: 20, stiffness: 200 });
+    });
 
   const panelStyle = useAnimatedStyle(() => ({
     height: panelHeight.value,
@@ -26,30 +46,40 @@ export const BottomStatsPanel = () => {
     ? `${driverStatusMeta[activeTrip.status].subtitle} · ${activeTrip.riderName}`
     : profile.isOnline
       ? 'Online now and matching with nearby riders in the busiest zones.'
-      : 'You are offline. Toggle online when you are ready to drive.';
+      : 'Go online to start receiving ride requests from nearby riders.';
+
   const peakZone = nearbyRequests.reduce<(typeof nearbyRequests)[number] | null>(
     (best, current) => (!best || current.surgeMultiplier > best.surgeMultiplier ? current : best),
     null
   );
 
   return (
-    <Animated.View style={panelStyle} className="absolute bottom-20 left-0 right-0 z-20 rounded-t-[32px] bg-white px-5 pb-5 pt-4 shadow-soft dark:bg-zinc-900">
-      <Pressable className="items-center pb-3" onPress={toggleExpanded}>
-        <View className="h-1.5 w-16 rounded-full bg-zinc-300 dark:bg-zinc-700" />
-      </Pressable>
+    <Animated.View style={panelStyle} className="absolute bottom-20 left-0 right-0 z-20 overflow-hidden rounded-t-[32px] bg-white px-5 pb-5 shadow-soft dark:bg-zinc-900">
+      <GestureDetector gesture={gesture}>
+        <View className="items-center pb-4 pt-3">
+          <View className="h-1.5 w-14 rounded-full bg-zinc-300 dark:bg-zinc-600" />
+        </View>
+      </GestureDetector>
 
+      {/* Earnings strip — always visible at peek height */}
       <View className="flex-row justify-between rounded-2xl bg-zinc-100 p-3 dark:bg-zinc-800">
         <StatItem label="Today" value={`$${metrics.earningsToday.toFixed(2)}`} />
         <StatItem label="Trips" value={String(metrics.tripsCompleted)} />
         <StatItem label="Hours" value={metrics.hoursOnline.toFixed(1)} />
       </View>
 
+      {/* Session status */}
       <View className="mt-4 rounded-3xl bg-zinc-100 p-4 dark:bg-zinc-800">
-        <Text className="text-xs uppercase tracking-[0.2em] text-zinc-500 dark:text-zinc-300">Current session</Text>
-        <Text className="mt-2 text-lg font-semibold text-zinc-900 dark:text-zinc-100">{driverStatusMeta[profile.status].label}</Text>
+        <Text className="text-xs uppercase tracking-[0.2em] text-zinc-500 dark:text-zinc-400">
+          Current session
+        </Text>
+        <Text className="mt-2 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+          {driverStatusMeta[profile.status].label}
+        </Text>
         <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">{liveSubtitle}</Text>
       </View>
 
+      {/* Recent rides */}
       <View className="mt-4 gap-3">
         {rideHistory.slice(0, 3).map((ride) => (
           <View key={ride.id} className="rounded-2xl border border-zinc-200 p-3 dark:border-zinc-700">
@@ -68,9 +98,16 @@ export const BottomStatsPanel = () => {
       <View className="mt-4 flex-row gap-3">
         <InfoCard
           title="Peak area"
-          subtitle={peakZone ? `${peakZone.zoneName} surge x${peakZone.surgeMultiplier.toFixed(1)} active now` : 'City demand is steady'}
+          subtitle={
+            peakZone
+              ? `${peakZone.zoneName} surge x${peakZone.surgeMultiplier.toFixed(1)} active`
+              : 'City demand is steady'
+          }
         />
-        <InfoCard title="Vehicle" subtitle={profile.vehicleStatus === 'good' ? 'Inspection up to date' : 'Service due soon'} />
+        <InfoCard
+          title="Vehicle"
+          subtitle={profile.vehicleStatus === 'good' ? 'Inspection up to date' : 'Service due soon'}
+        />
       </View>
     </Animated.View>
   );

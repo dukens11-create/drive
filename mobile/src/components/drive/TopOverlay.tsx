@@ -9,38 +9,49 @@ export const TopOverlay = () => {
   const statusMeta = driverStatusMeta[profile.status];
 
   return (
-    <View className="absolute left-4 right-4 top-14 z-20 rounded-3xl bg-white/92 p-4 shadow-soft dark:bg-zinc-900/92">
-      <View className="flex-row items-center justify-between gap-3">
-        <View className="flex-1 flex-row items-center gap-3">
-          <Image source={profile.avatarUrl ? { uri: profile.avatarUrl } : require('../../../assets/icon.png')} className="h-12 w-12 rounded-full" />
-          <View className="flex-1">
-            <Text className="text-lg font-semibold text-zinc-950 dark:text-zinc-100">{profile.name}</Text>
-            <View className="mt-1 flex-row items-center gap-2">
-              <View className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: statusMeta.accentColor }} />
-              <Text className="text-xs font-medium text-zinc-700 dark:text-zinc-200">{statusMeta.label}</Text>
-            </View>
-            <Text className="mt-1 text-xs text-zinc-500 dark:text-zinc-300">
-              {activeTrip ? `${activeTrip.pickupAddress} → ${activeTrip.dropoffAddress}` : statusMeta.subtitle}
-            </Text>
+    <View className="absolute left-4 right-4 top-14 z-20">
+      {/* Main driver card */}
+      <View className="flex-row items-center rounded-3xl bg-white/95 px-4 py-3 shadow-soft dark:bg-zinc-900/95">
+        <Image
+          source={profile.avatarUrl ? { uri: profile.avatarUrl } : require('../../../assets/icon.png')}
+          className="h-10 w-10 rounded-full"
+        />
+
+        <View className="ml-3 flex-1">
+          <View className="flex-row items-center gap-2">
+            <View className="h-2 w-2 rounded-full" style={{ backgroundColor: statusMeta.accentColor }} />
+            <Text className="text-sm font-semibold text-zinc-950 dark:text-zinc-100">{profile.name}</Text>
           </View>
-        </View>
-
-        <View className="items-end rounded-3xl bg-zinc-100 px-3 py-2 dark:bg-zinc-800">
-          <Text className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-300">
-            {profile.isOnline ? 'Go Offline' : 'Go Online'}
+          <Text className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400" numberOfLines={1}>
+            {activeTrip ? `${activeTrip.pickupAddress} → ${activeTrip.dropoffAddress}` : statusMeta.label}
           </Text>
-          <Switch value={profile.isOnline} onValueChange={(value) => void setOnline(value)} trackColor={{ false: '#A1A1AA', true: '#22C55E' }} />
         </View>
-      </View>
 
-      <View className="mt-3 flex-row items-center justify-end">
-        <Pressable className="h-10 w-10 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800">
-          <Ionicons name="notifications-outline" size={20} color={profile.isOnline ? '#0f172a' : '#6b7280'} />
+        <View className="ml-2 items-center">
+          <Text className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            {profile.isOnline ? 'Online' : 'Offline'}
+          </Text>
+          <Switch
+            value={profile.isOnline}
+            onValueChange={(value) => void setOnline(value)}
+            trackColor={{ false: '#A1A1AA', true: '#22C55E' }}
+            thumbColor="#FFFFFF"
+          />
+        </View>
+
+        <Pressable className="ml-2 h-9 w-9 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800">
+          <Ionicons name="notifications-outline" size={18} color={profile.isOnline ? '#0f172a' : '#6b7280'} />
         </Pressable>
       </View>
 
+      {/* Error / onboarding banner */}
       {(error || onboardingRequired) ? (
-        <Text className="mt-2 text-xs text-rose-500 dark:text-rose-300">{error || 'Finish onboarding to unlock online mode.'}</Text>
+        <View className="mt-2 flex-row items-center gap-2 rounded-2xl bg-rose-500/90 px-4 py-2">
+          <Ionicons name="alert-circle-outline" size={14} color="#FFFFFF" />
+          <Text className="flex-1 text-xs font-medium text-white">
+            {error || 'Finish onboarding to unlock online mode.'}
+          </Text>
+        </View>
       ) : null}
     </View>
   );
