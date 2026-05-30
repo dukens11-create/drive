@@ -44,5 +44,18 @@ export const env = {
   adminSeedPassword: getRequiredInProduction('ADMIN_SEED_PASSWORD', 'change_me_admin_password'),
   stripeWebhookSecret: getString('STRIPE_WEBHOOK_SECRET'),
   dataStoreMode,
-  dataStoreFile: getString('DATA_STORE_FILE', '.data/store.json')
+  dataStoreFile: getString('DATA_STORE_FILE', '.data/store.json'),
+  // Twilio (SMS)
+  twilioAccountSid: getString('TWILIO_ACCOUNT_SID'),
+  twilioAuthToken: getString('TWILIO_AUTH_TOKEN'),
+  twilioFromNumber: getString('TWILIO_FROM_NUMBER'),
+  // SendGrid (email)
+  sendGridApiKey: getString('SENDGRID_API_KEY'),
+  sendGridFromEmail: getString('SENDGRID_FROM_EMAIL'),
+  // Firebase Cloud Messaging (push notifications)
+  fcmServerKey: getString('FCM_SERVER_KEY'),
+  // App base URL for links in emails
+  appBaseUrl: getString('APP_BASE_URL', 'https://app.drive.com'),
+  // Sentry
+  sentryDsn: getString('SENTRY_DSN')
 };

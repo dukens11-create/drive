@@ -238,6 +238,186 @@ export type MarketplaceDelivery = {
   createdAt: string;
 };
 
+// ─── Scheduled Rides ────────────────────────────────────────────────────────
+
+export type ScheduledRideStatus = 'scheduled' | 'dispatched' | 'completed' | 'canceled';
+
+export type ScheduledRide = {
+  id: string;
+  riderId: string;
+  pickupLat?: number;
+  pickupLng?: number;
+  dropoffLat?: number;
+  dropoffLng?: number;
+  pickupAddress?: string;
+  dropoffAddress?: string;
+  scheduledAt: string;
+  status: ScheduledRideStatus;
+  rideId?: string;
+  reminderSentAt?: string;
+  canceledAt?: string;
+  cancellationReason?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// ─── Subscription Plans ──────────────────────────────────────────────────────
+
+export type SubscriptionTier = 'basic' | 'premium' | 'unlimited';
+
+export type SubscriptionPlan = {
+  id: string;
+  name: string;
+  tier: SubscriptionTier;
+  priceCents: number;
+  billingCycleDays: number;
+  ridesIncluded: number | 'unlimited';
+  discountPercent: number;
+  features: string[];
+  active: boolean;
+  createdAt: string;
+};
+
+export type UserSubscription = {
+  id: string;
+  userId: string;
+  planId: string;
+  tier: SubscriptionTier;
+  status: 'active' | 'canceled' | 'expired' | 'past_due';
+  ridesUsedThisCycle: number;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  canceledAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// ─── Loyalty Program ────────────────────────────────────────────────────────
+
+export type LoyaltyTier = 'bronze' | 'silver' | 'gold' | 'platinum';
+
+export type LoyaltyAccount = {
+  userId: string;
+  points: number;
+  tier: LoyaltyTier;
+  lifetimePoints: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LoyaltyTransaction = {
+  id: string;
+  userId: string;
+  points: number;
+  type: 'earn' | 'redeem' | 'expire' | 'bonus';
+  reason: string;
+  rideId?: string;
+  createdAt: string;
+};
+
+// ─── Corporate Accounts ──────────────────────────────────────────────────────
+
+export type CorporateAccountStatus = 'active' | 'suspended' | 'pending';
+
+export type CorporateAccount = {
+  id: string;
+  companyName: string;
+  billingEmail: string;
+  adminUserId: string;
+  status: CorporateAccountStatus;
+  creditLimitCents: number;
+  usedCreditCents: number;
+  invoiceCycleDays: number;
+  allowedEmployeeIds: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CorporateRideTag = {
+  rideId: string;
+  corporateAccountId: string;
+  employeeId: string;
+  billableCents: number;
+  invoiced: boolean;
+  createdAt: string;
+};
+
+// ─── Carpooling ──────────────────────────────────────────────────────────────
+
+export type CarpoolRideStatus = 'open' | 'full' | 'in_progress' | 'completed' | 'canceled';
+
+export type CarpoolPassenger = {
+  userId: string;
+  pickupLat?: number;
+  pickupLng?: number;
+  dropoffLat?: number;
+  dropoffLng?: number;
+  fareShareCents: number;
+  joinedAt: string;
+};
+
+export type CarpoolRide = {
+  id: string;
+  driverId?: string;
+  maxPassengers: number;
+  passengers: CarpoolPassenger[];
+  routeStartLat?: number;
+  routeStartLng?: number;
+  routeEndLat?: number;
+  routeEndLng?: number;
+  status: CarpoolRideStatus;
+  departsAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// ─── Fraud Detection ────────────────────────────────────────────────────────
+
+export type FraudRiskLevel = 'low' | 'medium' | 'high' | 'critical';
+
+export type FraudAlert = {
+  id: string;
+  userId: string;
+  rideId?: string;
+  paymentId?: string;
+  riskLevel: FraudRiskLevel;
+  signals: string[];
+  score: number;
+  reviewed: boolean;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  action?: 'none' | 'warn' | 'suspend' | 'ban';
+  createdAt: string;
+};
+
+// ─── Two-Factor Authentication ───────────────────────────────────────────────
+
+export type TotpEntry = {
+  userId: string;
+  secret: string;
+  enabled: boolean;
+  verifiedAt?: string;
+  backupCodes: string[];
+  createdAt: string;
+};
+
+// ─── Notification Log ────────────────────────────────────────────────────────
+
+export type NotificationChannel = 'sms' | 'email' | 'push';
+
+export type NotificationLog = {
+  id: string;
+  userId?: string;
+  channel: NotificationChannel;
+  recipient: string;
+  template: string;
+  status: 'sent' | 'failed' | 'queued';
+  provider: string;
+  errorMessage?: string;
+  createdAt: string;
+};
+
 const now = () => new Date().toISOString();
 
 export function makeId(prefix: string) {
@@ -271,6 +451,17 @@ type PersistedStore = {
   markets: Array<[string, MarketConfig]>;
   adminApiKeys: AdminApiKey[];
   platformSettings: Array<[string, PlatformSettings]>;
+  scheduledRides: ScheduledRide[];
+  subscriptionPlans: Array<[string, SubscriptionPlan]>;
+  userSubscriptions: Array<[string, UserSubscription]>;
+  loyaltyAccounts: Array<[string, LoyaltyAccount]>;
+  loyaltyTransactions: LoyaltyTransaction[];
+  corporateAccounts: Array<[string, CorporateAccount]>;
+  corporateRideTags: CorporateRideTag[];
+  carpoolRides: Array<[string, CarpoolRide]>;
+  fraudAlerts: FraudAlert[];
+  totpEntries: Array<[string, TotpEntry]>;
+  notificationLogs: NotificationLog[];
 };
 
 let isHydrating = false;
@@ -353,7 +544,18 @@ export const store = {
   referralEvents: createPersistentArray<ReferralEvent>(),
   markets: new PersistentMap<string, MarketConfig>(),
   adminApiKeys: createPersistentArray<AdminApiKey>(),
-  platformSettings: new PersistentMap<string, PlatformSettings>()
+  platformSettings: new PersistentMap<string, PlatformSettings>(),
+  scheduledRides: new PersistentMap<string, ScheduledRide>(),
+  subscriptionPlans: new PersistentMap<string, SubscriptionPlan>(),
+  userSubscriptions: new PersistentMap<string, UserSubscription>(),
+  loyaltyAccounts: new PersistentMap<string, LoyaltyAccount>(),
+  loyaltyTransactions: createPersistentArray<LoyaltyTransaction>(),
+  corporateAccounts: new PersistentMap<string, CorporateAccount>(),
+  corporateRideTags: createPersistentArray<CorporateRideTag>(),
+  carpoolRides: new PersistentMap<string, CarpoolRide>(),
+  fraudAlerts: createPersistentArray<FraudAlert>(),
+  totpEntries: new PersistentMap<string, TotpEntry>(),
+  notificationLogs: createPersistentArray<NotificationLog>()
 };
 
 function toSerializableStore(): PersistedStore {
@@ -377,7 +579,18 @@ function toSerializableStore(): PersistedStore {
     referralEvents: [...store.referralEvents],
     markets: Array.from(store.markets.entries()),
     adminApiKeys: [...store.adminApiKeys],
-    platformSettings: Array.from(store.platformSettings.entries())
+    platformSettings: Array.from(store.platformSettings.entries()),
+    scheduledRides: Array.from(store.scheduledRides.values()),
+    subscriptionPlans: Array.from(store.subscriptionPlans.entries()),
+    userSubscriptions: Array.from(store.userSubscriptions.entries()),
+    loyaltyAccounts: Array.from(store.loyaltyAccounts.entries()),
+    loyaltyTransactions: [...store.loyaltyTransactions],
+    corporateAccounts: Array.from(store.corporateAccounts.entries()),
+    corporateRideTags: [...store.corporateRideTags],
+    carpoolRides: Array.from(store.carpoolRides.entries()),
+    fraudAlerts: [...store.fraudAlerts],
+    totpEntries: Array.from(store.totpEntries.entries()),
+    notificationLogs: [...store.notificationLogs]
   };
 }
 
@@ -432,6 +645,17 @@ function hydrateStore() {
     for (const [id, market] of parsed.markets || []) store.markets.set(id, market);
     for (const apiKey of parsed.adminApiKeys || []) store.adminApiKeys.push(apiKey);
     for (const [key, settings] of parsed.platformSettings || []) store.platformSettings.set(key, settings);
+    for (const ride of parsed.scheduledRides || []) store.scheduledRides.set(ride.id, ride);
+    for (const [id, plan] of parsed.subscriptionPlans || []) store.subscriptionPlans.set(id, plan);
+    for (const [id, sub] of parsed.userSubscriptions || []) store.userSubscriptions.set(id, sub);
+    for (const [id, acct] of parsed.loyaltyAccounts || []) store.loyaltyAccounts.set(id, acct);
+    for (const tx of parsed.loyaltyTransactions || []) store.loyaltyTransactions.push(tx);
+    for (const [id, corp] of parsed.corporateAccounts || []) store.corporateAccounts.set(id, corp);
+    for (const tag of parsed.corporateRideTags || []) store.corporateRideTags.push(tag);
+    for (const [id, carpool] of parsed.carpoolRides || []) store.carpoolRides.set(id, carpool);
+    for (const alert of parsed.fraudAlerts || []) store.fraudAlerts.push(alert);
+    for (const [id, totp] of parsed.totpEntries || []) store.totpEntries.set(id, totp);
+    for (const log of parsed.notificationLogs || []) store.notificationLogs.push(log);
   } finally {
     isHydrating = false;
   }
@@ -552,4 +776,66 @@ export function countCompletedRidesForRider(riderId: string): number {
 
 export function timestamp() {
   return now();
+}
+
+// ─── Loyalty helpers ────────────────────────────────────────────────────────
+
+export function getLoyaltyTier(lifetimePoints: number): LoyaltyTier {
+  if (lifetimePoints >= 10000) return 'platinum';
+  if (lifetimePoints >= 3000) return 'gold';
+  if (lifetimePoints >= 750) return 'silver';
+  return 'bronze';
+}
+
+export function getOrCreateLoyaltyAccount(userId: string): LoyaltyAccount {
+  const existing = store.loyaltyAccounts.get(userId);
+  if (existing) return existing;
+  const acct: LoyaltyAccount = {
+    userId,
+    points: 0,
+    tier: 'bronze',
+    lifetimePoints: 0,
+    createdAt: now(),
+    updatedAt: now()
+  };
+  store.loyaltyAccounts.set(userId, acct);
+  return acct;
+}
+
+export function awardLoyaltyPoints(userId: string, points: number, reason: string, rideId?: string) {
+  const acct = getOrCreateLoyaltyAccount(userId);
+  acct.points += points;
+  acct.lifetimePoints += points;
+  acct.tier = getLoyaltyTier(acct.lifetimePoints);
+  acct.updatedAt = now();
+  store.loyaltyAccounts.set(userId, acct);
+
+  const tx: LoyaltyTransaction = {
+    id: makeId('ltx'),
+    userId,
+    points,
+    type: 'earn',
+    reason,
+    rideId,
+    createdAt: now()
+  };
+  store.loyaltyTransactions.push(tx);
+  markStoreDirty();
+  return tx;
+}
+
+// ─── Subscription helpers ────────────────────────────────────────────────────
+
+export function getActiveSubscription(userId: string): UserSubscription | undefined {
+  return Array.from(store.userSubscriptions.values()).find(
+    s => s.userId === userId && s.status === 'active' && new Date(s.currentPeriodEnd).getTime() > Date.now()
+  );
+}
+
+// ─── Corporate account helpers ────────────────────────────────────────────────
+
+export function getCorporateAccountForEmployee(employeeId: string): CorporateAccount | undefined {
+  return Array.from(store.corporateAccounts.values()).find(
+    c => c.status === 'active' && c.allowedEmployeeIds.includes(employeeId)
+  );
 }

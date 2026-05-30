@@ -18,6 +18,14 @@ import supportRoutes from './support.routes';
 import merchantRoutes from './merchant.routes';
 import marketplaceRoutes from './marketplace.routes';
 import adminRoutes from './admin.routes';
+import scheduledRoutes from './scheduled.routes';
+import subscriptionRoutes from './subscription.routes';
+import loyaltyRoutes from './loyalty.routes';
+import corporateRoutes from './corporate.routes';
+import carpoolRoutes from './carpool.routes';
+import fraudRoutes from './fraud.routes';
+import analyticsRoutes from './analytics.routes';
+import twofaRoutes from './twofa.routes';
 
 export function createApp() {
   const app = express();
@@ -44,6 +52,14 @@ export function createApp() {
   app.use('/api/merchant', merchantRoutes);
   app.use('/api/marketplace', marketplaceRoutes);
   app.use('/api/admin', adminRoutes);
+  app.use('/api/scheduled', scheduledRoutes);
+  app.use('/api/subscriptions', subscriptionRoutes);
+  app.use('/api/loyalty', loyaltyRoutes);
+  app.use('/api/corporate', corporateRoutes);
+  app.use('/api/carpool', carpoolRoutes);
+  app.use('/api/fraud', fraudRoutes);
+  app.use('/api/analytics', analyticsRoutes);
+  app.use('/api/2fa', twofaRoutes);
 
   registerTrackingSocket(io);
   app.use(errorHandler);
