@@ -4,6 +4,7 @@ Drive is now a TypeScript codebase with:
 
 - Backend API at repository root (Node.js + TypeScript)
 - Mobile driver app at `mobile/` (React Native + Expo Router + NativeWind)
+- Passenger web app at `web/` (Next.js + TypeScript + Tailwind CSS)
 
 ## Mobile app: Drive Home
 
@@ -106,3 +107,39 @@ Codemagic Android builds use EAS non-interactive auth and require a secure `EXPO
 - Codemagic (`codemagic.yaml`) runs Expo mobile install/typecheck and EAS local Android APK build from `mobile/` (requires secure `EXPO_TOKEN`).
 
 See **[CI_CD.md](./CI_CD.md)** for the full CI/CD, deployment, environment, and rollback workflow.
+
+## Passenger web app
+
+The `web/` app provides a responsive passenger experience with:
+
+- JWT-ready email/phone authentication screens
+- Ride booking, scheduling, and favorite destination flows
+- Live ride tracking shell with Socket.IO room subscription support
+- Wallet, receipts, transaction exports, and payment method management
+- Promotions, referrals, support tickets, and account preferences
+- Dark mode, locale switching, text scaling, and high-contrast accessibility controls
+- SEO metadata, sitemap, robots, manifest, and a standalone Docker build
+
+### Web setup
+
+```bash
+cd web
+npm ci
+cp .env.example .env.local
+npm run build
+```
+
+Useful web environment variables:
+
+- `NEXT_PUBLIC_API_BASE_URL` – backend API origin for auth/rides/wallet/support integration
+- `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` – enables live Google Places autocomplete
+- `NEXT_PUBLIC_GOOGLE_ANALYTICS_ID` – enables Google Analytics
+- `NEXT_PUBLIC_ENABLE_API_LOGS=true` – prints request/response logs in the browser console
+
+### Web validation
+
+```bash
+cd web
+npm run typecheck
+npm run build
+```
