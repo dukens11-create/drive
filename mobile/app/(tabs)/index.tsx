@@ -9,6 +9,7 @@ import { MapOverlayControls } from '../../src/components/drive/MapOverlayControl
 import { RideRequestCard } from '../../src/components/drive/RideRequestCard';
 import { TopOverlay } from '../../src/components/drive/TopOverlay';
 import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
+import { logDriverError, trackDriverEvent } from '../../src/services/monitoring/telemetry';
 import type { LatLng } from '../../src/types/drive';
 import { buildNavigationRoute, distanceKmBetween } from '../../src/utils/navigation';
 
@@ -118,9 +119,18 @@ export default function DriveHomeScreen() {
         text: `Call ${emergencyNumber}`,
         style: 'destructive',
         onPress: () => {
-          void Linking.openURL(`tel:${emergencyNumber}`).catch(() => {
-            Alert.alert('Unable to open dialer', 'Call your local emergency number directly from this device.');
-          });
+          trackDriverEvent('emergency_call_tapped');
+          void Linking.canOpenURL(`tel:${emergencyNumber}`)
+            .then((supported) => {
+              if (!supported) {
+                throw new Error('Dialer is unavailable on this device.');
+              }
+              return Linking.openURL(`tel:${emergencyNumber}`);
+            })
+            .catch((dialError) => {
+              logDriverError('open_emergency_dialer', dialError, { emergencyNumber });
+              Alert.alert('Unable to open dialer', 'Call your local emergency number directly from this device.');
+            });
         },
       },
     ]);
@@ -132,8 +142,10 @@ export default function DriveHomeScreen() {
       : `Drive status update: I am ${profile.isOnline ? 'online and available with Drive right now' : 'currently offline with Drive'}.`;
 
     try {
+      trackDriverEvent('share_trip_tapped', { hasActiveTrip: Boolean(activeTrip) });
       await Share.share({ title: 'Share Drive trip', message });
     } catch (shareError) {
+      logDriverError('share_trip', shareError, { hasActiveTrip: Boolean(activeTrip) });
       Alert.alert('Unable to share trip', shareError instanceof Error ? shareError.message : 'Please try again.');
     }
   };
@@ -232,13 +244,21 @@ export default function DriveHomeScreen() {
             <Pressable
               className="flex-1 rounded-2xl bg-emerald-500 px-3 py-3"
               onPress={() => {
+                trackDriverEvent('support_open_inbox_tapped');
                 setIsSupportVisible(false);
                 router.push('/(tabs)/inbox');
               }}
+              accessibilityRole="button"
+              accessibilityLabel="Open support inbox"
             >
               <Text className="text-center text-sm font-semibold text-white">Open inbox</Text>
             </Pressable>
-            <Pressable className="rounded-2xl border border-zinc-700 px-3 py-3" onPress={() => setIsSupportVisible(false)}>
+            <Pressable
+              className="rounded-2xl border border-zinc-700 px-3 py-3"
+              onPress={() => setIsSupportVisible(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss support panel"
+            >
               <Text className="text-sm font-semibold text-zinc-100">Dismiss</Text>
             </Pressable>
           </View>
@@ -257,9 +277,10 @@ export default function DriveHomeScreen() {
         onZoomIn={() => updateZoom(zoomLevel + 1)}
         onZoomOut={() => updateZoom(zoomLevel - 1)}
         onOverview={() => {
-          if (!routeData || !mapRef.current) {
+          if (!routeData || !mapRef.current || routeData.polyline.length < 2) {
             return;
           }
+          trackDriverEvent('route_overview_tapped', { tripStatus: activeTrip?.status ?? null });
           mapRef.current.fitToCoordinates(routeData.polyline, {
             edgePadding: ROUTE_OVERVIEW_EDGE_PADDING,
             animated: true,

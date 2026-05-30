@@ -96,7 +96,13 @@ export const RideRequestCard = () => {
           ))}
         </View>
 
-        <Pressable className="mt-4 rounded-2xl px-4 py-3.5" style={{ backgroundColor: statusMeta.accentColor }} onPress={advanceTrip}>
+        <Pressable
+          className="mt-4 rounded-2xl px-4 py-3.5"
+          style={{ backgroundColor: statusMeta.accentColor }}
+          onPress={advanceTrip}
+          accessibilityRole="button"
+          accessibilityLabel={statusMeta.actionLabel}
+        >
           <Text className="text-center text-base font-bold text-white">{statusMeta.actionLabel}</Text>
         </Pressable>
       </View>
@@ -130,7 +136,7 @@ export const RideRequestCard = () => {
           <Text className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: urgentSeconds ? '#EF4444' : '#16A34A' }}>
             Respond in
           </Text>
-          <Text className="mt-1 text-2xl font-bold" style={{ color: urgentSeconds ? '#DC2626' : '#15803D' }}>
+          <Text className="mt-1 text-2xl font-bold" style={{ color: urgentSeconds ? '#DC2626' : '#15803D' }} accessibilityLiveRegion="polite">
             {requestTimeLeft}s
           </Text>
         </View>
@@ -151,10 +157,20 @@ export const RideRequestCard = () => {
         <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Declining keeps you online so the next nearby request can appear right away.</Text>
       </View>
       <View className="mt-4 flex-row gap-3">
-        <Pressable className="flex-1 rounded-2xl bg-zinc-200 px-4 py-3 dark:bg-zinc-800" onPress={declineRequest}>
+        <Pressable
+          className="flex-1 rounded-2xl bg-zinc-200 px-4 py-3 dark:bg-zinc-800"
+          onPress={declineRequest}
+          accessibilityRole="button"
+          accessibilityLabel="Decline request"
+        >
           <Text className="text-center font-semibold text-zinc-800 dark:text-zinc-100">Decline</Text>
         </Pressable>
-        <Pressable className="flex-[2] rounded-2xl bg-emerald-500 px-4 py-3" onPress={acceptRequest}>
+        <Pressable
+          className="flex-[2] rounded-2xl bg-emerald-500 px-4 py-3"
+          onPress={acceptRequest}
+          accessibilityRole="button"
+          accessibilityLabel="Accept request"
+        >
           <Text className="text-center text-base font-bold text-white">Accept</Text>
         </Pressable>
       </View>
