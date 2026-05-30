@@ -79,7 +79,6 @@ jobs:
 
   mobile:
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('mobile/package-lock.json') != '' }}
     defaults:
       run:
         working-directory: mobile
