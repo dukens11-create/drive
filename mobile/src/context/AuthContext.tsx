@@ -19,7 +19,7 @@ type AuthContextValue = {
   onboardingStep: OnboardingStep;
   onboardingProfile: DriverProfileResponse | null;
   errorMessage: string | null;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string, rememberSession?: boolean) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshOnboarding: () => Promise<void>;
@@ -63,20 +63,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const sessionRef = useRef<AuthSession | null>(null);
+  const rememberSessionRef = useRef(true);
 
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
 
-  const persistSession = useCallback(async (nextSession: AuthSession | null) => {
+  const persistSession = useCallback(async (nextSession: AuthSession | null, rememberSession = rememberSessionRef.current) => {
+    rememberSessionRef.current = rememberSession;
     setSession(nextSession);
     sessionRef.current = nextSession;
     if (nextSession) {
-      await sessionStorage.save(nextSession);
+      if (rememberSession) {
+        await sessionStorage.save(nextSession);
+      } else {
+        await sessionStorage.clear();
+      }
       setState('signed_in');
       return;
     }
     await sessionStorage.clear();
+    rememberSessionRef.current = true;
     setState('signed_out');
   }, []);
 
@@ -94,7 +101,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         accessToken: refreshed.accessToken,
         refreshToken: refreshed.refreshToken,
       };
-      await persistSession(nextSession);
+      await persistSession(nextSession, rememberSessionRef.current);
       stopRefreshTimer({ success: true });
       logEvent('auth_session_refreshed');
       return true;
@@ -168,12 +175,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [refreshOnboarding, state]);
 
   const signIn = useCallback(
-    async (email: string, password: string) => {
+    async (email: string, password: string, rememberSession = true) => {
       setErrorMessage(null);
       const stopSignInTimer = startPerformanceTimer('auth_sign_in_duration');
       try {
         const nextSession = await authApi.signIn({ email, password });
-        await persistSession(nextSession);
+        await persistSession(nextSession, rememberSession);
         await refreshOnboarding();
         stopSignInTimer({ success: true });
         logEvent('auth_sign_in_succeeded');
