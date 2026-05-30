@@ -43,6 +43,12 @@ workflows:
             exit 1
           fi
           echo "EXPO_TOKEN is present"
+      - name: Initialize EAS project
+        # Links this repo to an EAS project on expo.dev so subsequent eas build
+        # commands can run in --non-interactive mode without requiring 'eas init'
+        # to be run manually. Requires EXPO_TOKEN to be set.
+        working_directory: mobile
+        script: npx eas init --force --non-interactive
       - name: Ensure Android project exists for Gradle release build
         working_directory: mobile
         script: npx expo prebuild --platform android
