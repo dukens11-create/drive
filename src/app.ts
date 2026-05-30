@@ -4,28 +4,9 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { errorHandler } from './middleware/error-handler';
-import { registerTrackingSocket } from './websocket/tracking.socket';
-
-import authRoutes from './routes/auth.routes';
-import ridesRoutes from './routes/rides.routes';
-import driversRoutes from './routes/drivers.routes';
-import paymentsRoutes from './routes/payments.routes';
-import walletRoutes from './routes/wallet.routes';
-import kycRoutes from './routes/kyc.routes';
-import safetyRoutes from './routes/safety.routes';
-import supportRoutes from './routes/support.routes';
-import merchantRoutes from './routes/merchant.routes';
-import marketplaceRoutes from './routes/marketplace.routes';
-import adminRoutes from './routes/admin.routes';
-import scheduledRoutes from './routes/scheduled.routes';
-import subscriptionRoutes from './routes/subscription.routes';
-import loyaltyRoutes from './routes/loyalty.routes';
-import corporateRoutes from './routes/corporate.routes';
-import carpoolRoutes from './routes/carpool.routes';
-import fraudRoutes from './routes/fraud.routes';
-import analyticsRoutes from './routes/analytics.routes';
-import twofaRoutes from './routes/twofa.routes';
+import { errorHandler } from './middleware';
+import { authRoutes, ridesRoutes, driversRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes } from './routes';
+import { registerTrackingSocket } from './websocket';
 
 export function createApp() {
   const app = express();

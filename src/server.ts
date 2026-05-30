@@ -1,6 +1,6 @@
 import { createApp } from './app';
-import { env } from './config/env';
-import { logger } from './utils/logger';
+import { env } from './config';
+import { logger } from './utils';
 
 const { httpServer } = createApp();
 
