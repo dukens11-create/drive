@@ -473,15 +473,24 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       return;
     }
 
-    if (previousTrip.status !== activeTrip.status && activeTrip.status === 'in-progress') {
-      // Suppress the next alert when the state change was initiated locally; the user already
-      // received feedback from the tap handler before refreshData observes the server update.
-      if (suppressedTripAlertRef.current === buildSuppressedTripAlertKey(activeTrip.rideId, 'in-progress')) {
-        suppressedTripAlertRef.current = null;
-        previousTripRef.current = { rideId: activeTrip.rideId, status: activeTrip.status };
-        return;
+    if (previousTrip.status !== activeTrip.status) {
+      if (activeTrip.status === 'in-progress') {
+        // Suppress the next alert when the state change was initiated locally; the user already
+        // received feedback from the tap handler before refreshData observes the server update.
+        if (suppressedTripAlertRef.current === buildSuppressedTripAlertKey(activeTrip.rideId, 'in-progress')) {
+          suppressedTripAlertRef.current = null;
+          previousTripRef.current = { rideId: activeTrip.rideId, status: activeTrip.status };
+          return;
+        }
+        void sendDriverAlert('trip-started', 'Trip started', 'Pickup confirmed and the ride is now in progress.');
+      } else if (activeTrip.status === 'completed') {
+        if (suppressedTripAlertRef.current === buildSuppressedTripAlertKey(activeTrip.rideId, 'completed')) {
+          suppressedTripAlertRef.current = null;
+          previousTripRef.current = { rideId: activeTrip.rideId, status: activeTrip.status };
+          return;
+        }
+        void sendDriverAlert('trip-ended', 'Trip ended', 'Trip completed successfully.');
       }
-      void sendDriverAlert('trip-started', 'Trip started', 'Pickup confirmed and the ride is now in progress.');
     }
 
     previousTripRef.current = { rideId: activeTrip.rideId, status: activeTrip.status };
@@ -540,7 +549,6 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       void vibrateForAction('warning');
     }
     setActiveRequest(null);
-    setRequestTimeLeft(0);
   }, [activeRequest]);
 
   const advanceTrip = useCallback(async () => {
