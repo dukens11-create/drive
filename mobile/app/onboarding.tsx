@@ -1,9 +1,13 @@
 import { Redirect } from 'expo-router';
+import * as Location from 'expo-location';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
+import { PLACEHOLDER_DRIVER_DOCUMENTS, REQUIRED_DRIVER_DOCUMENTS } from '../src/constants/onboarding';
 import { kycApi } from '../src/services/api/kycApi';
 import { useAuth } from '../src/context/AuthContext';
+
+const FALLBACK_APPLICATION_LOCATION = { lat: 37.7749, lng: -122.4194 };
 
 export default function OnboardingScreen() {
   const { state, session, onboardingProfile, onboardingStep, completeApplication, submitDocuments, refreshOnboarding, errorMessage, isOnboardingLoading } = useAuth();
@@ -22,7 +26,13 @@ export default function OnboardingScreen() {
     setIsSubmitting(true);
     setScreenError(null);
     try {
-      await completeApplication({ lat: 37.7749, lng: -122.4194 });
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== Location.PermissionStatus.GRANTED) {
+        await completeApplication(FALLBACK_APPLICATION_LOCATION);
+      } else {
+        const current = await Location.getCurrentPositionAsync({});
+        await completeApplication({ lat: current.coords.latitude, lng: current.coords.longitude });
+      }
     } catch (error) {
       setScreenError(error instanceof Error ? error.message : 'Failed to submit driver application');
     } finally {
@@ -34,7 +44,7 @@ export default function OnboardingScreen() {
     setIsSubmitting(true);
     setScreenError(null);
     try {
-      await submitDocuments(['drivers_license_placeholder', 'insurance_placeholder']);
+      await submitDocuments(PLACEHOLDER_DRIVER_DOCUMENTS);
     } catch (error) {
       setScreenError(error instanceof Error ? error.message : 'Failed to upload onboarding documents');
     } finally {
@@ -70,7 +80,11 @@ export default function OnboardingScreen() {
 
       <View className="mt-8 rounded-3xl bg-zinc-900 p-5">
         <StepRow title="Application" value={onboardingProfile ? 'Submitted' : 'Pending'} active={onboardingStep === 'application'} />
-        <StepRow title="Documents" value={(onboardingProfile?.documents ?? []).length >= 2 ? 'Uploaded' : 'Pending'} active={onboardingStep === 'documents'} />
+        <StepRow
+          title="Documents"
+          value={(onboardingProfile?.documents ?? []).length >= REQUIRED_DRIVER_DOCUMENTS ? 'Uploaded' : 'Pending'}
+          active={onboardingStep === 'documents'}
+        />
         <StepRow
           title="KYC verification"
           value={onboardingProfile?.verificationState === 'verified' ? 'Verified' : onboardingProfile?.verificationState === 'rejected' ? 'Rejected' : 'Pending'}

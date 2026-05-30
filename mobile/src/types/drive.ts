@@ -14,7 +14,6 @@ export type DriverMetrics = {
   earningsToday: number;
   tripsCompleted: number;
   hoursOnline: number;
-  completedTrips: number;
 };
 
 export type LatLng = {

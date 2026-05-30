@@ -5,8 +5,8 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 import { useAuth } from '../../src/context/AuthContext';
 
 export default function SignUpScreen() {
-  const [email, setEmail] = useState('new-driver@example.com');
-  const [password, setPassword] = useState('change_me_admin_password');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();

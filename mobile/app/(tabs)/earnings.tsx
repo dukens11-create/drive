@@ -12,7 +12,7 @@ export default function EarningsScreen() {
       <View className="rounded-3xl bg-white p-5 shadow-soft dark:bg-zinc-900">
         <Text className="text-xs uppercase tracking-wider text-zinc-500 dark:text-zinc-300">Today net earnings</Text>
         <Text className="mt-2 text-4xl font-bold text-zinc-900 dark:text-zinc-100">${metrics.earningsToday.toFixed(2)}</Text>
-        <Text className="mt-3 text-sm text-zinc-600 dark:text-zinc-300">{metrics.tripsCompleted} paid rides · {metrics.completedTrips} completed trips across {metrics.hoursOnline.toFixed(1)} online hours.</Text>
+        <Text className="mt-3 text-sm text-zinc-600 dark:text-zinc-300">{metrics.tripsCompleted} paid rides across {metrics.hoursOnline.toFixed(1)} online hours.</Text>
       </View>
     </View>
   );

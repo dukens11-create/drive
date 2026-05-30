@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuth } from './AuthContext';
 import { driversApi } from '../services/api/driversApi';
@@ -33,6 +33,7 @@ type DriveContextValue = {
 const DriveRealtimeContext = createContext<DriveContextValue | undefined>(undefined);
 
 const HOURS_INCREMENT_PER_TICK = 0.01;
+const DATA_REFRESH_INTERVAL_MS = 6000;
 
 const defaultProfile: DriverProfile = {
   id: 'driver',
@@ -46,7 +47,6 @@ const defaultMetrics: DriverMetrics = {
   earningsToday: 0,
   tripsCompleted: 0,
   hoursOnline: 0,
-  completedTrips: 0,
 };
 
 const formatCoordinate = (lat?: number, lng?: number) => {
@@ -56,12 +56,22 @@ const formatCoordinate = (lat?: number, lng?: number) => {
   return `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`;
 };
 
+const riderNameFrom = (riderId: string) => {
+  if (!riderId) {
+    return 'Rider';
+  }
+  return `Rider ${riderId.slice(-4).toUpperCase()}`;
+};
+
+const isDriverOnlineState = (availabilityStatus: 'offline' | 'online' | 'assigned' | 'unavailable') =>
+  availabilityStatus === 'online' || availabilityStatus === 'assigned';
+
 const mapRideToActiveTrip = (ride: RideSummary): ActiveTrip => {
   const backendStatus = ride.status === 'started' ? 'in-progress' : ride.status === 'accepted' ? 'accepted' : 'completed';
   return {
     rideId: ride.id,
     id: ride.id,
-    riderName: `Rider ${ride.riderId.slice(-4).toUpperCase()}`,
+    riderName: riderNameFrom(ride.riderId),
     pickupAddress: `Pickup · ${formatCoordinate(ride.pickupLat, ride.pickupLng)}`,
     dropoffAddress: `Dropoff · ${formatCoordinate(ride.dropoffLat, ride.dropoffLng)}`,
     pickupPosition: {
@@ -84,7 +94,7 @@ const mapRideToActiveTrip = (ride: RideSummary): ActiveTrip => {
 
 const mapRideToHistory = (ride: RideSummary): RideHistoryItem => ({
   id: ride.id,
-  riderName: `Rider ${ride.riderId.slice(-4).toUpperCase()}`,
+  riderName: riderNameFrom(ride.riderId),
   route: `${formatCoordinate(ride.pickupLat, ride.pickupLng)} → ${formatCoordinate(ride.dropoffLat, ride.dropoffLng)}`,
   fare: Number(ride.fareEstimate.toFixed(2)),
   timeLabel: new Date(ride.updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
@@ -102,6 +112,7 @@ const toErrorMessage = (error: unknown) => {
 
 export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode }) => {
   const { state, session, onboardingStep } = useAuth();
+  const refreshInFlightRef = useRef(false);
   const [profile, setProfile] = useState<DriverProfile>(defaultProfile);
   const [metrics, setMetrics] = useState<DriverMetrics>(defaultMetrics);
   const [location, setLocation] = useState<LatLng>(getSeedLocation());
@@ -116,6 +127,10 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
   const [onboardingRequired, setOnboardingRequired] = useState(false);
 
   const refreshData = useCallback(async () => {
+    if (refreshInFlightRef.current) {
+      return;
+    }
+
     if (state !== 'signed_in' || !session) {
       setProfile(defaultProfile);
       setMetrics(defaultMetrics);
@@ -128,6 +143,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
 
     setIsLoading(true);
     setError(null);
+    refreshInFlightRef.current = true;
 
     try {
       const [driver, trip, history, earnings, rideNotices] = await Promise.all([
@@ -144,16 +160,16 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
 
       setProfile({
         id: backendProfile.userId,
-        name: session.user.email?.split('@')[0] || 'Driver',
+        name: (session.user.email?.split('@')[0] || '').trim() || 'Driver',
         email: session.user.email,
         vehicleStatus: 'good',
-        isOnline: backendProfile.availabilityStatus === 'online' || backendProfile.availabilityStatus === 'assigned',
+        isOnline: isDriverOnlineState(backendProfile.availabilityStatus),
         status:
           onboardingStep !== 'ready'
             ? 'onboarding'
             : mappedTrip
               ? mappedTrip.status
-              : backendProfile.availabilityStatus === 'online' || backendProfile.availabilityStatus === 'assigned'
+              : isDriverOnlineState(backendProfile.availabilityStatus)
                 ? 'waiting'
                 : 'offline',
       });
@@ -162,9 +178,8 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       setMetrics((current) => ({
         earningsToday: Number((earnings.earningsCents / 100).toFixed(2)),
         tripsCompleted: earnings.rideCount,
-        completedTrips: history.rides.filter((ride) => ride.status === 'completed').length,
         hoursOnline:
-          backendProfile.availabilityStatus === 'online' || backendProfile.availabilityStatus === 'assigned'
+          isDriverOnlineState(backendProfile.availabilityStatus)
             ? Number((current.hoursOnline + HOURS_INCREMENT_PER_TICK).toFixed(2))
             : current.hoursOnline,
       }));
@@ -188,6 +203,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       }
     } finally {
       setIsLoading(false);
+      refreshInFlightRef.current = false;
     }
   }, [onboardingStep, session, state]);
 
@@ -230,7 +246,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
 
     const ticker = setInterval(() => {
       void refreshData();
-    }, 6000);
+    }, DATA_REFRESH_INTERVAL_MS);
 
     return () => clearInterval(ticker);
   }, [refreshData, state]);

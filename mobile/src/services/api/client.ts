@@ -14,6 +14,7 @@ const defaultHeaders = {
   Accept: 'application/json',
   'Content-Type': 'application/json',
 };
+const RETRY_DELAY_BASE_MS = 300;
 
 let authHandlers: AuthHandlers | null = null;
 
@@ -110,7 +111,7 @@ async function request<T>(path: string, options: RequestOptions = {}, hasRefresh
         });
       }
 
-      await sleep(300 * (attempt + 1));
+      await sleep(RETRY_DELAY_BASE_MS * (attempt + 1));
     }
   }
 

@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { AuthSession, DriverProfileResponse } from '../types/api';
+import { REQUIRED_DRIVER_DOCUMENTS } from '../constants/onboarding';
 import { authApi } from '../services/api/authApi';
 import { configureApiAuth, HttpError } from '../services/api/client';
 import { driversApi } from '../services/api/driversApi';
@@ -34,7 +35,7 @@ const getOnboardingStep = (profile: DriverProfileResponse | null): OnboardingSte
   if (profile.status === 'approved' && profile.verificationState === 'verified') {
     return 'ready';
   }
-  if ((profile.documents ?? []).length < 2 || profile.verificationState === 'documents_pending') {
+  if ((profile.documents ?? []).length < REQUIRED_DRIVER_DOCUMENTS || profile.verificationState === 'documents_pending') {
     return 'documents';
   }
   if (profile.verificationState === 'kyc_pending') {

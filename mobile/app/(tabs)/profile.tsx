@@ -1,4 +1,5 @@
 import { Pressable, Text, View } from 'react-native';
+import { useState } from 'react';
 
 import { useAuth } from '../../src/context/AuthContext';
 import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
@@ -7,6 +8,16 @@ import { driverStatusMeta } from '../../src/utils/driveStatus';
 export default function ProfileScreen() {
   const { profile } = useDriveRealtime();
   const { signOut, onboardingStep } = useAuth();
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+
+  const handleSignOut = async () => {
+    setSignOutError(null);
+    try {
+      await signOut();
+    } catch (error) {
+      setSignOutError(error instanceof Error ? error.message : 'Unable to sign out right now.');
+    }
+  };
 
   return (
     <View className="flex-1 bg-zinc-50 p-4 dark:bg-zinc-950">
@@ -16,9 +27,10 @@ export default function ProfileScreen() {
         <Text className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">Status: {driverStatusMeta[profile.status].label}</Text>
         <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Onboarding: {onboardingStep}</Text>
         <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Vehicle health: {profile.vehicleStatus === 'good' ? 'Good to drive' : 'Service soon'}</Text>
-        <Pressable className="mt-4 rounded-2xl bg-zinc-200 px-4 py-3 dark:bg-zinc-800" onPress={() => void signOut()}>
+        <Pressable className="mt-4 rounded-2xl bg-zinc-200 px-4 py-3 dark:bg-zinc-800" onPress={() => void handleSignOut()}>
           <Text className="text-center font-semibold text-zinc-900 dark:text-zinc-100">Sign out</Text>
         </Pressable>
+        {signOutError ? <Text className="mt-2 text-sm text-rose-500 dark:text-rose-300">{signOutError}</Text> : null}
       </View>
     </View>
   );

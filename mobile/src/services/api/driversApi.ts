@@ -26,8 +26,7 @@ export const driversApi = {
     return apiClient.post<ApiEnvelope<{ profile: DriverProfileResponse }>>('/api/drivers/location', { lat, lng }, { auth: true });
   },
 
-  async earnings() {
-    const response = await apiClient.post<ApiEnvelope<DriverEarnings>>('/api/drivers/earnings', {}, { auth: true });
-    return response;
+  earnings() {
+    return apiClient.post<ApiEnvelope<DriverEarnings>>('/api/drivers/earnings', {}, { auth: true });
   },
 };
