@@ -23,7 +23,7 @@ export const buildNearbyRequests = (): NearbyRequest[] =>
   }));
 
 export const seedRideHistory = (): RideHistoryItem[] => [
-  { id: 'trip-1', riderName: 'Noah B.', route: 'Market St → Mission Bay', fare: 18.2, timeLabel: '12:35 PM' },
-  { id: 'trip-2', riderName: 'Ivy L.', route: 'SOMA → Union Square', fare: 12.4, timeLabel: '11:58 AM' },
-  { id: 'trip-3', riderName: 'Amir K.', route: 'Folsom → Embarcadero', fare: 21.8, timeLabel: '11:08 AM' },
+  { id: 'trip-1', riderName: 'Noah B.', route: 'Market St → Mission Bay', fare: 18.2, timeLabel: '12:35 PM', miles: 2.3, date: new Date().toISOString() },
+  { id: 'trip-2', riderName: 'Ivy L.', route: 'SOMA → Union Square', fare: 12.4, timeLabel: '11:58 AM', miles: 1.6, date: new Date().toISOString() },
+  { id: 'trip-3', riderName: 'Amir K.', route: 'Folsom → Embarcadero', fare: 21.8, timeLabel: '11:08 AM', miles: 3.1, date: new Date().toISOString() },
 ];

@@ -14,6 +14,8 @@ export type DriverMetrics = {
   earningsToday: number;
   tripsCompleted: number;
   hoursOnline: number;
+  earningsPerTrip: number;
+  earningsPerHour: number;
 };
 
 export type LatLng = {
@@ -56,4 +58,6 @@ export type RideHistoryItem = {
   route: string;
   fare: number;
   timeLabel: string;
+  miles: number;
+  date: string;
 };
