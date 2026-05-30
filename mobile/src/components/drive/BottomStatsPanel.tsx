@@ -23,7 +23,7 @@ const findClosestSnapPoint = (value: number) => {
 };
 
 export const BottomStatsPanel = () => {
-  const { metrics, rideHistory, profile, activeTrip, nearbyRequests } = useDriveRealtime();
+  const { metrics, rideHistory, profile, activeRequest, activeTrip, requestTimeLeft, nearbyRequests } = useDriveRealtime();
   const panelHeight = useSharedValue(SNAP_HALF);
   const startHeight = useSharedValue(SNAP_HALF);
 
@@ -42,8 +42,12 @@ export const BottomStatsPanel = () => {
     height: panelHeight.value,
   }));
 
+  const displayStatus = activeTrip?.status ?? profile.status;
+  const liveTitle = activeRequest && !activeTrip ? 'Incoming request live' : driverStatusMeta[displayStatus].label;
   const liveSubtitle = activeTrip
     ? `${driverStatusMeta[activeTrip.status].subtitle} · ${activeTrip.riderName}`
+    : activeRequest
+      ? `${activeRequest.riderName} · expires in ${requestTimeLeft}s · ${activeRequest.pickupAddress}`
     : profile.isOnline
       ? 'Online now and matching with nearby riders in the busiest zones.'
       : 'Go online to start receiving ride requests from nearby riders.';
@@ -74,7 +78,7 @@ export const BottomStatsPanel = () => {
           Current session
         </Text>
         <Text className="mt-2 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-          {driverStatusMeta[profile.status].label}
+          {liveTitle}
         </Text>
         <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">{liveSubtitle}</Text>
       </View>

@@ -3,9 +3,9 @@ import type { ActiveTrip, DriverStatus } from '../types/drive';
 export const tripStatusOrder: ActiveTrip['status'][] = ['accepted', 'in-progress', 'completed'];
 
 export const tripStepLabels: Record<ActiveTrip['status'], string> = {
-  accepted: 'Pickup',
-  'in-progress': 'On Trip',
-  completed: 'Complete',
+  accepted: 'To pickup',
+  'in-progress': 'On trip',
+  completed: 'Wrap up',
 };
 
 export const driverStatusMeta: Record<DriverStatus, { label: string; subtitle: string; accentColor: string; actionLabel?: string }> = {
@@ -25,20 +25,20 @@ export const driverStatusMeta: Record<DriverStatus, { label: string; subtitle: s
     accentColor: '#22C55E',
   },
   accepted: {
-    label: 'En Route to Pickup',
-    subtitle: 'Head to the pickup location and wait for the rider.',
+    label: 'Head to pickup',
+    subtitle: 'Navigate to pickup, confirm your rider, then start the trip.',
     accentColor: '#10B981',
     actionLabel: 'Start Trip',
   },
   'in-progress': {
-    label: 'Trip in Progress',
-    subtitle: 'Navigate to the drop-off destination.',
+    label: 'On trip',
+    subtitle: 'Rider is onboard. Follow the route to dropoff and complete the trip.',
     accentColor: '#F59E0B',
     actionLabel: 'Complete Trip',
   },
   completed: {
-    label: 'Trip Complete',
-    subtitle: 'Payout posted — ready for your next ride.',
+    label: 'Trip completed',
+    subtitle: 'Ride payout posted. Wrap up this trip, then go back online for the next request.',
     accentColor: '#14B8A6',
     actionLabel: 'Done',
   },

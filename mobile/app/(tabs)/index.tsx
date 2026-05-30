@@ -24,7 +24,7 @@ export default function DriveHomeScreen() {
   const scheme = useColorScheme();
   const router = useRouter();
   const [isSupportVisible, setIsSupportVisible] = useState(false);
-  const { location, nearbyRequests, activeTrip, error, profile } = useDriveRealtime();
+  const { location, nearbyRequests, activeRequest, activeTrip, error, profile } = useDriveRealtime();
   const lastCameraCenterRef = useRef(location);
 
   useEffect(() => {
@@ -96,6 +96,11 @@ export default function DriveHomeScreen() {
           <>
             <Marker coordinate={activeTrip.pickupPosition} pinColor="#22C55E" title="Pickup" description={activeTrip.pickupAddress} />
             <Marker coordinate={activeTrip.dropoffPosition} pinColor="#F59E0B" title="Dropoff" description={activeTrip.dropoffAddress} />
+          </>
+        ) : activeRequest ? (
+          <>
+            <Marker coordinate={activeRequest.pickupPosition} pinColor="#22C55E" title="Pickup" description={activeRequest.pickupAddress} />
+            <Marker coordinate={activeRequest.dropoffPosition} pinColor="#F97316" title="Dropoff" description={activeRequest.dropoffAddress} />
           </>
         ) : (
           nearbyRequests.map((request) => (
