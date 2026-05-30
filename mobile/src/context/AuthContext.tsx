@@ -7,6 +7,7 @@ import { configureApiAuth, HttpError } from '../services/api/client';
 import { logError, logEvent, startPerformanceTimer } from '../services/observability';
 import { driversApi } from '../services/api/driversApi';
 import { sessionStorage } from '../services/storage/sessionStorage';
+import { DEFAULT_REMEMBER_ME } from '../store/authPreferencesSlice';
 
 type AuthState = 'loading' | 'signed_out' | 'signed_in';
 
@@ -63,7 +64,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const sessionRef = useRef<AuthSession | null>(null);
-  const rememberSessionRef = useRef(true);
+  const rememberSessionRef = useRef(DEFAULT_REMEMBER_ME);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -83,7 +84,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return;
     }
     await sessionStorage.clear();
-    rememberSessionRef.current = true;
     setState('signed_out');
   }, []);
 
@@ -175,7 +175,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [refreshOnboarding, state]);
 
   const signIn = useCallback(
-    async (email: string, password: string, rememberSession = true) => {
+    async (email: string, password: string, rememberSession = DEFAULT_REMEMBER_ME) => {
       setErrorMessage(null);
       const stopSignInTimer = startPerformanceTimer('auth_sign_in_duration');
       try {

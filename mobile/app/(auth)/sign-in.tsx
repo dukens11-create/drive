@@ -79,14 +79,14 @@ export default function SignInScreen() {
         maxFontSizeMultiplier={maxFontSizeMultiplier}
       />
       <View className="mt-3 flex-row items-center justify-between rounded-2xl bg-zinc-900 px-4 py-3">
-        <Text className="text-sm text-zinc-200" maxFontSizeMultiplier={maxFontSizeMultiplier}>Remember me</Text>
+        <Text className="text-sm text-zinc-200" maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('auth.rememberMe')}</Text>
         <Switch
           value={rememberMe}
           onValueChange={(value) => {
             dispatch(setRememberMe(value));
           }}
           accessibilityRole="switch"
-          accessibilityLabel="Remember account on this device"
+          accessibilityLabel={t('auth.rememberMe')}
           trackColor={{ false: '#71717A', true: '#22C55E' }}
           thumbColor="#FFFFFF"
         />

@@ -4,8 +4,10 @@ type AuthPreferencesState = {
   rememberMe: boolean;
 };
 
+export const DEFAULT_REMEMBER_ME = true;
+
 const initialState: AuthPreferencesState = {
-  rememberMe: true,
+  rememberMe: DEFAULT_REMEMBER_ME,
 };
 
 const authPreferencesSlice = createSlice({
