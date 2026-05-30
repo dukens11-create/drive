@@ -2,6 +2,8 @@ workflows:
   android-release:
     name: Drive Android release APK (Expo + EAS)
     environment:
+      groups:
+        - expo_credentials
       node: 20.11.1
       vars:
         EAS_LOCAL_BUILD_SKIP_CLEANUP: "1" # Keep local build outputs so APK verification can inspect generated files.
@@ -14,6 +16,12 @@ workflows:
           include: true
           source: true
     scripts:
+      - name: Show workflow config
+        script: |
+          echo "Running workflow: android-release"
+          echo "Branch: ${CM_BRANCH:-unknown}"
+          echo "Using grouped environment variables"
+
       - name: Install mobile dependencies
         working_directory: mobile
         script: npm ci
@@ -22,10 +30,19 @@ workflows:
         script: npm run typecheck
       - name: Install EAS CLI
         script: npm install --global eas-cli
-      - name: Validate EAS authentication
-        # Requires a secure EXPO_TOKEN in Codemagic (Project -> Settings -> Environment variables).
-        # Generate locally after `eas login` using: `eas token:create`.
-        script: test -n "$EXPO_TOKEN" || { echo "EXPO_TOKEN environment variable is not set. Configure it in Codemagic secure environment variables."; exit 1; }
+      - name: Debug EXPO_TOKEN presence
+        # Requires EXPO_TOKEN in the expo_credentials group in Codemagic environment variables.
+        script: |
+          if [ -z "${EXPO_TOKEN:-}" ]; then
+            echo "EXPO_TOKEN is missing"
+            echo "Check Codemagic UI settings:"
+            echo "- Variable name must be EXPO_TOKEN"
+            echo "- Group must be expo_credentials"
+            echo "- Secret must be enabled"
+            echo "- Workflow android-release must import expo_credentials"
+            exit 1
+          fi
+          echo "EXPO_TOKEN is present"
       - name: Ensure Android project exists for Gradle release build
         working_directory: mobile
         script: npx expo prebuild --platform android
