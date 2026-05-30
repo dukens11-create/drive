@@ -1,6 +1,6 @@
 import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { useAuth } from '../../src/context/AuthContext';
 
@@ -11,8 +11,13 @@ export default function SignInScreen() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const { signIn } = useAuth();
+  const canSubmit = email.trim().length > 0 && password.length > 0 && !isSubmitting;
 
   const handleSubmit = async () => {
+    if (!email.trim() || !password) {
+      setError('Enter the email and password for your driver account.');
+      return;
+    }
     setIsSubmitting(true);
     setError(null);
     try {
@@ -26,9 +31,16 @@ export default function SignInScreen() {
   };
 
   return (
-    <View className="flex-1 justify-center bg-zinc-950 px-6">
+    <ScrollView className="flex-1 bg-zinc-950" contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 40 }}>
       <Text className="text-3xl font-bold text-zinc-100">Driver sign in</Text>
       <Text className="mt-2 text-sm text-zinc-400">Connect your account to sync live trips, earnings, and onboarding status.</Text>
+
+      <View className="mt-6 rounded-3xl bg-zinc-900 p-4">
+        <Text className="text-sm font-semibold text-zinc-100">Returning drivers can:</Text>
+        <Text className="mt-2 text-xs leading-5 text-zinc-300">• Resume document review and KYC without restarting onboarding.</Text>
+        <Text className="mt-2 text-xs leading-5 text-zinc-300">• Access emergency, trip share, and support shortcuts from Home after approval.</Text>
+        <Text className="mt-2 text-xs leading-5 text-zinc-300">• Keep trip history, notifications, and earnings synced on this device.</Text>
+      </View>
 
       <TextInput
         value={email}
@@ -50,7 +62,11 @@ export default function SignInScreen() {
 
       {error ? <Text className="mt-3 text-sm text-rose-400">{error}</Text> : null}
 
-      <Pressable className="mt-5 rounded-2xl bg-emerald-500 px-4 py-3" disabled={isSubmitting} onPress={handleSubmit}>
+      <Pressable
+        className={`mt-5 rounded-2xl px-4 py-3 ${canSubmit ? 'bg-emerald-500' : 'bg-zinc-800'}`}
+        disabled={!canSubmit}
+        onPress={handleSubmit}
+      >
         <Text className="text-center font-semibold text-white">{isSubmitting ? 'Signing in...' : 'Sign in'}</Text>
       </Pressable>
 
@@ -59,6 +75,6 @@ export default function SignInScreen() {
           <Text className="text-center text-sm text-zinc-300">Need an account? Create one</Text>
         </Pressable>
       </Link>
-    </View>
+    </ScrollView>
   );
 }
