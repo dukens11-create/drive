@@ -3,7 +3,7 @@
  * Uses HMAC-SHA1 with time-based one-time passwords (RFC 6238).
  * Compatible with Google Authenticator, Authy, etc.
  */
-import { createHmac, randomBytes } from 'crypto';
+import { createHmac, randomBytes, randomInt } from 'crypto';
 import { makeId, markStoreDirty, store, timestamp, type TotpEntry } from '../database/data.store';
 import { sendSmsOtp } from './notifications.service';
 
@@ -240,7 +240,7 @@ export async function sendSmsOtpCode(body: any) {
   }
 
   // Use cryptographically secure random number for OTP
-  const otp = (randomBytes(3).readUIntBE(0, 3) % 900000 + 100000).toString();
+  const otp = randomInt(100000, 1000000).toString();
   smsOtpStore.set(phone, { otp, expiresAt: now + SMS_OTP_WINDOW_MS });
 
   await sendSmsOtp(phone, otp);
