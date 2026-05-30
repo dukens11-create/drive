@@ -26,6 +26,7 @@ import carpoolRoutes from './carpool.routes';
 import fraudRoutes from './fraud.routes';
 import analyticsRoutes from './analytics.routes';
 import twofaRoutes from './twofa.routes';
+import restaurantsRoutes from './restaurants.routes';
 
 export function createApp() {
   const app = express();
@@ -60,6 +61,7 @@ export function createApp() {
   app.use('/api/fraud', fraudRoutes);
   app.use('/api/analytics', analyticsRoutes);
   app.use('/api/2fa', twofaRoutes);
+  app.use('/api', restaurantsRoutes);
 
   registerTrackingSocket(io);
   app.use(errorHandler);
