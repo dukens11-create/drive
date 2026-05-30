@@ -15,7 +15,7 @@ workflows:
         - pattern: main
           include: true
           source: true
-        - pattern: release/*
+        - pattern: release/**
           include: true
           source: true
     scripts:
