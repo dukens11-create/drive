@@ -1,10 +1,11 @@
 import { useRouter } from 'expo-router';
-import { Pressable, Switch, Text, View } from 'react-native';
-import { useState } from 'react';
+import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
 
 import { TEXT_SCALE_OPTIONS, useAccessibilitySettings } from '../../src/context/AccessibilityContext';
 import { useAuth } from '../../src/context/AuthContext';
 import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
+import { marketplaceApi } from '../../src/services/api/marketplaceApi';
 import { useLocale } from '../../src/context/LocaleContext';
 import { useScreenTracking } from '../../src/hooks/useScreenTracking';
 import { localeLabelByCode, supportedLocales } from '../../src/i18n/translations';
@@ -18,14 +19,19 @@ const textScaleLabel: Record<(typeof TEXT_SCALE_OPTIONS)[number], string> = {
 };
 
 export default function ProfileScreen() {
-  const { profile } = useDriveRealtime();
+  const { profile, updatePreferences } = useDriveRealtime();
   const router = useRouter();
-  const { signOut, onboardingStep, onboardingProfile } = useAuth();
+  const { signOut, onboardingStep, onboardingProfile, session } = useAuth();
   const { highContrastEnabled, setHighContrastEnabled, textScale, setTextScale, maxFontSizeMultiplier } = useAccessibilitySettings();
   const { t, locale, setLocale } = useLocale();
   const [signOutError, setSignOutError] = useState<string | null>(null);
-  useScreenTracking('profile');
+  const [minimumRatingText, setMinimumRatingText] = useState(profile.preferences.minimumRiderRating.toFixed(1));
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+  const [referralSummary, setReferralSummary] = useState<{ count: number; totalBonusCents: number }>({ count: 0, totalBonusCents: 0 });
+  const [activePromos, setActivePromos] = useState<string[]>([]);
+  const [promoError, setPromoError] = useState<string | null>(null);
   const [localeError, setLocaleError] = useState<string | null>(null);
+  useScreenTracking('profile');
   const documentsUploaded = (onboardingProfile?.documents ?? []).length;
   const verificationStatus =
     onboardingProfile?.verificationState === 'verified'
@@ -56,14 +62,133 @@ export default function ProfileScreen() {
     }
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadRewards = async () => {
+      try {
+        const [code, referrals, promos] = await Promise.all([
+          marketplaceApi.getReferralCode(),
+          marketplaceApi.listReferrals(),
+          marketplaceApi.listPromos(),
+        ]);
+        if (cancelled) {
+          return;
+        }
+        setReferralCode(code.referralCode);
+        setReferralSummary({ count: referrals.referrals.length, totalBonusCents: referrals.totalBonusCents });
+        setActivePromos(promos.promos.map((promo) => promo.code).slice(0, 3));
+        setPromoError(null);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setPromoError(error instanceof Error ? error.message : 'Unable to load referral and promo data.');
+      }
+    };
+    void loadRewards();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user.id]);
+
   return (
-    <View className={`flex-1 p-4 ${highContrastEnabled ? 'bg-black' : 'bg-zinc-50 dark:bg-zinc-950'}`}>
+    <ScrollView className={`flex-1 p-4 ${highContrastEnabled ? 'bg-black' : 'bg-zinc-50 dark:bg-zinc-950'}`} contentContainerStyle={{ paddingBottom: 28 }}>
       <View className={`rounded-3xl p-5 shadow-soft ${highContrastEnabled ? 'border border-white bg-black' : 'bg-white dark:bg-zinc-900'}`}>
         <Text className={`text-xl font-bold ${highContrastEnabled ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{profile.name}</Text>
         {profile.email ? <Text className={`mt-1 text-sm ${highContrastEnabled ? 'text-white' : 'text-zinc-600 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{profile.email}</Text> : null}
         <Text className={`mt-2 text-sm ${highContrastEnabled ? 'text-white' : 'text-zinc-600 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('profile.status')}: {driverStatusMeta[profile.status].label}</Text>
+        <Text className={`mt-1 text-sm ${highContrastEnabled ? 'text-white' : 'text-zinc-600 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>Trust score: {profile.trustScore ?? 80}</Text>
+        <Text className={`mt-1 text-sm ${highContrastEnabled ? 'text-white' : 'text-zinc-600 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>Badge: {profile.verificationBadge === 'verified' ? 'Verified driver' : 'Pending verification'}</Text>
         <Text className={`mt-1 text-sm ${highContrastEnabled ? 'text-white' : 'text-zinc-600 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('profile.onboarding')}: {onboardingStep}</Text>
         <Text className={`mt-1 text-sm ${highContrastEnabled ? 'text-white' : 'text-zinc-600 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('profile.vehicleHealth')}: {profile.vehicleStatus === 'good' ? t('profile.goodToDrive') : t('profile.serviceSoon')}</Text>
+      </View>
+
+      <View className={`mt-4 rounded-3xl p-5 shadow-soft ${highContrastEnabled ? 'border border-white bg-black' : 'bg-white dark:bg-zinc-900'}`}>
+        <Text className={`text-base font-semibold ${highContrastEnabled ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>Driving preferences</Text>
+        <Text className={`mt-2 text-xs ${highContrastEnabled ? 'text-white' : 'text-zinc-500 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>Preferred ride types</Text>
+        <View className="mt-2 flex-row flex-wrap gap-2">
+          {(['standard', 'comfort', 'xl'] as const).map((rideType) => {
+            const selected = profile.preferences.rideTypes.includes(rideType);
+            return (
+              <Pressable
+                key={rideType}
+                className={`rounded-full px-3 py-1.5 ${selected ? 'bg-emerald-500' : highContrastEnabled ? 'border border-white bg-black' : 'bg-zinc-200 dark:bg-zinc-800'}`}
+                onPress={() => {
+                  const next = selected
+                    ? profile.preferences.rideTypes.filter((item) => item !== rideType)
+                    : [...profile.preferences.rideTypes, rideType];
+                  updatePreferences({ rideTypes: next.length > 0 ? next : ['standard'] });
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                accessibilityLabel={`Toggle ${rideType} ride type`}
+              >
+                <Text className={`text-xs font-semibold uppercase ${selected || highContrastEnabled ? 'text-white' : 'text-zinc-700 dark:text-zinc-200'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{rideType}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text className={`mt-3 text-xs ${highContrastEnabled ? 'text-white' : 'text-zinc-500 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>Minimum rider rating</Text>
+        <View className="mt-1 flex-row items-center gap-2">
+          <TextInput
+            value={minimumRatingText}
+            onChangeText={setMinimumRatingText}
+            keyboardType="decimal-pad"
+            className={`flex-1 rounded-xl px-3 py-2 text-sm ${highContrastEnabled ? 'bg-zinc-800 text-white' : 'bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'}`}
+          />
+          <Pressable
+            className={`rounded-xl px-3 py-2 ${highContrastEnabled ? 'border border-white bg-black' : 'bg-zinc-900 dark:bg-zinc-100'}`}
+            onPress={() => {
+              const next = Number(minimumRatingText);
+              if (Number.isFinite(next)) {
+                const clampedRating = Math.min(5, Math.max(1, next));
+                updatePreferences({ minimumRiderRating: clampedRating });
+                setMinimumRatingText(clampedRating.toFixed(1));
+              }
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Save minimum rider rating"
+          >
+            <Text className={`text-xs font-semibold ${highContrastEnabled ? 'text-white' : 'text-white dark:text-zinc-900'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>Save</Text>
+          </Pressable>
+        </View>
+        <Text className={`mt-3 text-xs ${highContrastEnabled ? 'text-white' : 'text-zinc-500 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>Direction preference</Text>
+        <View className="mt-2 flex-row gap-2">
+          {(['any', 'toward_downtown', 'away_from_downtown'] as const).map((direction) => {
+            const selected = profile.preferences.directionPreference === direction;
+            return (
+              <Pressable
+                key={direction}
+                className={`rounded-xl px-3 py-2 ${selected ? 'bg-emerald-500' : highContrastEnabled ? 'border border-white bg-black' : 'bg-zinc-200 dark:bg-zinc-800'}`}
+                onPress={() => updatePreferences({ directionPreference: direction })}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                <Text className={`text-[11px] font-semibold ${selected || highContrastEnabled ? 'text-white' : 'text-zinc-700 dark:text-zinc-200'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>
+                  {direction.replace(/_/g, ' ')}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text className={`mt-3 text-xs ${highContrastEnabled ? 'text-white' : 'text-zinc-500 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>
+          Scheduled windows: {(profile.preferences.availabilityWindows ?? []).map((window) => `${window.day} ${window.start}-${window.end}`).join(' · ')}
+        </Text>
+      </View>
+
+      <View className={`mt-4 rounded-3xl p-5 shadow-soft ${highContrastEnabled ? 'border border-white bg-black' : 'bg-white dark:bg-zinc-900'}`}>
+        <Text className={`text-base font-semibold ${highContrastEnabled ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>Referrals & incentives</Text>
+        <Text className={`mt-2 text-sm ${highContrastEnabled ? 'text-white' : 'text-zinc-600 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>Your referral code: {referralCode ?? 'Loading…'}</Text>
+        <Text className={`mt-1 text-sm ${highContrastEnabled ? 'text-white' : 'text-zinc-600 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>
+          Successful referrals: {referralSummary.count} · Bonus earned ${(referralSummary.totalBonusCents / 100).toFixed(2)}
+        </Text>
+        <Text className={`mt-2 text-xs uppercase tracking-wide ${highContrastEnabled ? 'text-white' : 'text-zinc-500 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>Active promos</Text>
+        {activePromos.length > 0 ? (
+          <Text className={`mt-1 text-sm ${highContrastEnabled ? 'text-white' : 'text-zinc-700 dark:text-zinc-200'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{activePromos.join(' · ')}</Text>
+        ) : (
+          <Text className={`mt-1 text-sm ${highContrastEnabled ? 'text-white' : 'text-zinc-500 dark:text-zinc-400'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>No active promotions right now.</Text>
+        )}
+        {promoError ? <Text className="mt-2 text-sm text-rose-500 dark:text-rose-300" maxFontSizeMultiplier={maxFontSizeMultiplier}>{promoError}</Text> : null}
       </View>
 
       <View className={`mt-4 rounded-3xl p-5 shadow-soft ${highContrastEnabled ? 'border border-white bg-black' : 'bg-white dark:bg-zinc-900'}`}>
@@ -141,6 +266,6 @@ export default function ProfileScreen() {
         </Pressable>
         {signOutError ? <Text className="mt-2 text-sm text-rose-500 dark:text-rose-300" maxFontSizeMultiplier={maxFontSizeMultiplier}>{signOutError}</Text> : null}
       </View>
-    </View>
+    </ScrollView>
   );
 }

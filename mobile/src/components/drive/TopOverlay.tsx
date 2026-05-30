@@ -8,9 +8,11 @@ import { useLocale } from '../../context/LocaleContext';
 import { logDriverError } from '../../services/monitoring/telemetry';
 import { driverStatusMeta } from '../../utils/driveStatus';
 
+const DEFAULT_TRUST_SCORE = 80;
+
 export const TopOverlay = () => {
   const router = useRouter();
-  const { profile, activeRequest, activeTrip, requestTimeLeft, setOnline, error, onboardingRequired } = useDriveRealtime();
+  const { profile, activeRequest, activeTrip, requestTimeLeft, setOnline, error, onboardingRequired, isOfflineMode } = useDriveRealtime();
   const { highContrastEnabled, maxFontSizeMultiplier } = useAccessibilitySettings();
   const { t } = useLocale();
   const displayStatus = activeTrip?.status ?? profile.status;
@@ -37,6 +39,11 @@ export const TopOverlay = () => {
         <View className="ml-3 flex-1">
           <View className="flex-row items-center gap-2">
             <Text className={`text-lg font-semibold ${highContrastEnabled ? 'text-white' : 'text-zinc-950 dark:text-zinc-100'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{profile.name}</Text>
+            {profile.verificationBadge === 'verified' ? (
+              <View className={`rounded-full px-2 py-0.5 ${highContrastEnabled ? 'border border-white bg-black' : 'bg-emerald-100 dark:bg-emerald-900/40'}`}>
+                <Text className={`text-[10px] font-semibold uppercase tracking-wide ${highContrastEnabled ? 'text-white' : 'text-emerald-600 dark:text-emerald-300'}`}>Verified</Text>
+              </View>
+            ) : null}
           </View>
           <View className="mt-1 flex-row items-center gap-2">
             <View className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: accentColor }} />
@@ -44,6 +51,10 @@ export const TopOverlay = () => {
           </View>
           <Text className={`mt-1 text-xs ${highContrastEnabled ? 'text-white' : 'text-zinc-500 dark:text-zinc-300'}`} numberOfLines={1} maxFontSizeMultiplier={maxFontSizeMultiplier}>
             {statusSubtitle}
+          </Text>
+          <Text className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-300">
+            Trust score {profile.trustScore ?? DEFAULT_TRUST_SCORE}
+            {isOfflineMode ? ' · Offline cache active' : ''}
           </Text>
         </View>
 

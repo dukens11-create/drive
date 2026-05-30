@@ -1,7 +1,9 @@
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
 
 import { useAccessibilitySettings } from '../../context/AccessibilityContext';
 import { useDriveRealtime } from '../../context/DriveRealtimeContext';
+import { ridesApi } from '../../services/api/ridesApi';
 import { useLocale } from '../../context/LocaleContext';
 import { driverStatusMeta, tripStatusOrder, tripStepLabels } from '../../utils/driveStatus';
 
@@ -11,6 +13,15 @@ export const RideRequestCard = () => {
   const { activeRequest, activeTrip, requestTimeLeft, acceptRequest, declineRequest, advanceTrip } = useDriveRealtime();
   const { highContrastEnabled, maxFontSizeMultiplier } = useAccessibilitySettings();
   const { formatCurrency, formatNumber, formatTime } = useLocale();
+  const [passengerRating, setPassengerRating] = useState(5);
+  const [passengerComment, setPassengerComment] = useState('');
+  const [ratingState, setRatingState] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPassengerRating(5);
+    setPassengerComment('');
+    setRatingState(null);
+  }, [activeTrip?.rideId]);
 
   if (!activeRequest && !activeTrip) {
     return null;
@@ -99,6 +110,52 @@ export const RideRequestCard = () => {
             </View>
           ))}
         </View>
+
+        {activeTrip.status === 'completed' && typeof activeTrip.passengerRating !== 'number' ? (
+          <View className="mt-4 rounded-2xl bg-zinc-100 p-3 dark:bg-zinc-800">
+            <Text className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 dark:text-zinc-300">Passenger rating</Text>
+            <View className="mt-2 flex-row gap-2">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <Pressable
+                  key={star}
+                  className={`rounded-xl px-2 py-1 ${passengerRating >= star ? 'bg-amber-400' : 'bg-zinc-300 dark:bg-zinc-700'}`}
+                  onPress={() => setPassengerRating(star)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Rate ${star} stars`}
+                >
+                  <Text className="text-xs font-semibold text-zinc-900" maxFontSizeMultiplier={maxFontSizeMultiplier}>★</Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              value={passengerComment}
+              onChangeText={setPassengerComment}
+              placeholder="Optional passenger feedback"
+              className="mt-2 rounded-xl bg-white px-3 py-2 text-sm text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100"
+            />
+            <Pressable
+              className="mt-2 rounded-xl bg-zinc-900 px-3 py-2 dark:bg-zinc-100"
+              onPress={() => {
+                void ridesApi
+                  .ratePassenger(activeTrip.rideId, passengerRating, passengerComment)
+                  .then(() => setRatingState('Passenger rated.'))
+                  .catch((error) => setRatingState(error instanceof Error ? error.message : 'Unable to submit passenger rating.'));
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Submit passenger rating"
+            >
+              <Text className="text-center text-xs font-semibold text-white dark:text-zinc-900" maxFontSizeMultiplier={maxFontSizeMultiplier}>Submit rating</Text>
+            </Pressable>
+            {ratingState ? <Text className="mt-2 text-xs text-zinc-500 dark:text-zinc-300" maxFontSizeMultiplier={maxFontSizeMultiplier}>{ratingState}</Text> : null}
+          </View>
+        ) : activeTrip.status === 'completed' && typeof activeTrip.passengerRating === 'number' ? (
+          <View className="mt-4 rounded-2xl bg-zinc-100 p-3 dark:bg-zinc-800">
+            <Text className="text-xs text-zinc-700 dark:text-zinc-200" maxFontSizeMultiplier={maxFontSizeMultiplier}>
+              Passenger rated ★ {activeTrip.passengerRating.toFixed(1)}
+              {activeTrip.passengerReview ? ` · ${activeTrip.passengerReview}` : ''}
+            </Text>
+          </View>
+        ) : null}
 
         <Pressable
           className="mt-4 rounded-2xl px-4 py-3.5"

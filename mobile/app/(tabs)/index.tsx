@@ -8,10 +8,12 @@ import { BottomStatsPanel } from '../../src/components/drive/BottomStatsPanel';
 import { MapOverlayControls } from '../../src/components/drive/MapOverlayControls';
 import { RideRequestCard } from '../../src/components/drive/RideRequestCard';
 import { TopOverlay } from '../../src/components/drive/TopOverlay';
+import { useAuth } from '../../src/context/AuthContext';
 import { useAccessibilitySettings } from '../../src/context/AccessibilityContext';
 import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
 import { useLocale } from '../../src/context/LocaleContext';
 import { useScreenTracking } from '../../src/hooks/useScreenTracking';
+import { safetyApi } from '../../src/services/api/safetyApi';
 import { logError, logEvent } from '../../src/services/observability';
 import { logDriverError, logDriverWarning, trackDriverEvent } from '../../src/services/monitoring/telemetry';
 import type { LatLng } from '../../src/types/drive';
@@ -39,6 +41,7 @@ export default function DriveHomeScreen() {
   const mapRef = useRef<MapView | null>(null);
   const scheme = useColorScheme();
   const router = useRouter();
+  const { session } = useAuth();
   const { highContrastEnabled, maxFontSizeMultiplier } = useAccessibilitySettings();
   const [isSupportVisible, setIsSupportVisible] = useState(false);
   const { location, nearbyRequests, activeRequest, activeTrip, error, profile } = useDriveRealtime();
@@ -128,6 +131,23 @@ export default function DriveHomeScreen() {
     logEvent('emergency_help_tapped');
     Alert.alert(t('home.emergencyTitle'), t('home.emergencyMessage'), [
       { text: t('home.cancel'), style: 'cancel' },
+      {
+        text: 'Panic alert',
+        style: 'destructive',
+        onPress: () => {
+          if (!session?.user.id) {
+            return;
+          }
+          void safetyApi
+            .sos(session.user.id, 'Driver panic alert triggered from mobile app.', activeTrip?.rideId, location.latitude, location.longitude)
+            .then(() => {
+              Alert.alert('Alert sent', 'Support and safety teams were notified.');
+            })
+            .catch(() => {
+              Alert.alert('Alert failed', 'Unable to notify safety support right now.');
+            });
+        },
+      },
       {
         text: t('home.callNumber', { number: emergencyNumber }),
         style: 'destructive',
