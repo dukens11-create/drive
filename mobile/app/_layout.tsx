@@ -10,13 +10,16 @@ import { AuthProvider } from '../src/context/AuthContext';
 import { DriveRealtimeProvider } from '../src/context/DriveRealtimeContext';
 import { logEvent, markAppStartupComplete, trackMemoryUsage } from '../src/services/observability';
 
+// Sample every 30 seconds to keep overhead low while still capturing usage trends.
+const MEMORY_SAMPLE_INTERVAL_MS = 30000;
+
 export default function RootLayout() {
   useEffect(() => {
     markAppStartupComplete('root_layout_mounted');
     trackMemoryUsage('startup');
     const memoryInterval = setInterval(() => {
       trackMemoryUsage('heartbeat');
-    }, 30000);
+    }, MEMORY_SAMPLE_INTERVAL_MS);
 
     const subscription = AppState.addEventListener('change', (nextState) => {
       logEvent('app_state_changed', {

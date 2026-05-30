@@ -11,6 +11,13 @@ type TelemetryEvent = {
 };
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+type PerformanceMemory = {
+  usedJSHeapSize?: number;
+};
+type ErrorUtilsShape = {
+  getGlobalHandler?: () => (error: Error, isFatal?: boolean) => void;
+  setGlobalHandler?: (handler: (error: Error, isFatal?: boolean) => void) => void;
+};
 
 const MAX_BUFFERED_ITEMS = 200;
 const appStartTimestampMs = Date.now();
@@ -100,10 +107,12 @@ export function markAppStartupComplete(source: string) {
 }
 
 export function startPerformanceTimer(name: string, attributes: EventAttributes = {}) {
-  const start = globalThis.performance?.now?.() ?? Date.now();
+  const hasPerformanceNow = typeof globalThis.performance?.now === 'function';
+  const getTime = hasPerformanceNow && globalThis.performance ? () => globalThis.performance.now() : () => Date.now();
+  const start = getTime();
 
   return (result: EventAttributes = {}) => {
-    const end = globalThis.performance?.now?.() ?? Date.now();
+    const end = getTime();
     const durationMs = Number((end - start).toFixed(2));
     pushTelemetryEvent(name, {
       ...attributes,
@@ -115,7 +124,7 @@ export function startPerformanceTimer(name: string, attributes: EventAttributes 
 }
 
 export function trackMemoryUsage(reason: string) {
-  const memory = (globalThis as { performance?: { memory?: { usedJSHeapSize?: number } } }).performance?.memory;
+  const memory = (globalThis as { performance?: { memory?: PerformanceMemory } }).performance?.memory;
   if (!memory || typeof memory.usedJSHeapSize !== 'number') {
     return;
   }
@@ -132,7 +141,7 @@ export function setupCrashReporting() {
   }
   crashReportingRegistered = true;
 
-  const maybeErrorUtils = (globalThis as { ErrorUtils?: { getGlobalHandler?: () => (error: Error, isFatal?: boolean) => void; setGlobalHandler?: (handler: (error: Error, isFatal?: boolean) => void) => void } }).ErrorUtils;
+  const maybeErrorUtils = (globalThis as { ErrorUtils?: ErrorUtilsShape }).ErrorUtils;
   const previousHandler = maybeErrorUtils?.getGlobalHandler?.();
 
   maybeErrorUtils?.setGlobalHandler?.((error: Error, isFatal?: boolean) => {

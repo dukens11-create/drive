@@ -150,11 +150,9 @@ export default function DriveHomeScreen() {
   };
 
   const toggleSupportSheet = () => {
-    setIsSupportVisible((current) => {
-      const next = !current;
-      logEvent('support_sheet_toggled', { visible: next });
-      return next;
-    });
+    const nextVisible = !isSupportVisible;
+    logEvent('support_sheet_toggled', { visible: nextVisible });
+    setIsSupportVisible(nextVisible);
   };
 
   return (

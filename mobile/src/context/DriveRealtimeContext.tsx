@@ -654,42 +654,53 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       return;
     }
 
+    const fromStatus = activeTrip.status;
+    let toStatus: ActiveTrip['status'] | 'cleared' | 'unchanged' = 'unchanged';
     const stopAdvanceTimer = startPerformanceTimer('trip_advance_duration', {
       rideId: activeTrip.rideId,
-      fromStatus: activeTrip.status,
+      fromStatus,
     });
     try {
       if (activeTrip.rideId.startsWith(MOCK_REQUEST_PREFIX)) {
         if (activeTrip.status === 'accepted') {
           setMockActiveTrip(appendMockTripEvent(activeTrip, 'in-progress'));
+          toStatus = 'in-progress';
         } else if (activeTrip.status === 'in-progress') {
           setMockActiveTrip(appendMockTripEvent(activeTrip, 'completed'));
+          toStatus = 'completed';
         } else {
           setMockActiveTrip(null);
+          toStatus = 'cleared';
         }
       } else if (activeTrip.status === 'accepted') {
         await ridesApi.start(activeTrip.rideId);
         suppressedTripAlertRef.current = buildSuppressedTripAlertKey(activeTrip.rideId, 'in-progress');
         await sendDriverAlert('trip-started', 'Trip started', `${activeTrip.riderName} is onboard. Continue to the destination.`);
+        toStatus = 'in-progress';
       } else if (activeTrip.status === 'in-progress') {
         await ridesApi.complete(activeTrip.rideId);
         suppressedTripAlertRef.current = buildSuppressedTripAlertKey(activeTrip.rideId, 'completed');
         await sendDriverAlert('trip-ended', 'Trip ended', `${activeTrip.riderName}'s trip is complete.`);
+        toStatus = 'completed';
       }
       await vibrateForAction('success');
       if (!activeTrip.rideId.startsWith(MOCK_REQUEST_PREFIX)) {
         await refreshData();
       }
-      stopAdvanceTimer({ success: true });
+      const resolvedToStatus = toStatus === 'unchanged' ? fromStatus : toStatus;
+      stopAdvanceTimer({ success: true, toStatus: resolvedToStatus });
       logEvent('trip_status_advanced', {
         rideId: activeTrip.rideId,
-        fromStatus: activeTrip.status,
+        fromStatus,
+        toStatus: resolvedToStatus,
       });
     } catch (err) {
-      stopAdvanceTimer({ success: false });
+      const resolvedToStatus = toStatus === 'unchanged' ? fromStatus : toStatus;
+      stopAdvanceTimer({ success: false, toStatus: resolvedToStatus });
       logError('trip_advance_failed', err, {
         rideId: activeTrip.rideId,
-        fromStatus: activeTrip.status,
+        fromStatus,
+        toStatus: resolvedToStatus,
       });
       setError(toErrorMessage(err));
     }
