@@ -53,3 +53,35 @@ jobs:
 
       - name: Test
         run: node --test dist/*.test.js
+
+  mobile-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies
+        run: npm ci
+
+      - name: Mobile typecheck
+        run: npm run typecheck
+
+      - name: Mobile tests with coverage
+        run: npm run test:ci
+
+      - name: Upload mobile coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-coverage
+          path: mobile/coverage

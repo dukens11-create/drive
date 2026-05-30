@@ -35,7 +35,31 @@ Useful mobile commands:
 npm run android
 npm run ios
 npm run typecheck
+npm test
+npm run test:coverage
 ```
+
+### Mobile testing and QA
+
+- Unit tests live in `mobile/test/unit` and focus on business logic and utility behavior.
+- Integration tests live in `mobile/test/integration` and validate key UI flows such as onboarding, request acceptance, and trip completion.
+- End-to-end style critical-path tests live in `mobile/test/e2e` using React Native Testing Library.
+- Coverage is enforced in `mobile/jest.config.js` via global thresholds to catch regressions early.
+
+Local testing workflow:
+
+```bash
+cd mobile
+npm ci
+npm run typecheck
+npm run test:ci
+```
+
+Best practices:
+
+- Keep tests close to the user flow they validate and prefer assertions on visible behavior.
+- Mock only network/native boundaries and keep business logic assertions deterministic.
+- Add/adjust tests in the same PR as behavior changes to keep coverage meaningful.
 
 Firebase-ready config is located in `mobile/app.json` under `expo.extra.firebase`.
 If those values are populated, the app service layer can initialize Firebase.
@@ -74,5 +98,5 @@ Codemagic Android builds use EAS non-interactive auth and require a secure `EXPO
 
 ## CI
 
-- GitHub Actions (`.github/workflows/ci.yml`) runs backend install/build/tests.
+- GitHub Actions (`.github/workflows/ci.yml`) runs backend install/build/tests and mobile typecheck + Jest coverage checks on PRs.
 - Codemagic (`codemagic.yaml`) runs Expo mobile install/typecheck and EAS local Android APK build from `mobile/` (requires secure `EXPO_TOKEN`).
