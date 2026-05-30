@@ -1,0 +1,15 @@
+import { Router } from 'express';
+import * as controller from '../controllers/support.controller';
+import { validateBody } from '../utils/validate';
+import { genericSchema } from '../schemas/support.schemas';
+import { requireAuth } from '../middleware/auth.middleware';
+const router = Router();
+router.get('/health', controller.health);
+router.use(requireAuth);
+router.post('/create-ticket', validateBody(genericSchema), controller.create_ticket);
+router.post('/list-tickets', validateBody(genericSchema), controller.list_tickets);
+router.post('/get-ticket', validateBody(genericSchema), controller.get_ticket);
+router.post('/reply-ticket', validateBody(genericSchema), controller.reply_ticket);
+router.post('/close-ticket', validateBody(genericSchema), controller.close_ticket);
+router.post('/refund-review', validateBody(genericSchema), controller.refund_review);
+export default router;

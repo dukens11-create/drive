@@ -2,7 +2,7 @@
 
 Drive is now a TypeScript codebase with:
 
-- Backend API at repository root (Node.js + TypeScript)
+- Backend API under `src/` with controllers, services, routes, schemas, and shared infrastructure modules
 - Mobile driver app at `mobile/` (React Native + Expo Router + NativeWind)
 - Admin dashboard at `admin/` (Next.js + TypeScript + Tailwind CSS)
 - Passenger web app at `web/` (Next.js + TypeScript + Tailwind CSS)
@@ -75,6 +75,16 @@ npm install
 npm run build
 npm start
 ```
+
+Backend source is organized under `src/`:
+
+- `src/controllers` – request handlers
+- `src/services` – domain logic
+- `src/routes` – Express route registration
+- `src/schemas` – Zod request schemas
+- `src/middleware`, `src/utils`, `src/config` – shared runtime helpers
+- `src/database`, `src/queues`, `src/websocket`, `src/constants` – infrastructure modules
+- `tests/` – backend route and service integration tests
 
 Run backend tests:
 

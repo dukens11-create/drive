@@ -1,0 +1,12 @@
+import { Router } from 'express';
+import * as controller from '../controllers/wallet.controller';
+import { validateBody } from '../utils/validate';
+import { genericSchema } from '../schemas/wallet.schemas';
+import { requireAuth } from '../middleware/auth.middleware';
+const router = Router();
+router.get('/health', controller.health);
+router.use(requireAuth);
+router.post('/balance', validateBody(genericSchema), controller.balance);
+router.post('/ledger', validateBody(genericSchema), controller.ledger);
+router.post('/cashout', validateBody(genericSchema), controller.cashout);
+export default router;
