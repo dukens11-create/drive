@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Linking, Pressable, Share, Text, useColorScheme, View } from 'react-native';
@@ -8,6 +9,15 @@ import { MapOverlayControls } from '../../src/components/drive/MapOverlayControl
 import { RideRequestCard } from '../../src/components/drive/RideRequestCard';
 import { TopOverlay } from '../../src/components/drive/TopOverlay';
 import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
+
+type ExpoExtra = {
+  emergencyNumber?: string;
+};
+
+const expoExtra = (Constants.expoConfig?.extra ?? {}) as ExpoExtra;
+const configuredEmergencyNumber = process.env.EXPO_PUBLIC_EMERGENCY_NUMBER?.trim();
+const expoEmergencyNumber = expoExtra.emergencyNumber?.trim();
+const emergencyNumber = configuredEmergencyNumber || expoEmergencyNumber || '911';
 
 export default function DriveHomeScreen() {
   const mapRef = useRef<MapView | null>(null);
@@ -40,10 +50,10 @@ export default function DriveHomeScreen() {
     Alert.alert('Emergency help', 'Call local emergency services right away if you are in danger or feel unsafe.', [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Call 911',
+        text: `Call ${emergencyNumber}`,
         style: 'destructive',
         onPress: () => {
-          void Linking.openURL('tel:911').catch(() => {
+          void Linking.openURL(`tel:${emergencyNumber}`).catch(() => {
             Alert.alert('Unable to open dialer', 'Call your local emergency number directly from this device.');
           });
         },
@@ -54,7 +64,7 @@ export default function DriveHomeScreen() {
   const handleShareTrip = async () => {
     const message = activeTrip
       ? `Drive trip update: ${activeTrip.riderName} • ${activeTrip.pickupAddress} → ${activeTrip.dropoffAddress} • Status: ${activeTrip.status}.`
-      : `Drive status update: I am ${profile.isOnline ? 'online and available' : 'currently offline'} near ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}.`;
+      : `Drive status update: I am ${profile.isOnline ? 'online and available with Drive right now' : 'currently offline with Drive'}.`;
 
     try {
       await Share.share({ title: 'Share Drive trip', message });

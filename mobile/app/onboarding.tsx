@@ -111,7 +111,7 @@ export default function OnboardingScreen() {
         />
         <StepRow
           title="Documents"
-          value={documentsUploaded >= REQUIRED_DRIVER_DOCUMENTS ? `${documentsUploaded}/${REQUIRED_DRIVER_DOCUMENTS} uploaded` : `${documentsUploaded}/${REQUIRED_DRIVER_DOCUMENTS} uploaded`}
+          value={`${documentsUploaded}/${REQUIRED_DRIVER_DOCUMENTS} uploaded`}
           description="Upload your driver license and insurance before KYC review can begin."
           active={onboardingStep === 'documents'}
         />

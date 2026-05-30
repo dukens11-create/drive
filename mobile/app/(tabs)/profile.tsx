@@ -44,7 +44,7 @@ export default function ProfileScreen() {
         <Text className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Verification</Text>
         <Text className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">Documents uploaded: {documentsUploaded}</Text>
         <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Review status: {verificationStatus}</Text>
-        <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Safety tools: SOS, trip share, and support live on Home.</Text>
+        <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Safety tools: SOS, trip sharing, and support live on Home.</Text>
         {onboardingStep !== 'ready' ? (
           <Pressable className="mt-4 rounded-2xl bg-emerald-500 px-4 py-3" onPress={() => router.push('/onboarding')}>
             <Text className="text-center font-semibold text-white">Continue onboarding</Text>

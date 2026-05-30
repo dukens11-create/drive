@@ -34,6 +34,7 @@
     },
     "extra": {
       "apiBaseUrl": "http://localhost:3000",
+      "emergencyNumber": "911",
       "firebase": {
         "apiKey": "",
         "authDomain": "",

@@ -4,6 +4,8 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { useAuth } from '../../src/context/AuthContext';
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
+
 export default function SignUpScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -12,10 +14,12 @@ export default function SignUpScreen() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const { signUp } = useAuth();
-  const canSubmit = email.trim().includes('@') && password.length >= 6 && acceptedPolicies && !isSubmitting;
+  const normalizedEmail = email.trim();
+  const hasValidEmail = EMAIL_PATTERN.test(normalizedEmail);
+  const canSubmit = hasValidEmail && password.length >= 6 && acceptedPolicies && !isSubmitting;
 
   const handleSubmit = async () => {
-    if (!email.trim().includes('@')) {
+    if (!hasValidEmail) {
       setError('Enter a valid email address to create your driver account.');
       return;
     }
@@ -30,7 +34,7 @@ export default function SignUpScreen() {
     setIsSubmitting(true);
     setError(null);
     try {
-      await signUp(email.trim(), password);
+      await signUp(normalizedEmail, password);
       router.replace('/onboarding');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to create account');
