@@ -5,8 +5,16 @@ import { useDriveRealtime } from '../../context/DriveRealtimeContext';
 import { driverStatusMeta } from '../../utils/driveStatus';
 
 export const TopOverlay = () => {
-  const { profile, activeTrip, setOnline, error, onboardingRequired } = useDriveRealtime();
-  const statusMeta = driverStatusMeta[profile.status];
+  const { profile, activeRequest, activeTrip, requestTimeLeft, setOnline, error, onboardingRequired } = useDriveRealtime();
+  const displayStatus = activeTrip?.status ?? profile.status;
+  const statusMeta = driverStatusMeta[displayStatus];
+  const statusLabel = activeRequest && !activeTrip ? 'Incoming request' : statusMeta.label;
+  const statusSubtitle = activeTrip
+    ? `${activeTrip.pickupAddress} → ${activeTrip.dropoffAddress}`
+    : activeRequest
+      ? `Respond in ${requestTimeLeft}s · ${activeRequest.pickupAddress}`
+      : statusMeta.subtitle;
+  const accentColor = activeRequest && !activeTrip ? '#F43F5E' : statusMeta.accentColor;
 
   return (
     <View className="absolute left-4 right-4 top-14 z-20">
@@ -14,16 +22,19 @@ export const TopOverlay = () => {
       <View className="flex-row items-center rounded-3xl bg-white/95 px-4 py-3 shadow-soft dark:bg-zinc-900/95">
         <Image
           source={profile.avatarUrl ? { uri: profile.avatarUrl } : require('../../../assets/icon.png')}
-          className="h-10 w-10 rounded-full"
+          className="h-12 w-12 rounded-full"
         />
 
         <View className="ml-3 flex-1">
           <View className="flex-row items-center gap-2">
-            <View className="h-2 w-2 rounded-full" style={{ backgroundColor: statusMeta.accentColor }} />
-            <Text className="text-sm font-semibold text-zinc-950 dark:text-zinc-100">{profile.name}</Text>
+            <Text className="text-lg font-semibold text-zinc-950 dark:text-zinc-100">{profile.name}</Text>
           </View>
-          <Text className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400" numberOfLines={1}>
-            {activeTrip ? `${activeTrip.pickupAddress} → ${activeTrip.dropoffAddress}` : statusMeta.label}
+          <View className="mt-1 flex-row items-center gap-2">
+            <View className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: accentColor }} />
+            <Text className="text-xs font-medium text-zinc-700 dark:text-zinc-200">{statusLabel}</Text>
+          </View>
+          <Text className="mt-1 text-xs text-zinc-500 dark:text-zinc-300" numberOfLines={1}>
+            {statusSubtitle}
           </Text>
         </View>
 

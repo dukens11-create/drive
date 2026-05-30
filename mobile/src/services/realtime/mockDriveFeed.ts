@@ -1,10 +1,14 @@
-import type { LatLng, NearbyRequest, RideHistoryItem } from '../../types/drive';
+import type { LatLng, NearbyRequest, RideHistoryItem, RideRequest } from '../../types/drive';
 
 const downtown: LatLng = { latitude: 37.7749, longitude: -122.4194 };
 const pointOffsets = [0.22, -0.18, 0.3, -0.12, 0.14, -0.26];
 const nearbyZones = ['Mission Bay', 'SoMa', 'Downtown', 'Financial District'];
 const nearbyDistances = [0.9, 1.3, 2.1, 3.2];
 const nearbySurge = [1.1, 1.4, 1.2, 1.5];
+const riderNames = ['Olivia M.', 'Daniel R.', 'Ava T.', 'Marcus J.'];
+const pickupAddresses = ['Oracle Park · 24 Willie Mays Plaza', 'Ferry Building · Main Entrance', 'SFMOMA · Howard St pickup zone', 'Chase Center · East rideshare lot'];
+const dropoffAddresses = ['Union Square · Geary St', 'Mission Dolores · 19th St', 'Pac Heights · Fillmore St', 'Embarcadero Center · Drumm St'];
+const riderRatings = [4.96, 4.89, 4.98, 4.91];
 
 export const getSeedLocation = (): LatLng => downtown;
 
@@ -20,6 +24,21 @@ export const buildNearbyRequests = (): NearbyRequest[] =>
     position: buildTripPoint(index + 1),
     distanceKm,
     surgeMultiplier: nearbySurge[index],
+  }));
+
+export const buildIncomingRideRequests = (): Array<Omit<RideRequest, 'expiresAt'>> =>
+  nearbyDistances.map((distanceKm, index) => ({
+    id: `mock-request-${index + 1}`,
+    riderName: riderNames[index],
+    pickupAddress: pickupAddresses[index],
+    dropoffAddress: dropoffAddresses[index],
+    pickupPosition: buildTripPoint(index + 1),
+    dropoffPosition: buildTripPoint(index + 3),
+    pickupDistanceKm: distanceKm,
+    tripDistanceKm: Number((distanceKm + 2.6 + index * 0.4).toFixed(1)),
+    estimatedFare: Number((12.5 + distanceKm * 2.9 + index * 1.75).toFixed(2)),
+    pickupEtaMinutes: 2 + index,
+    riderRating: riderRatings[index],
   }));
 
 export const seedRideHistory = (): RideHistoryItem[] => [

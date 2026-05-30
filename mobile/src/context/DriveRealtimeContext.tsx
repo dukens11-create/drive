@@ -6,7 +6,7 @@ import { useAuth } from './AuthContext';
 import { driversApi } from '../services/api/driversApi';
 import { HttpError } from '../services/api/client';
 import { ridesApi } from '../services/api/ridesApi';
-import { buildNearbyRequests, getSeedLocation } from '../services/realtime/mockDriveFeed';
+import { buildIncomingRideRequests, buildNearbyRequests, getSeedLocation } from '../services/realtime/mockDriveFeed';
 import type { RideSummary } from '../types/api';
 import type { ActiveTrip, DriverMetrics, DriverProfile, LatLng, RideHistoryItem, RideRequest } from '../types/drive';
 
@@ -34,6 +34,9 @@ const DriveRealtimeContext = createContext<DriveContextValue | undefined>(undefi
 
 const HOURS_INCREMENT_PER_TICK = 0.01;
 const DATA_REFRESH_INTERVAL_MS = 6000;
+const REQUEST_EXPIRATION_SECONDS = 18;
+const MOCK_REQUEST_PREFIX = 'mock-request-';
+type PendingRideRequest = Omit<RideRequest, 'expiresAt'>;
 
 const defaultProfile: DriverProfile = {
   id: 'driver',
@@ -104,6 +107,53 @@ const mapRideToHistory = (ride: RideSummary): RideHistoryItem => ({
   date: ride.updatedAt,
 });
 
+const mapRequestToMockTrip = (request: RideRequest): ActiveTrip => {
+  const createdAt = new Date().toISOString();
+  return {
+    ...request,
+    rideId: request.id,
+    status: 'accepted',
+    timeline: [
+      {
+        id: `${request.id}-accepted`,
+        title: 'Trip accepted',
+        message: 'Head to pickup and confirm the rider before you start the trip.',
+        createdAt,
+      },
+      {
+        id: `${request.id}-pickup`,
+        title: 'Pickup route ready',
+        message: `${request.pickupEtaMinutes} min away · ${request.pickupAddress}`,
+        createdAt,
+      },
+    ],
+  };
+};
+
+const appendMockTripEvent = (trip: ActiveTrip, nextStatus: ActiveTrip['status']): ActiveTrip => {
+  const createdAt = new Date().toISOString();
+  const nextEvent =
+    nextStatus === 'in-progress'
+      ? {
+          id: `${trip.rideId}-started-${trip.timeline.length + 1}`,
+          title: 'Rider onboard',
+          message: `Trip started toward ${trip.dropoffAddress}.`,
+          createdAt,
+        }
+      : {
+          id: `${trip.rideId}-completed-${trip.timeline.length + 1}`,
+          title: 'Dropoff complete',
+          message: 'Trip complete. Earnings are ready and you can go back online for the next request.',
+          createdAt,
+        };
+
+  return {
+    ...trip,
+    status: nextStatus,
+    timeline: [...trip.timeline, nextEvent],
+  };
+};
+
 const toErrorMessage = (error: unknown) => {
   if (error instanceof HttpError) {
     return error.message;
@@ -121,14 +171,17 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
   const [metrics, setMetrics] = useState<DriverMetrics>(defaultMetrics);
   const [location, setLocation] = useState<LatLng>(getSeedLocation());
   const [nearbyRequests, setNearbyRequests] = useState(buildNearbyRequests());
+  const [requestQueue, setRequestQueue] = useState<PendingRideRequest[]>([]);
   const [activeRequest, setActiveRequest] = useState<RideRequest | null>(null);
-  const [activeTrip, setActiveTrip] = useState<ActiveTrip | null>(null);
+  const [backendActiveTrip, setBackendActiveTrip] = useState<ActiveTrip | null>(null);
+  const [mockActiveTrip, setMockActiveTrip] = useState<ActiveTrip | null>(null);
   const [rideHistory, setRideHistory] = useState<RideHistoryItem[]>([]);
   const [notifications, setNotifications] = useState<Array<{ id: string; title: string; body: string; createdAt: string }>>([]);
-  const [requestTimeLeft] = useState(0);
+  const [requestTimeLeft, setRequestTimeLeft] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [onboardingRequired, setOnboardingRequired] = useState(false);
+  const activeTrip = backendActiveTrip ?? mockActiveTrip;
 
   const refreshData = useCallback(async () => {
     if (refreshInFlightRef.current) {
@@ -138,7 +191,11 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
     if (state !== 'signed_in' || !session) {
       setProfile(defaultProfile);
       setMetrics(defaultMetrics);
-      setActiveTrip(null);
+      setBackendActiveTrip(null);
+      setMockActiveTrip(null);
+      setActiveRequest(null);
+      setRequestQueue([]);
+      setRequestTimeLeft(0);
       setRideHistory([]);
       setNotifications([]);
       setOnboardingRequired(false);
@@ -160,7 +217,13 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
 
       const backendProfile = driver.profile;
       const mappedTrip = trip.ride ? mapRideToActiveTrip(trip.ride) : null;
-      setActiveTrip(mappedTrip);
+      setBackendActiveTrip(mappedTrip);
+      if (mappedTrip) {
+        setMockActiveTrip(null);
+        setActiveRequest(null);
+        setRequestQueue([]);
+        setRequestTimeLeft(0);
+      }
 
       setProfile({
         id: backendProfile.userId,
@@ -220,6 +283,56 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
   useEffect(() => {
     setNearbyRequests(buildNearbyRequests());
   }, [location]);
+
+  useEffect(() => {
+    if (state !== 'signed_in' || onboardingStep !== 'ready' || !profile.isOnline || activeTrip) {
+      setRequestQueue([]);
+      setActiveRequest(null);
+      setRequestTimeLeft(0);
+      return;
+    }
+
+    if (activeRequest || requestQueue.length > 0) {
+      return;
+    }
+
+    setRequestQueue(buildIncomingRideRequests());
+  }, [activeRequest, activeTrip, onboardingStep, profile.isOnline, requestQueue.length, state]);
+
+  useEffect(() => {
+    if (state !== 'signed_in' || !profile.isOnline || activeTrip || activeRequest || requestQueue.length === 0) {
+      return;
+    }
+
+    const [nextRequest, ...remainingQueue] = requestQueue;
+    setRequestQueue(remainingQueue);
+    setActiveRequest({
+      ...nextRequest,
+      expiresAt: Date.now() + REQUEST_EXPIRATION_SECONDS * 1000,
+    });
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => null);
+  }, [activeRequest, activeTrip, profile.isOnline, requestQueue, state]);
+
+  useEffect(() => {
+    if (!activeRequest) {
+      setRequestTimeLeft(0);
+      return;
+    }
+
+    const syncCountdown = () => {
+      const now = Date.now();
+      const secondsLeft = Math.max(0, Math.ceil((activeRequest.expiresAt - now) / 1000));
+      setRequestTimeLeft(secondsLeft);
+      if (activeRequest.expiresAt <= now) {
+        setActiveRequest((current) => (current?.id === activeRequest.id ? null : current));
+      }
+    };
+
+    syncCountdown();
+    const interval = setInterval(syncCountdown, 1000);
+
+    return () => clearInterval(interval);
+  }, [activeRequest]);
 
   useEffect(() => {
     let watcher: Location.LocationSubscription | null = null;
@@ -287,6 +400,15 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       return;
     }
     try {
+      if (activeRequest.id.startsWith(MOCK_REQUEST_PREFIX)) {
+        setMockActiveTrip(mapRequestToMockTrip(activeRequest));
+        setActiveRequest(null);
+        setRequestQueue([]);
+        setRequestTimeLeft(0);
+        setError(null);
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        return;
+      }
       await ridesApi.accept(activeRequest.id);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await refreshData();
@@ -298,6 +420,9 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
 
   const declineRequest = useCallback(() => {
     setActiveRequest(null);
+    setRequestTimeLeft(0);
+    setError(null);
+    void Haptics.selectionAsync().catch(() => null);
   }, []);
 
   const advanceTrip = useCallback(async () => {
@@ -306,13 +431,23 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
     }
 
     try {
-      if (activeTrip.status === 'accepted') {
+      if (activeTrip.rideId.startsWith(MOCK_REQUEST_PREFIX)) {
+        if (activeTrip.status === 'accepted') {
+          setMockActiveTrip(appendMockTripEvent(activeTrip, 'in-progress'));
+        } else if (activeTrip.status === 'in-progress') {
+          setMockActiveTrip(appendMockTripEvent(activeTrip, 'completed'));
+        } else {
+          setMockActiveTrip(null);
+        }
+      } else if (activeTrip.status === 'accepted') {
         await ridesApi.start(activeTrip.rideId);
       } else if (activeTrip.status === 'in-progress') {
         await ridesApi.complete(activeTrip.rideId);
       }
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      await refreshData();
+      if (!activeTrip.rideId.startsWith(MOCK_REQUEST_PREFIX)) {
+        await refreshData();
+      }
     } catch (err) {
       setError(toErrorMessage(err));
     }
