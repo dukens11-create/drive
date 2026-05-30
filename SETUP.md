@@ -16,6 +16,17 @@
 Optional mobile validation:
 - `npm run typecheck`
 
+## Admin dashboard (Next.js)
+
+1. `cd admin`
+2. `cp .env.example .env.local`
+3. `npm ci`
+4. `npm run lint`
+5. `npm run build`
+6. `npm run dev`
+
+Set `NEXT_PUBLIC_API_BASE_URL` to the backend API URL, such as `http://localhost:8080`.
+
 ## Basic backend test run
 
 Run `npm test` to compile and execute core API route tests.

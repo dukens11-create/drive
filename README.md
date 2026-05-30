@@ -4,6 +4,7 @@ Drive is now a TypeScript codebase with:
 
 - Backend API at repository root (Node.js + TypeScript)
 - Mobile driver app at `mobile/` (React Native + Expo Router + NativeWind)
+- Admin dashboard at `admin/` (Next.js + TypeScript + Tailwind CSS)
 
 ## Mobile app: Drive Home
 
@@ -80,6 +81,26 @@ Run backend tests:
 npm test
 ```
 
+## Admin dashboard
+
+```bash
+cd admin
+cp .env.example .env.local
+npm ci
+npm run lint
+npm run build
+npm run dev
+```
+
+Set `NEXT_PUBLIC_API_BASE_URL` to the backend base URL, such as `http://localhost:8080`.
+The admin app includes:
+
+- KPI dashboard with live driver/ride map and notifications
+- Analytics, driver, ride, payment, user, support, safety, promotions, settings, and reports sections
+- JWT-backed admin login against the existing backend API
+- CSV export and print/PDF-friendly reporting views
+- Dockerfile for standalone admin container builds
+
 ## Android builds (APK / AAB)
 
 See **[PRODUCTION_BUILD.md](./PRODUCTION_BUILD.md)** for a full step-by-step guide on generating APK and AAB files for testing and Play Store submission using Expo EAS (recommended) or React Native CLI.
@@ -99,5 +120,5 @@ Codemagic Android builds use EAS non-interactive auth and require a secure `EXPO
 
 ## CI
 
-- GitHub Actions (`.github/workflows/ci.yml`) runs backend install/build/tests and mobile typecheck + Jest coverage checks on PRs.
+- GitHub Actions (`.github/workflows/ci.yml`) runs backend install/build/tests, admin lint/build validation, and mobile typecheck + Jest coverage checks on PRs.
 - Codemagic (`codemagic.yaml`) runs Expo mobile install/typecheck and EAS local Android APK build from `mobile/` (requires secure `EXPO_TOKEN`).

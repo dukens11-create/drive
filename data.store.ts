@@ -65,6 +65,7 @@ export type Promo = {
   code: string;
   discountType: 'flat' | 'percent';
   discountValue: number;
+  active?: boolean;
   minFareCents?: number;
   maxUsages?: number;
   usageCount: number;
@@ -195,6 +196,31 @@ export type AuditLog = {
   createdAt: string;
 };
 
+export type AdminApiKey = {
+  id: string;
+  name: string;
+  keyPreview: string;
+  keyHash: string;
+  createdAt: string;
+  lastUsedAt?: string;
+  revokedAt?: string;
+};
+
+export type PlatformFeatureFlag = {
+  key: string;
+  label: string;
+  enabled: boolean;
+};
+
+export type PlatformSettings = {
+  maintenanceMode: boolean;
+  appVersion: string;
+  commissionRatePercent: number;
+  surgeMultiplier: number;
+  featureFlags: PlatformFeatureFlag[];
+  updatedAt: string;
+};
+
 export type MerchantProduct = {
   id: string;
   merchantId: string;
@@ -243,6 +269,8 @@ type PersistedStore = {
   referralCodes: Array<[string, ReferralCode]>;
   referralEvents: ReferralEvent[];
   markets: Array<[string, MarketConfig]>;
+  adminApiKeys: AdminApiKey[];
+  platformSettings: Array<[string, PlatformSettings]>;
 };
 
 let isHydrating = false;
@@ -323,7 +351,9 @@ export const store = {
   promos: new PersistentMap<string, Promo>(),
   referralCodes: new PersistentMap<string, ReferralCode>(),
   referralEvents: createPersistentArray<ReferralEvent>(),
-  markets: new PersistentMap<string, MarketConfig>()
+  markets: new PersistentMap<string, MarketConfig>(),
+  adminApiKeys: createPersistentArray<AdminApiKey>(),
+  platformSettings: new PersistentMap<string, PlatformSettings>()
 };
 
 function toSerializableStore(): PersistedStore {
@@ -345,7 +375,9 @@ function toSerializableStore(): PersistedStore {
     promos: Array.from(store.promos.entries()),
     referralCodes: Array.from(store.referralCodes.entries()),
     referralEvents: [...store.referralEvents],
-    markets: Array.from(store.markets.entries())
+    markets: Array.from(store.markets.entries()),
+    adminApiKeys: [...store.adminApiKeys],
+    platformSettings: Array.from(store.platformSettings.entries())
   };
 }
 
@@ -398,6 +430,8 @@ function hydrateStore() {
     for (const [code, ref] of parsed.referralCodes || []) store.referralCodes.set(code, ref);
     for (const ev of parsed.referralEvents || []) store.referralEvents.push(ev);
     for (const [id, market] of parsed.markets || []) store.markets.set(id, market);
+    for (const apiKey of parsed.adminApiKeys || []) store.adminApiKeys.push(apiKey);
+    for (const [key, settings] of parsed.platformSettings || []) store.platformSettings.set(key, settings);
   } finally {
     isHydrating = false;
   }
@@ -416,6 +450,22 @@ if (!hasAdmin) {
     password: hashPassword(env.adminSeedPassword),
     role: 'admin',
     createdAt: timestamp()
+  });
+}
+
+if (!store.platformSettings.get('global')) {
+  store.platformSettings.set('global', {
+    maintenanceMode: false,
+    appVersion: '1.0.0',
+    commissionRatePercent: 20,
+    surgeMultiplier: 1,
+    featureFlags: [
+      { key: 'liveDispatchMap', label: 'Live dispatch map', enabled: true },
+      { key: 'walletOps', label: 'Wallet operations', enabled: true },
+      { key: 'safetyEscalations', label: 'Safety escalations', enabled: true },
+      { key: 'reportExports', label: 'Report exports', enabled: true }
+    ],
+    updatedAt: timestamp()
   });
 }
 
@@ -482,7 +532,10 @@ export function getActiveSurgeMultiplier(): number {
 }
 
 export function getPromoByCode(code: string): Promo | undefined {
-  return store.promos.get(code.toUpperCase());
+  const promo = store.promos.get(code.toUpperCase());
+  if (!promo || promo.active === false) return undefined;
+  if (promo.expiresAt && new Date(promo.expiresAt).getTime() <= Date.now()) return undefined;
+  return promo;
 }
 
 export function hasUserUsedPromo(userId: string, promoId: string): boolean {

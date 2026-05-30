@@ -80,3 +80,28 @@ jobs:
         with:
           name: mobile-coverage
           path: mobile/coverage
+
+  admin-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install admin dependencies
+        run: npm ci
+
+      - name: Admin lint
+        run: npm run lint
+
+      - name: Admin build
+        run: npm run build

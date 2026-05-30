@@ -79,6 +79,31 @@ test('GET /api/admin/stats returns platform statistics', async () => {
   });
 });
 
+test('GET /api/admin/overview returns operations snapshot', async () => {
+  await withServer(async baseUrl => {
+    const adminToken = await loginAdmin(baseUrl);
+    const { userId, token } = await signupAndLogin(baseUrl, 'rider');
+    await fetch(`${baseUrl}/api/support/create-ticket`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
+      body: JSON.stringify({ userId, type: 'general', message: 'Need help' })
+    });
+
+    const res = await fetch(`${baseUrl}/api/admin/overview`, {
+      headers: { authorization: 'Bearer ' + adminToken }
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json() as any;
+    assert.equal(body.ok, true);
+    assert.equal(body.action, 'overview');
+    assert.ok(Array.isArray(body.drivers));
+    assert.ok(Array.isArray(body.users));
+    assert.ok(Array.isArray(body.tickets));
+    assert.ok(Array.isArray(body.analytics.revenueByDay));
+    assert.ok(typeof body.settings.commissionRatePercent === 'number');
+  });
+});
+
 test('POST /api/admin/list-users returns user list', async () => {
   await withServer(async baseUrl => {
     const adminToken = await loginAdmin(baseUrl);
@@ -96,6 +121,52 @@ test('POST /api/admin/list-users returns user list', async () => {
     for (const user of body.users) {
       assert.equal(user.password, undefined);
     }
+  });
+});
+
+test('POST /api/admin/update-settings and create-api-key manage admin configuration', async () => {
+  await withServer(async baseUrl => {
+    const adminToken = await loginAdmin(baseUrl);
+
+    const updateRes = await fetch(`${baseUrl}/api/admin/update-settings`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + adminToken },
+      body: JSON.stringify({
+        maintenanceMode: true,
+        commissionRatePercent: 18,
+        surgeMultiplier: 1.75,
+        featureFlags: [{ key: 'walletOps', label: 'Wallet operations', enabled: false }]
+      })
+    });
+    assert.equal(updateRes.status, 200);
+    const updateBody = await updateRes.json() as any;
+    assert.equal(updateBody.ok, true);
+    assert.equal(updateBody.settings.maintenanceMode, true);
+    assert.equal(updateBody.settings.commissionRatePercent, 18);
+    assert.equal(updateBody.settings.surgeMultiplier, 1.75);
+    assert.equal(updateBody.settings.featureFlags[0].enabled, false);
+
+    const createKeyRes = await fetch(`${baseUrl}/api/admin/create-api-key`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + adminToken },
+      body: JSON.stringify({ name: 'reporting-service' })
+    });
+    assert.equal(createKeyRes.status, 200);
+    const createKeyBody = await createKeyRes.json() as any;
+    assert.equal(createKeyBody.ok, true);
+    assert.ok(createKeyBody.plainTextKey.startsWith('drv_admin_'));
+    assert.equal(typeof createKeyBody.apiKey.keyPreview, 'string');
+    assert.equal(createKeyBody.apiKey.keyHash, undefined);
+
+    const revokeRes = await fetch(`${baseUrl}/api/admin/revoke-api-key`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + adminToken },
+      body: JSON.stringify({ apiKeyId: createKeyBody.apiKey.id })
+    });
+    assert.equal(revokeRes.status, 200);
+    const revokeBody = await revokeRes.json() as any;
+    assert.equal(revokeBody.ok, true);
+    assert.ok(revokeBody.apiKey.revokedAt);
   });
 });
 
