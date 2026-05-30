@@ -17,7 +17,7 @@ const postDriverLocation = async (latitude: number, longitude: number) => {
     return;
   }
 
-  await fetch(`${apiBaseUrl}/api/drivers/location`, {
+  const response = await fetch(`${apiBaseUrl}/api/drivers/location`, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -26,6 +26,10 @@ const postDriverLocation = async (latitude: number, longitude: number) => {
     },
     body: JSON.stringify({ lat: latitude, lng: longitude }),
   });
+
+  if (!response.ok) {
+    throw new Error(`background location sync failed with status ${response.status}`);
+  }
 };
 
 if (!TaskManager.isTaskDefined(DRIVER_BACKGROUND_LOCATION_TASK)) {

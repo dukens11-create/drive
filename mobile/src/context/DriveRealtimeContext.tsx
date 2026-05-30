@@ -111,11 +111,15 @@ const mapRideToHistory = (ride: RideSummary): RideHistoryItem => ({
 
 const mapRideToRequest = (ride: RideSummary): RideRequest => {
   const activeTrip = mapRideToActiveTrip(ride);
+  const parsedExpirySource = Date.parse(ride.latestEvent?.createdAt ?? ride.updatedAt ?? ride.createdAt);
   return {
     ...activeTrip,
-    expiresAt: Date.parse(ride.latestEvent?.createdAt ?? ride.updatedAt ?? ride.createdAt) + REQUEST_RESPONSE_WINDOW_MS,
+    expiresAt: (Number.isFinite(parsedExpirySource) ? parsedExpirySource : Date.now()) + REQUEST_RESPONSE_WINDOW_MS,
   };
 };
+
+const shouldSurfaceIncomingRequest = (ride: RideSummary | null, handledRequestIds: Set<string>) =>
+  Boolean(ride && ride.status === 'accepted' && !handledRequestIds.has(ride.id));
 
 const buildDriverNotifications = (rides: RideSummary[]): DriverNotification[] => {
   const seen = new Set<string>();
@@ -204,9 +208,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       const backendProfile = driver.profile;
       const mappedTrip = trip.ride ? mapRideToActiveTrip(trip.ride) : null;
       setActiveTrip(mappedTrip);
-      setActiveRequest(
-        trip.ride && trip.ride.status === 'accepted' && !handledRequestIdsRef.current.has(trip.ride.id) ? mapRideToRequest(trip.ride) : null
-      );
+      setActiveRequest(shouldSurfaceIncomingRequest(trip.ride, handledRequestIdsRef.current) && trip.ride ? mapRideToRequest(trip.ride) : null);
 
       setProfile({
         id: backendProfile.userId,
@@ -340,7 +342,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
 
     if (!activeTrip) {
       if (previousTrip?.status === 'in-progress') {
-        void sendDriverAlert('trip-ended', 'Trip ended', 'Trip completed. Payout and receipt details are ready.');
+        void sendDriverAlert('trip-ended', 'Trip ended', 'Trip completed successfully.');
       }
       previousTripRef.current = null;
       return;
@@ -352,7 +354,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
     }
 
     if (previousTrip.status !== activeTrip.status && activeTrip.status === 'in-progress') {
-      void sendDriverAlert('arrived', 'Trip update', 'Pickup confirmed and the ride is now in progress.');
+      void sendDriverAlert('trip-started', 'Trip started', 'Pickup confirmed and the ride is now in progress.');
     }
 
     previousTripRef.current = { rideId: activeTrip.rideId, status: activeTrip.status };
@@ -413,7 +415,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       if (activeTrip.status === 'accepted') {
         await ridesApi.start(activeTrip.rideId);
         previousTripRef.current = { rideId: activeTrip.rideId, status: 'in-progress' };
-        await sendDriverAlert('arrived', 'Trip started', `${activeTrip.riderName} is onboard. Continue to the destination.`);
+        await sendDriverAlert('trip-started', 'Trip started', `${activeTrip.riderName} is onboard. Continue to the destination.`);
       } else if (activeTrip.status === 'in-progress') {
         await ridesApi.complete(activeTrip.rideId);
         previousTripRef.current = null;

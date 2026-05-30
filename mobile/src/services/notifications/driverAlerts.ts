@@ -3,21 +3,28 @@ import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import { AppState, Platform, Vibration } from 'react-native';
 
-type DriverAlertKind = 'incoming-request' | 'accepted' | 'arrived' | 'trip-ended';
+type DriverAlertKind = 'incoming-request' | 'accepted' | 'trip-started' | 'trip-ended';
 
-const incomingRequestSound = require('../../../assets/sounds/incoming-request.wav');
+const driverAlertSound = require('../../../assets/sounds/incoming-request.wav');
+
+const foregroundSounds: Record<DriverAlertKind, number | null> = {
+  'incoming-request': driverAlertSound,
+  accepted: driverAlertSound,
+  'trip-started': driverAlertSound,
+  'trip-ended': driverAlertSound,
+};
 
 const vibrationPatterns: Record<DriverAlertKind, number[] | number> = {
   'incoming-request': [0, 350, 180, 350],
   accepted: 80,
-  arrived: [0, 120, 80, 120],
+  'trip-started': [0, 120, 80, 120],
   'trip-ended': [0, 180, 60, 180, 60, 180],
 };
 
 const notificationSounds: Record<DriverAlertKind, 'default' | 'incoming-request.wav'> = {
   'incoming-request': 'incoming-request.wav',
   accepted: 'default',
-  arrived: 'default',
+  'trip-started': 'default',
   'trip-ended': 'default',
 };
 
@@ -37,9 +44,14 @@ const ensureAudioMode = async () => {
   audioModeReady = true;
 };
 
-const playForegroundSound = async () => {
+const playForegroundSound = async (kind: DriverAlertKind) => {
+  const soundAsset = foregroundSounds[kind];
+  if (!soundAsset) {
+    return;
+  }
+
   await ensureAudioMode();
-  const playback = await Audio.Sound.createAsync(incomingRequestSound, { shouldPlay: true, volume: 1 });
+  const playback = await Audio.Sound.createAsync(soundAsset, { shouldPlay: true, volume: 1 });
   playback.sound.setOnPlaybackStatusUpdate((status) => {
     if ('isLoaded' in status && status.isLoaded && status.didJustFinish) {
       void playback.sound.unloadAsync();
@@ -72,7 +84,7 @@ export const ensureDriverAlertPermissions = async () => {
 export const sendDriverAlert = async (kind: DriverAlertKind, title: string, body: string) => {
   if (AppState.currentState === 'active') {
     try {
-      await playForegroundSound();
+      await playForegroundSound(kind);
     } catch {
       // fall back to haptics/vibration only
     }
