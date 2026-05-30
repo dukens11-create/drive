@@ -39,7 +39,7 @@ workflows:
             echo "- Variable name must be EXPO_TOKEN"
             echo "- Group must be expo_credentials"
             echo "- Secret must be enabled"
-            echo "- This workflow must import expo_credentials"
+            echo "- Workflow android-release must import expo_credentials"
             exit 1
           fi
           echo "EXPO_TOKEN is present"
