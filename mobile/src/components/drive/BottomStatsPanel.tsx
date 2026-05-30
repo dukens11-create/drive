@@ -3,6 +3,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 import { useDriveRealtime } from '../../context/DriveRealtimeContext';
+import { useLocale } from '../../context/LocaleContext';
 import { driverStatusMeta } from '../../utils/driveStatus';
 
 const SNAP_PEEK = 96;
@@ -24,6 +25,7 @@ const findClosestSnapPoint = (value: number) => {
 
 export const BottomStatsPanel = () => {
   const { metrics, rideHistory, profile, activeRequest, activeTrip, requestTimeLeft, nearbyRequests } = useDriveRealtime();
+  const { formatCurrency, formatNumber, formatTime } = useLocale();
   const panelHeight = useSharedValue(SNAP_HALF);
   const startHeight = useSharedValue(SNAP_HALF);
 
@@ -67,9 +69,9 @@ export const BottomStatsPanel = () => {
 
       {/* Earnings strip — always visible at peek height */}
       <View className="flex-row justify-between rounded-2xl bg-zinc-100 p-3 dark:bg-zinc-800">
-        <StatItem label="Today" value={`$${metrics.earningsToday.toFixed(2)}`} />
-        <StatItem label="Trips" value={String(metrics.tripsCompleted)} />
-        <StatItem label="Hours" value={metrics.hoursOnline.toFixed(1)} />
+        <StatItem label="Today" value={formatCurrency(metrics.earningsToday)} />
+        <StatItem label="Trips" value={formatNumber(metrics.tripsCompleted)} />
+        <StatItem label="Hours" value={formatNumber(metrics.hoursOnline, { maximumFractionDigits: 1, minimumFractionDigits: 1 })} />
       </View>
 
       {/* Session status */}
@@ -92,9 +94,9 @@ export const BottomStatsPanel = () => {
                 <Text className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{ride.riderName}</Text>
                 <Text className="mt-1 text-xs text-zinc-500 dark:text-zinc-300">{ride.route}</Text>
               </View>
-              <Text className="text-sm font-semibold text-emerald-600">${ride.fare.toFixed(2)}</Text>
+              <Text className="text-sm font-semibold text-emerald-600">{formatCurrency(ride.fare)}</Text>
             </View>
-            <Text className="mt-2 text-xs uppercase tracking-wide text-zinc-400">{ride.timeLabel}</Text>
+            <Text className="mt-2 text-xs uppercase tracking-wide text-zinc-400">{formatTime(ride.date)}</Text>
           </View>
         ))}
       </View>

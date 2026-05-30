@@ -8,7 +8,12 @@ import { BottomStatsPanel } from '../../src/components/drive/BottomStatsPanel';
 import { MapOverlayControls } from '../../src/components/drive/MapOverlayControls';
 import { RideRequestCard } from '../../src/components/drive/RideRequestCard';
 import { TopOverlay } from '../../src/components/drive/TopOverlay';
+import { useAccessibilitySettings } from '../../src/context/AccessibilityContext';
 import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
+import { useLocale } from '../../src/context/LocaleContext';
+import { useScreenTracking } from '../../src/hooks/useScreenTracking';
+import { logError, logEvent } from '../../src/services/observability';
+import { logDriverError, logDriverWarning, trackDriverEvent } from '../../src/services/monitoring/telemetry';
 import type { LatLng } from '../../src/types/drive';
 import { buildNavigationRoute, distanceKmBetween } from '../../src/utils/navigation';
 
@@ -18,6 +23,7 @@ const TRIP_TRACE_KEEP_POINTS = TRIP_TRACE_MAX_POINTS - 1;
 const MIN_ZOOM_LEVEL = 12;
 const MAX_ZOOM_LEVEL = 19;
 const ROUTE_OVERVIEW_EDGE_PADDING = { top: 170, right: 60, bottom: 360, left: 60 };
+const MIN_ROUTE_OVERVIEW_POINTS = 2;
 
 type ExpoExtra = {
   emergencyNumber?: string;
@@ -27,19 +33,23 @@ const expoExtra = (Constants.expoConfig?.extra ?? {}) as ExpoExtra;
 const configuredEmergencyNumber = process.env.EXPO_PUBLIC_EMERGENCY_NUMBER?.trim();
 const expoEmergencyNumber = expoExtra.emergencyNumber?.trim();
 const emergencyNumber = configuredEmergencyNumber || expoEmergencyNumber || '911';
+const hasValidRouteOverview = (polyline?: LatLng[]) => Boolean(polyline && polyline.length >= MIN_ROUTE_OVERVIEW_POINTS);
 
 export default function DriveHomeScreen() {
   const mapRef = useRef<MapView | null>(null);
   const scheme = useColorScheme();
   const router = useRouter();
+  const { highContrastEnabled, maxFontSizeMultiplier } = useAccessibilitySettings();
   const [isSupportVisible, setIsSupportVisible] = useState(false);
   const { location, nearbyRequests, activeRequest, activeTrip, error, profile } = useDriveRealtime();
+  const { t, formatNumber } = useLocale();
   const lastCameraCenterRef = useRef(location);
   const [zoomLevel, setZoomLevel] = useState(16);
   const [tripTrace, setTripTrace] = useState<LatLng[]>([]);
   const [mapReady, setMapReady] = useState(false);
   const activeTripSnapshotRef = useRef<string | null>(null);
   const routeData = useMemo(() => buildNavigationRoute(location, activeTrip), [activeTrip, location]);
+  useScreenTracking('home');
 
   const sortedNearbyRequests = useMemo(
     () =>
@@ -107,39 +117,65 @@ export default function DriveHomeScreen() {
 
   const updateZoom = (nextZoom: number) => {
     const boundedZoom = Math.min(MAX_ZOOM_LEVEL, Math.max(MIN_ZOOM_LEVEL, nextZoom));
+    logEvent('map_zoom_changed', {
+      zoomLevel: boundedZoom,
+    });
     setZoomLevel(boundedZoom);
     mapRef.current?.animateCamera({ center: location, zoom: boundedZoom }, { duration: 220 });
   };
 
   const handleEmergency = () => {
-    Alert.alert('Emergency help', 'Call local emergency services right away if you are in danger or feel unsafe.', [
-      { text: 'Cancel', style: 'cancel' },
+    logEvent('emergency_help_tapped');
+    Alert.alert(t('home.emergencyTitle'), t('home.emergencyMessage'), [
+      { text: t('home.cancel'), style: 'cancel' },
       {
-        text: `Call ${emergencyNumber}`,
+        text: t('home.callNumber', { number: emergencyNumber }),
         style: 'destructive',
         onPress: () => {
-          void Linking.openURL(`tel:${emergencyNumber}`).catch(() => {
-            Alert.alert('Unable to open dialer', 'Call your local emergency number directly from this device.');
-          });
+          void (async () => {
+            trackDriverEvent('emergency_call_tapped');
+            try {
+              const supported = await Linking.canOpenURL(`tel:${emergencyNumber}`);
+              if (!supported) {
+                throw new Error('Dialer is unavailable on this device.');
+              }
+              await Linking.openURL(`tel:${emergencyNumber}`);
+            } catch (dialError) {
+              logDriverError('open_emergency_dialer', dialError, { emergencyNumber });
+              Alert.alert(t('home.unableToOpenDialerTitle'), t('home.unableToOpenDialerBody'));
+            }
+          })();
         },
       },
     ]);
   };
 
   const handleShareTrip = async () => {
+    logEvent('share_trip_tapped', {
+      hasActiveTrip: Boolean(activeTrip),
+    });
     const message = activeTrip
       ? `Drive trip update: ${activeTrip.riderName} • ${activeTrip.pickupAddress} → ${activeTrip.dropoffAddress} • Status: ${activeTrip.status}.`
       : `Drive status update: I am ${profile.isOnline ? 'online and available with Drive right now' : 'currently offline with Drive'}.`;
 
     try {
-      await Share.share({ title: 'Share Drive trip', message });
+      trackDriverEvent('share_trip_tapped', { hasActiveTrip: Boolean(activeTrip) });
+      await Share.share({ title: t('home.shareTripTitle'), message });
     } catch (shareError) {
-      Alert.alert('Unable to share trip', shareError instanceof Error ? shareError.message : 'Please try again.');
+      logError('share_trip_failed', shareError, { hasActiveTrip: Boolean(activeTrip) });
+      logDriverError('share_trip', shareError, { hasActiveTrip: Boolean(activeTrip) });
+      Alert.alert(t('home.unableToShareTrip'), shareError instanceof Error ? shareError.message : 'Please try again.');
     }
   };
 
+  const toggleSupportSheet = () => {
+    const nextVisible = !isSupportVisible;
+    logEvent('support_sheet_toggled', { visible: nextVisible });
+    setIsSupportVisible(nextVisible);
+  };
+
   return (
-    <View className="flex-1 bg-zinc-950">
+    <View className={`flex-1 ${highContrastEnabled ? 'bg-black' : 'bg-zinc-950'}`}>
       <MapView
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
@@ -150,7 +186,10 @@ export default function DriveHomeScreen() {
           latitudeDelta: 0.02,
           longitudeDelta: 0.02,
         }}
-        onMapReady={() => setMapReady(true)}
+        onMapReady={() => {
+          logEvent('map_ready');
+          setMapReady(true);
+        }}
         showsUserLocation
         followsUserLocation={false}
         showsTraffic
@@ -158,13 +197,13 @@ export default function DriveHomeScreen() {
         moveOnMarkerPress={false}
         toolbarEnabled={false}
         mapPadding={{ top: 180, right: 24, bottom: 360, left: 24 }}
-        customMapStyle={scheme === 'dark' ? darkMapStyle : undefined}
+        customMapStyle={highContrastEnabled ? highContrastMapStyle : scheme === 'dark' ? darkMapStyle : undefined}
       >
         <Marker
           coordinate={location}
           pinColor="#2563EB"
-          title="You"
-          description="Current driver location"
+          title={t('home.markerYou')}
+          description={t('home.markerYouDescription')}
           tracksViewChanges={false}
         />
 
@@ -178,22 +217,22 @@ export default function DriveHomeScreen() {
             <Marker
               coordinate={activeTrip.pickupPosition}
               pinColor="#22C55E"
-              title="Pickup"
+              title={t('home.markerPickup')}
               description={activeTrip.pickupAddress}
               tracksViewChanges={false}
             />
             <Marker
               coordinate={activeTrip.dropoffPosition}
               pinColor="#F59E0B"
-              title="Dropoff"
+              title={t('home.markerDropoff')}
               description={activeTrip.dropoffAddress}
               tracksViewChanges={false}
             />
           </>
         ) : activeRequest ? (
           <>
-            <Marker coordinate={activeRequest.pickupPosition} pinColor="#22C55E" title="Pickup" description={activeRequest.pickupAddress} />
-            <Marker coordinate={activeRequest.dropoffPosition} pinColor="#F97316" title="Dropoff" description={activeRequest.dropoffAddress} />
+            <Marker coordinate={activeRequest.pickupPosition} pinColor="#22C55E" title={t('home.markerPickup')} description={activeRequest.pickupAddress} />
+            <Marker coordinate={activeRequest.dropoffPosition} pinColor="#F97316" title={t('home.markerDropoff')} description={activeRequest.dropoffAddress} />
           </>
         ) : (
           sortedNearbyRequests.map((request) => (
@@ -201,7 +240,7 @@ export default function DriveHomeScreen() {
               key={request.id}
               coordinate={request.position}
               title={request.zoneName}
-              description={`${request.distanceKm.toFixed(1)} km · surge x${request.surgeMultiplier.toFixed(1)}`}
+              description={`${formatNumber(request.distanceKm, { maximumFractionDigits: 1 })} km · surge x${formatNumber(request.surgeMultiplier, { maximumFractionDigits: 1 })}`}
               pinColor={request.surgeMultiplier > 1.3 ? '#F97316' : '#22C55E'}
               tracksViewChanges={false}
             />
@@ -211,35 +250,38 @@ export default function DriveHomeScreen() {
 
       <TopOverlay />
       {routeData ? (
-        <View className="absolute left-4 right-20 top-44 z-30 rounded-2xl bg-white/95 px-4 py-3 shadow-soft dark:bg-zinc-900/95">
-          <Text className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-300">Turn-by-turn</Text>
-          <Text className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{routeData.nextInstruction}</Text>
-          <Text className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-            {routeData.remainingDistanceKm.toFixed(1)} km · {routeData.remainingDurationMinutes} min
+        <View className={`absolute left-4 right-20 top-44 z-30 rounded-2xl px-4 py-3 shadow-soft ${highContrastEnabled ? 'border border-white bg-black' : 'bg-white/95 dark:bg-zinc-900/95'}`}>
+          <Text className={`text-xs font-semibold uppercase tracking-wider ${highContrastEnabled ? 'text-white' : 'text-zinc-500 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('home.turnByTurn')}</Text>
+          <Text className={`mt-1 text-sm font-semibold ${highContrastEnabled ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{routeData.nextInstruction}</Text>
+          <Text className={`mt-1 text-xs ${highContrastEnabled ? 'text-white' : 'text-zinc-600 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>
+            {formatNumber(routeData.remainingDistanceKm, { maximumFractionDigits: 1 })} km · {formatNumber(routeData.remainingDurationMinutes)} min
           </Text>
         </View>
       ) : null}
       {isSupportVisible ? (
-        <View className="absolute left-4 right-20 top-36 z-30 rounded-3xl border border-zinc-800 bg-zinc-950/95 px-4 py-4">
-          <Text className="text-sm font-semibold text-zinc-100">Safety & support</Text>
-          <Text className="mt-2 text-xs text-zinc-300">Use SOS for emergencies, share active trips with a trusted contact, and open Inbox for follow-up support.</Text>
+        <View className={`absolute left-4 right-20 top-36 z-30 rounded-3xl px-4 py-4 ${highContrastEnabled ? 'border border-white bg-black' : 'border border-zinc-800 bg-zinc-950/95'}`}>
+          <Text className="text-sm font-semibold text-zinc-100" maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('home.supportTitle')}</Text>
+          <Text className="mt-2 text-xs text-zinc-300" maxFontSizeMultiplier={maxFontSizeMultiplier}>Use SOS for emergencies, share active trips with a trusted contact, and open Inbox for follow-up support.</Text>
           <View className="mt-3 gap-2">
-            <Text className="text-xs text-zinc-400">• Pull over before responding to an incident.</Text>
-            <Text className="text-xs text-zinc-400">• Report harassment, crashes, or unsafe riders in Inbox.</Text>
-            <Text className="text-xs text-zinc-400">• Trip details can be shared even before pickup starts.</Text>
+            <Text className="text-xs text-zinc-400" maxFontSizeMultiplier={maxFontSizeMultiplier}>• Pull over before responding to an incident.</Text>
+            <Text className="text-xs text-zinc-400" maxFontSizeMultiplier={maxFontSizeMultiplier}>• Report harassment, crashes, or unsafe riders in Inbox.</Text>
+            <Text className="text-xs text-zinc-400" maxFontSizeMultiplier={maxFontSizeMultiplier}>• Trip details can be shared even before pickup starts.</Text>
           </View>
           <View className="mt-4 flex-row gap-3">
             <Pressable
               className="flex-1 rounded-2xl bg-emerald-500 px-3 py-3"
               onPress={() => {
+                trackDriverEvent('support_open_inbox_tapped');
                 setIsSupportVisible(false);
                 router.push('/(tabs)/inbox');
               }}
+              accessibilityRole="button"
+              accessibilityLabel="Open support inbox"
             >
-              <Text className="text-center text-sm font-semibold text-white">Open inbox</Text>
+              <Text className="text-center text-sm font-semibold text-white" maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('home.openInbox')}</Text>
             </Pressable>
-            <Pressable className="rounded-2xl border border-zinc-700 px-3 py-3" onPress={() => setIsSupportVisible(false)}>
-              <Text className="text-sm font-semibold text-zinc-100">Dismiss</Text>
+            <Pressable className={`rounded-2xl px-3 py-3 ${highContrastEnabled ? 'border border-white' : 'border border-zinc-700'}`} onPress={() => setIsSupportVisible(false)} accessibilityRole="button" accessibilityLabel="Dismiss support panel">
+              <Text className="text-sm font-semibold text-zinc-100" maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('home.dismiss')}</Text>
             </Pressable>
           </View>
         </View>
@@ -253,19 +295,27 @@ export default function DriveHomeScreen() {
         onRecenter={() => updateZoom(16)}
         onEmergency={handleEmergency}
         onShareTrip={() => void handleShareTrip()}
-        onSupport={() => setIsSupportVisible((current) => !current)}
+        onSupport={toggleSupportSheet}
         onZoomIn={() => updateZoom(zoomLevel + 1)}
         onZoomOut={() => updateZoom(zoomLevel - 1)}
         onOverview={() => {
-          if (!routeData || !mapRef.current) {
+          if (!routeData || !mapRef.current || !hasValidRouteOverview(routeData.polyline)) {
+            logDriverWarning('route_overview_unavailable', {
+              hasRouteData: Boolean(routeData),
+              hasMapRef: Boolean(mapRef.current),
+              polylinePointCount: routeData?.polyline.length ?? 0,
+            });
             return;
           }
+          logEvent('map_route_overview_tapped');
+          trackDriverEvent('route_overview_tapped', { tripStatus: activeTrip?.status ?? null });
           mapRef.current.fitToCoordinates(routeData.polyline, {
             edgePadding: ROUTE_OVERVIEW_EDGE_PADDING,
             animated: true,
           });
         }}
         showOverview={Boolean(routeData)}
+        highContrastEnabled={highContrastEnabled}
       />
       <RideRequestCard />
       <BottomStatsPanel />
@@ -280,4 +330,13 @@ const darkMapStyle = [
   { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#374151' }] },
   { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#4b5563' }] },
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0f172a' }] },
+];
+
+const highContrastMapStyle = [
+  { elementType: 'geometry', stylers: [{ color: '#000000' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#000000' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#FFFFFF' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1F2937' }] },
+  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#FACC15' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#111827' }] },
 ];

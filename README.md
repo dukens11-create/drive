@@ -20,6 +20,7 @@ The `mobile/` app includes a production-style Uber-inspired driver home experien
 - Live ride request popup with timer and accept/decline actions + incoming sound
 - Bottom navigation (Home, Trips, Earnings, Inbox, Profile)
 - Real-time mocked state architecture designed for Firebase integration
+- Built-in observability for app lifecycle, screen timings, API latency, crash capture, and trip/action telemetry
 
 ### Mobile setup
 

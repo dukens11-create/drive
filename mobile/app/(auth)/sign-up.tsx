@@ -1,8 +1,12 @@
 import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 
+import { useAccessibilitySettings } from '../../src/context/AccessibilityContext';
 import { useAuth } from '../../src/context/AuthContext';
+import { useLocale } from '../../src/context/LocaleContext';
+import { useScreenTracking } from '../../src/hooks/useScreenTracking';
+import { logEvent } from '../../src/services/observability';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
@@ -14,6 +18,9 @@ export default function SignUpScreen() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const { signUp } = useAuth();
+  const { maxFontSizeMultiplier } = useAccessibilitySettings();
+  const { t } = useLocale();
+  useScreenTracking('sign_up');
   const normalizedEmail = email.trim();
   const hasValidEmail = EMAIL_PATTERN.test(normalizedEmail);
   const canSubmit = hasValidEmail && password.length >= 6 && acceptedPolicies && !isSubmitting;
@@ -33,8 +40,10 @@ export default function SignUpScreen() {
     }
     setIsSubmitting(true);
     setError(null);
+    logEvent('sign_up_submit_tapped');
     try {
       await signUp(normalizedEmail, password);
+      logEvent('sign_up_navigation_onboarding');
       router.replace('/onboarding');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to create account');
@@ -45,8 +54,8 @@ export default function SignUpScreen() {
 
   return (
     <ScrollView className="flex-1 bg-zinc-950" contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 40 }}>
-      <Text className="text-3xl font-bold text-zinc-100">Create driver account</Text>
-      <Text className="mt-2 text-sm text-zinc-400">Sign up as a driver and complete onboarding before going online.</Text>
+      <Text className="text-3xl font-bold text-zinc-100" accessibilityRole="header" maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('auth.signUpTitle')}</Text>
+      <Text className="mt-2 text-sm text-zinc-400" maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('auth.signUpSubtitle')}</Text>
 
       <View className="mt-6 rounded-3xl bg-zinc-900 p-4">
         <Text className="text-sm font-semibold text-zinc-100">What you unlock after approval</Text>
@@ -58,29 +67,45 @@ export default function SignUpScreen() {
       <TextInput
         value={email}
         onChangeText={setEmail}
-        placeholder="Email"
+        placeholder={t('auth.emailPlaceholder')}
         keyboardType="email-address"
         autoCapitalize="none"
         className="mt-6 rounded-2xl bg-zinc-900 px-4 py-3 text-zinc-100"
         placeholderTextColor="#71717A"
+        accessibilityLabel="Email address"
+        textContentType="emailAddress"
+        maxFontSizeMultiplier={maxFontSizeMultiplier}
       />
       <TextInput
         value={password}
         onChangeText={setPassword}
-        placeholder="Password (min 6 chars)"
+        placeholder={t('auth.passwordWithMinPlaceholder')}
         secureTextEntry
         className="mt-3 rounded-2xl bg-zinc-900 px-4 py-3 text-zinc-100"
         placeholderTextColor="#71717A"
+        accessibilityLabel="Password"
+        accessibilityHint="Use at least 6 characters"
+        textContentType="newPassword"
+        maxFontSizeMultiplier={maxFontSizeMultiplier}
       />
 
       <Pressable
-        className={`mt-4 flex-row rounded-2xl border px-4 py-3 ${acceptedPolicies ? 'border-emerald-400 bg-emerald-500/10' : 'border-zinc-700 bg-zinc-900'}`}
+        className={`mt-4 flex-row items-start rounded-2xl border px-4 py-3 ${acceptedPolicies ? 'border-emerald-400 bg-emerald-500/10' : 'border-zinc-700 bg-zinc-900'}`}
         onPress={() => setAcceptedPolicies((current) => !current)}
+        accessible
+        accessibilityRole="switch"
+        accessibilityState={{ checked: acceptedPolicies }}
+        accessibilityLabel="Accept driver safety and verification policies"
       >
-        <View className={`mt-0.5 h-5 w-5 items-center justify-center rounded-md border ${acceptedPolicies ? 'border-emerald-400 bg-emerald-500' : 'border-zinc-500'}`}>
-          {acceptedPolicies ? <Text className="text-xs font-bold text-white">✓</Text> : null}
-        </View>
-        <Text className="ml-3 flex-1 text-xs leading-5 text-zinc-300">
+        <Switch
+          value={acceptedPolicies}
+          onValueChange={setAcceptedPolicies}
+          accessibilityRole="switch"
+          accessibilityHint="Enables agreement with identity review, document verification, and unsafe conduct policies."
+          trackColor={{ false: '#71717A', true: '#22C55E' }}
+          thumbColor="#FFFFFF"
+        />
+        <Text className="ml-3 flex-1 text-xs leading-5 text-zinc-300" maxFontSizeMultiplier={maxFontSizeMultiplier}>
           I understand Drive reviews my identity and documents before online access, and unsafe conduct can pause my account.
         </Text>
       </Pressable>
@@ -91,13 +116,15 @@ export default function SignUpScreen() {
         className={`mt-5 rounded-2xl px-4 py-3 ${canSubmit ? 'bg-emerald-500' : 'bg-zinc-800'}`}
         disabled={!canSubmit}
         onPress={handleSubmit}
+        accessibilityRole="button"
+        accessibilityLabel="Create account"
       >
-        <Text className="text-center font-semibold text-white">{isSubmitting ? 'Creating account...' : 'Create account'}</Text>
+        <Text className="text-center font-semibold text-white" maxFontSizeMultiplier={maxFontSizeMultiplier}>{isSubmitting ? t('auth.creatingAccount') : t('auth.createAccount')}</Text>
       </Pressable>
 
       <Link href="/(auth)/sign-in" asChild>
-        <Pressable className="mt-4">
-          <Text className="text-center text-sm text-zinc-300">Already have an account? Sign in</Text>
+        <Pressable className="mt-4" accessibilityRole="button" accessibilityLabel="Go to sign in">
+          <Text className="text-center text-sm text-zinc-300" maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('auth.haveAccount')}</Text>
         </Pressable>
       </Link>
     </ScrollView>
