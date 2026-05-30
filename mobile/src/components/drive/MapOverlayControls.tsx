@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, Text, View } from 'react-native';
 
+import { useLocale } from '../../context/LocaleContext';
+
 type MapOverlayControlsProps = {
   onEmergency: () => void;
   onRecenter: () => void;
@@ -21,11 +23,14 @@ export const MapOverlayControls = ({
   onZoomOut,
   onOverview,
   showOverview = false,
-}: MapOverlayControlsProps) => (
-  <View className="absolute bottom-80 right-4 z-20 gap-3">
-    <QuickActionButton tone="danger" label="SOS" icon="warning" onPress={onEmergency} />
-    <QuickActionButton tone="neutral" label="Share" icon="share-social" onPress={onShareTrip} />
-    <QuickActionButton tone="neutral" label="Help" icon="help-buoy" onPress={onSupport} />
+}: MapOverlayControlsProps) => {
+  const { t } = useLocale();
+
+  return (
+    <View className="absolute bottom-80 right-4 z-20 gap-3">
+      <QuickActionButton tone="danger" label="SOS" icon="warning" onPress={onEmergency} />
+      <QuickActionButton tone="neutral" label={t('home.shareTripTitle')} icon="share-social" onPress={onShareTrip} />
+      <QuickActionButton tone="neutral" label={t('home.supportTitle')} icon="help-buoy" onPress={onSupport} />
     {showOverview ? (
       <Pressable
         className="h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-soft dark:bg-zinc-900"
@@ -52,8 +57,9 @@ export const MapOverlayControls = ({
     >
       <Ionicons name="locate" size={22} color="#16A34A" />
     </Pressable>
-  </View>
-);
+    </View>
+  );
+};
 
 const QuickActionButton = ({
   icon,
