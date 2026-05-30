@@ -129,13 +129,13 @@ const appendMockTripEvent = (trip: ActiveTrip, nextStatus: ActiveTrip['status'])
   const nextEvent =
     nextStatus === 'in-progress'
       ? {
-          id: `${trip.id}-started-${trip.timeline.length + 1}`,
+          id: `${trip.rideId}-started-${trip.timeline.length + 1}`,
           title: 'Rider onboard',
           message: `Trip started toward ${trip.dropoffAddress}.`,
           createdAt,
         }
       : {
-          id: `${trip.id}-completed-${trip.timeline.length + 1}`,
+          id: `${trip.rideId}-completed-${trip.timeline.length + 1}`,
           title: 'Dropoff complete',
           message: 'Trip complete. Earnings are ready and you can go back online for the next request.',
           createdAt,

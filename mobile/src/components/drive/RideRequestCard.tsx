@@ -90,7 +90,7 @@ export const RideRequestCard = () => {
       <View className="flex-row items-start justify-between gap-3">
         <View className="flex-1">
           <View className="self-start rounded-full bg-rose-100 px-3 py-1 dark:bg-rose-900/40">
-            <Text className="text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-500 dark:text-rose-300">Incoming ride request</Text>
+            <Text className="text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-500 dark:text-rose-300">New request</Text>
           </View>
           <Text className="mt-3 text-base font-semibold text-zinc-950 dark:text-zinc-100">{request.riderName}</Text>
           <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Pickup ETA {request.pickupEtaMinutes} min · Trip payout ${request.estimatedFare.toFixed(2)}</Text>
