@@ -1,5 +1,5 @@
 {
-  "name": "flupflap-ride",
+  "name": "drive-api",
   "version": "1.0.0",
   "description": "This V7 package adds more missing developer pieces for a ride-share, food delivery, courier, and FlupFlap Marketplace same-day delivery platform.",
   "main": "dist/server.js",
@@ -11,7 +11,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dukens11-create/Flupflap-ride.git"
+    "url": "git+https://github.com/dukens11-create/drive.git"
   },
   "keywords": [],
   "author": "",
@@ -38,7 +38,7 @@
     "typescript": "^5.7.2"
   },
   "bugs": {
-    "url": "https://github.com/dukens11-create/Flupflap-ride/issues"
+    "url": "https://github.com/dukens11-create/drive/issues"
   },
-  "homepage": "https://github.com/dukens11-create/Flupflap-ride#readme"
+  "homepage": "https://github.com/dukens11-create/drive#readme"
 }
