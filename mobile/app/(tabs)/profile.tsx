@@ -4,6 +4,8 @@ import { useState } from 'react';
 
 import { useAuth } from '../../src/context/AuthContext';
 import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
+import { useScreenTracking } from '../../src/hooks/useScreenTracking';
+import { logError, logEvent } from '../../src/services/observability';
 import { driverStatusMeta } from '../../src/utils/driveStatus';
 
 export default function ProfileScreen() {
@@ -11,6 +13,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const { signOut, onboardingStep, onboardingProfile } = useAuth();
   const [signOutError, setSignOutError] = useState<string | null>(null);
+  useScreenTracking('profile');
   const documentsUploaded = (onboardingProfile?.documents ?? []).length;
   const verificationStatus =
     onboardingProfile?.verificationState === 'verified'
@@ -23,9 +26,11 @@ export default function ProfileScreen() {
 
   const handleSignOut = async () => {
     setSignOutError(null);
+    logEvent('profile_sign_out_tapped');
     try {
       await signOut();
     } catch (error) {
+      logError('profile_sign_out_failed', error);
       setSignOutError(error instanceof Error ? error.message : 'Unable to sign out right now.');
     }
   };
@@ -46,7 +51,13 @@ export default function ProfileScreen() {
         <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Review status: {verificationStatus}</Text>
         <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Safety tools: SOS, trip sharing, and support live on Home.</Text>
         {onboardingStep !== 'ready' ? (
-          <Pressable className="mt-4 rounded-2xl bg-emerald-500 px-4 py-3" onPress={() => router.push('/onboarding')}>
+          <Pressable
+            className="mt-4 rounded-2xl bg-emerald-500 px-4 py-3"
+            onPress={() => {
+              logEvent('profile_continue_onboarding_tapped');
+              router.push('/onboarding');
+            }}
+          >
             <Text className="text-center font-semibold text-white">Continue onboarding</Text>
           </Pressable>
         ) : null}

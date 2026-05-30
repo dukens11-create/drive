@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { useAuth } from '../../src/context/AuthContext';
+import { useScreenTracking } from '../../src/hooks/useScreenTracking';
+import { logEvent } from '../../src/services/observability';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
@@ -14,6 +16,7 @@ export default function SignUpScreen() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const { signUp } = useAuth();
+  useScreenTracking('sign_up');
   const normalizedEmail = email.trim();
   const hasValidEmail = EMAIL_PATTERN.test(normalizedEmail);
   const canSubmit = hasValidEmail && password.length >= 6 && acceptedPolicies && !isSubmitting;
@@ -33,8 +36,10 @@ export default function SignUpScreen() {
     }
     setIsSubmitting(true);
     setError(null);
+    logEvent('sign_up_submit_tapped');
     try {
       await signUp(normalizedEmail, password);
+      logEvent('sign_up_navigation_onboarding');
       router.replace('/onboarding');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to create account');

@@ -2,12 +2,37 @@ import '../global.css';
 
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
+import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AuthProvider } from '../src/context/AuthContext';
 import { DriveRealtimeProvider } from '../src/context/DriveRealtimeContext';
+import { logEvent, markAppStartupComplete, trackMemoryUsage } from '../src/services/observability';
 
 export default function RootLayout() {
+  useEffect(() => {
+    markAppStartupComplete('root_layout_mounted');
+    trackMemoryUsage('startup');
+    const memoryInterval = setInterval(() => {
+      trackMemoryUsage('heartbeat');
+    }, 30000);
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      logEvent('app_state_changed', {
+        state: nextState,
+      });
+      if (nextState === 'active') {
+        trackMemoryUsage('app_active');
+      }
+    });
+
+    return () => {
+      clearInterval(memoryInterval);
+      subscription.remove();
+    };
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthProvider>

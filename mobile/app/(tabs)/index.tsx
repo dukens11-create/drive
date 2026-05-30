@@ -9,6 +9,8 @@ import { MapOverlayControls } from '../../src/components/drive/MapOverlayControl
 import { RideRequestCard } from '../../src/components/drive/RideRequestCard';
 import { TopOverlay } from '../../src/components/drive/TopOverlay';
 import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
+import { useScreenTracking } from '../../src/hooks/useScreenTracking';
+import { logError, logEvent } from '../../src/services/observability';
 import type { LatLng } from '../../src/types/drive';
 import { buildNavigationRoute, distanceKmBetween } from '../../src/utils/navigation';
 
@@ -40,6 +42,7 @@ export default function DriveHomeScreen() {
   const [mapReady, setMapReady] = useState(false);
   const activeTripSnapshotRef = useRef<string | null>(null);
   const routeData = useMemo(() => buildNavigationRoute(location, activeTrip), [activeTrip, location]);
+  useScreenTracking('home');
 
   const sortedNearbyRequests = useMemo(
     () =>
@@ -107,11 +110,15 @@ export default function DriveHomeScreen() {
 
   const updateZoom = (nextZoom: number) => {
     const boundedZoom = Math.min(MAX_ZOOM_LEVEL, Math.max(MIN_ZOOM_LEVEL, nextZoom));
+    logEvent('map_zoom_changed', {
+      zoomLevel: boundedZoom,
+    });
     setZoomLevel(boundedZoom);
     mapRef.current?.animateCamera({ center: location, zoom: boundedZoom }, { duration: 220 });
   };
 
   const handleEmergency = () => {
+    logEvent('emergency_help_tapped');
     Alert.alert('Emergency help', 'Call local emergency services right away if you are in danger or feel unsafe.', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -127,6 +134,9 @@ export default function DriveHomeScreen() {
   };
 
   const handleShareTrip = async () => {
+    logEvent('share_trip_tapped', {
+      hasActiveTrip: Boolean(activeTrip),
+    });
     const message = activeTrip
       ? `Drive trip update: ${activeTrip.riderName} • ${activeTrip.pickupAddress} → ${activeTrip.dropoffAddress} • Status: ${activeTrip.status}.`
       : `Drive status update: I am ${profile.isOnline ? 'online and available with Drive right now' : 'currently offline with Drive'}.`;
@@ -134,8 +144,17 @@ export default function DriveHomeScreen() {
     try {
       await Share.share({ title: 'Share Drive trip', message });
     } catch (shareError) {
+      logError('share_trip_failed', shareError);
       Alert.alert('Unable to share trip', shareError instanceof Error ? shareError.message : 'Please try again.');
     }
+  };
+
+  const toggleSupportSheet = () => {
+    setIsSupportVisible((current) => {
+      const next = !current;
+      logEvent('support_sheet_toggled', { visible: next });
+      return next;
+    });
   };
 
   return (
@@ -150,7 +169,10 @@ export default function DriveHomeScreen() {
           latitudeDelta: 0.02,
           longitudeDelta: 0.02,
         }}
-        onMapReady={() => setMapReady(true)}
+        onMapReady={() => {
+          logEvent('map_ready');
+          setMapReady(true);
+        }}
         showsUserLocation
         followsUserLocation={false}
         showsTraffic
@@ -253,13 +275,14 @@ export default function DriveHomeScreen() {
         onRecenter={() => updateZoom(16)}
         onEmergency={handleEmergency}
         onShareTrip={() => void handleShareTrip()}
-        onSupport={() => setIsSupportVisible((current) => !current)}
+        onSupport={toggleSupportSheet}
         onZoomIn={() => updateZoom(zoomLevel + 1)}
         onZoomOut={() => updateZoom(zoomLevel - 1)}
         onOverview={() => {
           if (!routeData || !mapRef.current) {
             return;
           }
+          logEvent('map_route_overview_tapped');
           mapRef.current.fitToCoordinates(routeData.polyline, {
             edgePadding: ROUTE_OVERVIEW_EDGE_PADDING,
             animated: true,

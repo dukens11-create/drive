@@ -4,9 +4,12 @@ import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
 import { EmptyState } from '../../src/components/ui/EmptyState';
 import { ErrorBanner } from '../../src/components/ui/ErrorBanner';
 import { LoadingState } from '../../src/components/ui/LoadingState';
+import { useScreenTracking } from '../../src/hooks/useScreenTracking';
+import { logEvent } from '../../src/services/observability';
 
 export default function InboxScreen() {
   const { notifications, isLoading, error, refreshData } = useDriveRealtime();
+  useScreenTracking('inbox');
   const hasNotifications = notifications.length > 0;
 
   return (
@@ -23,7 +26,16 @@ export default function InboxScreen() {
         <ScrollView
           className="flex-1"
           contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 32 }}
-          refreshControl={<RefreshControl refreshing={isLoading} onRefresh={() => void refreshData()} tintColor="#16A34A" />}
+          refreshControl={
+            <RefreshControl
+              refreshing={isLoading}
+              onRefresh={() => {
+                logEvent('inbox_refresh_tapped');
+                void refreshData();
+              }}
+              tintColor="#16A34A"
+            />
+          }
         >
           {error ? <ErrorBanner message={error} onRetry={() => void refreshData()} /> : null}
           <View className="mt-2 gap-3">

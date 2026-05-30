@@ -6,6 +6,8 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { PLACEHOLDER_DRIVER_DOCUMENTS, REQUIRED_DRIVER_DOCUMENTS } from '../src/constants/onboarding';
 import { kycApi } from '../src/services/api/kycApi';
 import { useAuth } from '../src/context/AuthContext';
+import { useScreenTracking } from '../src/hooks/useScreenTracking';
+import { logEvent } from '../src/services/observability';
 
 const FALLBACK_APPLICATION_LOCATION = { lat: 37.7749, lng: -122.4194 };
 const SAFETY_POLICIES = [
@@ -19,6 +21,7 @@ export default function OnboardingScreen() {
   const { state, session, onboardingProfile, onboardingStep, completeApplication, submitDocuments, refreshOnboarding, errorMessage, isOnboardingLoading } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [screenError, setScreenError] = useState<string | null>(null);
+  useScreenTracking('onboarding');
   const documentsUploaded = (onboardingProfile?.documents ?? []).length;
   const verificationStatus =
     onboardingProfile?.verificationState === 'verified'
@@ -41,6 +44,7 @@ export default function OnboardingScreen() {
     setIsSubmitting(true);
     setScreenError(null);
     try {
+      logEvent('onboarding_application_submit_tapped');
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status !== Location.PermissionStatus.GRANTED) {
         await completeApplication(FALLBACK_APPLICATION_LOCATION);
@@ -59,6 +63,7 @@ export default function OnboardingScreen() {
     setIsSubmitting(true);
     setScreenError(null);
     try {
+      logEvent('onboarding_documents_submit_tapped');
       await submitDocuments(PLACEHOLDER_DRIVER_DOCUMENTS);
     } catch (error) {
       setScreenError(error instanceof Error ? error.message : 'Failed to upload onboarding documents');
@@ -75,6 +80,7 @@ export default function OnboardingScreen() {
     setIsSubmitting(true);
     setScreenError(null);
     try {
+      logEvent('onboarding_kyc_refresh_tapped');
       if (onboardingProfile?.verificationState === 'kyc_pending') {
         await kycApi.status(session.user.id);
       } else {

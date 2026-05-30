@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { useAuth } from '../../src/context/AuthContext';
+import { useScreenTracking } from '../../src/hooks/useScreenTracking';
+import { logEvent } from '../../src/services/observability';
 
 export default function SignInScreen() {
   const [email, setEmail] = useState('');
@@ -11,6 +13,7 @@ export default function SignInScreen() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const { signIn } = useAuth();
+  useScreenTracking('sign_in');
   const canSubmit = email.trim().length > 0 && password.length > 0 && !isSubmitting;
 
   const handleSubmit = async () => {
@@ -20,8 +23,10 @@ export default function SignInScreen() {
     }
     setIsSubmitting(true);
     setError(null);
+    logEvent('sign_in_submit_tapped');
     try {
       await signIn(email.trim(), password);
+      logEvent('sign_in_navigation_home');
       router.replace('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to sign in');

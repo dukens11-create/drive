@@ -4,6 +4,7 @@ import type { AuthSession, DriverProfileResponse } from '../types/api';
 import { REQUIRED_DRIVER_DOCUMENTS } from '../constants/onboarding';
 import { authApi } from '../services/api/authApi';
 import { configureApiAuth, HttpError } from '../services/api/client';
+import { logError, logEvent, startPerformanceTimer } from '../services/observability';
 import { driversApi } from '../services/api/driversApi';
 import { sessionStorage } from '../services/storage/sessionStorage';
 
@@ -85,6 +86,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return false;
     }
 
+    const stopRefreshTimer = startPerformanceTimer('auth_refresh_duration');
     try {
       const refreshed = await authApi.refresh(current.refreshToken);
       const nextSession: AuthSession = {
@@ -93,8 +95,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         refreshToken: refreshed.refreshToken,
       };
       await persistSession(nextSession);
+      stopRefreshTimer({ success: true });
+      logEvent('auth_session_refreshed');
       return true;
-    } catch {
+    } catch (error) {
+      stopRefreshTimer({ success: false });
+      logError('auth_refresh_failed', error);
       await persistSession(null);
       return false;
     }
@@ -164,9 +170,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signIn = useCallback(
     async (email: string, password: string) => {
       setErrorMessage(null);
-      const nextSession = await authApi.signIn({ email, password });
-      await persistSession(nextSession);
-      await refreshOnboarding();
+      const stopSignInTimer = startPerformanceTimer('auth_sign_in_duration');
+      try {
+        const nextSession = await authApi.signIn({ email, password });
+        await persistSession(nextSession);
+        await refreshOnboarding();
+        stopSignInTimer({ success: true });
+        logEvent('auth_sign_in_succeeded');
+      } catch (error) {
+        stopSignInTimer({ success: false });
+        logError('auth_sign_in_failed', error);
+        throw error;
+      }
     },
     [persistSession, refreshOnboarding]
   );
@@ -174,15 +189,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signUp = useCallback(
     async (email: string, password: string) => {
       setErrorMessage(null);
-      const nextSession = await authApi.signUp({ email, password, role: 'driver' });
-      await persistSession(nextSession);
-      await refreshOnboarding();
+      const stopSignUpTimer = startPerformanceTimer('auth_sign_up_duration');
+      try {
+        const nextSession = await authApi.signUp({ email, password, role: 'driver' });
+        await persistSession(nextSession);
+        await refreshOnboarding();
+        stopSignUpTimer({ success: true });
+        logEvent('auth_sign_up_succeeded');
+      } catch (error) {
+        stopSignUpTimer({ success: false });
+        logError('auth_sign_up_failed', error);
+        throw error;
+      }
     },
     [persistSession, refreshOnboarding]
   );
 
   const signOut = useCallback(async () => {
     setErrorMessage(null);
+    logEvent('auth_sign_out_started');
     const current = sessionRef.current;
     if (current) {
       try {
@@ -192,13 +217,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     }
     await persistSession(null);
+    logEvent('auth_sign_out_completed');
   }, [persistSession]);
 
   const completeApplication = useCallback(
     async (location: { lat: number; lng: number }) => {
       setErrorMessage(null);
-      await driversApi.apply(location);
-      await refreshOnboarding();
+      const stopTimer = startPerformanceTimer('driver_application_submission_duration');
+      try {
+        await driversApi.apply(location);
+        await refreshOnboarding();
+        stopTimer({ success: true });
+        logEvent('driver_application_submitted');
+      } catch (error) {
+        stopTimer({ success: false });
+        logError('driver_application_submit_failed', error);
+        throw error;
+      }
     },
     [refreshOnboarding]
   );
@@ -206,8 +241,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const submitDocuments = useCallback(
     async (documents: string[]) => {
       setErrorMessage(null);
-      await driversApi.documents(documents);
-      await refreshOnboarding();
+      const stopTimer = startPerformanceTimer('driver_documents_submission_duration');
+      try {
+        await driversApi.documents(documents);
+        await refreshOnboarding();
+        stopTimer({ success: true, documentCount: documents.length });
+        logEvent('driver_documents_submitted', { documentCount: documents.length });
+      } catch (error) {
+        stopTimer({ success: false, documentCount: documents.length });
+        logError('driver_documents_submit_failed', error, { documentCount: documents.length });
+        throw error;
+      }
     },
     [refreshOnboarding]
   );
