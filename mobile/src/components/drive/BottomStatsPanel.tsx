@@ -8,7 +8,7 @@ const COLLAPSED_PANEL_HEIGHT = 176;
 const EXPANDED_PANEL_HEIGHT = 436;
 
 export const BottomStatsPanel = () => {
-  const { metrics, rideHistory, profile, activeTrip, nearbyRequests } = useDriveRealtime();
+  const { metrics, rideHistory, profile, activeRequest, activeTrip, requestTimeLeft, nearbyRequests } = useDriveRealtime();
   const panelHeight = useSharedValue(COLLAPSED_PANEL_HEIGHT);
 
   const toggleExpanded = () => {
@@ -22,8 +22,12 @@ export const BottomStatsPanel = () => {
     height: panelHeight.value,
   }));
 
+  const displayStatus = activeTrip?.status ?? profile.status;
+  const liveTitle = activeRequest && !activeTrip ? 'Incoming request live' : driverStatusMeta[displayStatus].label;
   const liveSubtitle = activeTrip
     ? `${driverStatusMeta[activeTrip.status].subtitle} · ${activeTrip.riderName}`
+    : activeRequest
+      ? `${activeRequest.riderName} · expires in ${requestTimeLeft}s · ${activeRequest.pickupAddress}`
     : profile.isOnline
       ? 'Online now and matching with nearby riders in the busiest zones.'
       : 'You are offline. Toggle online when you are ready to drive.';
@@ -46,7 +50,7 @@ export const BottomStatsPanel = () => {
 
       <View className="mt-4 rounded-3xl bg-zinc-100 p-4 dark:bg-zinc-800">
         <Text className="text-xs uppercase tracking-[0.2em] text-zinc-500 dark:text-zinc-300">Current session</Text>
-        <Text className="mt-2 text-lg font-semibold text-zinc-900 dark:text-zinc-100">{driverStatusMeta[profile.status].label}</Text>
+        <Text className="mt-2 text-lg font-semibold text-zinc-900 dark:text-zinc-100">{liveTitle}</Text>
         <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">{liveSubtitle}</Text>
       </View>
 

@@ -5,8 +5,16 @@ import { useDriveRealtime } from '../../context/DriveRealtimeContext';
 import { driverStatusMeta } from '../../utils/driveStatus';
 
 export const TopOverlay = () => {
-  const { profile, activeTrip, setOnline, error, onboardingRequired } = useDriveRealtime();
-  const statusMeta = driverStatusMeta[profile.status];
+  const { profile, activeRequest, activeTrip, requestTimeLeft, setOnline, error, onboardingRequired } = useDriveRealtime();
+  const displayStatus = activeTrip?.status ?? profile.status;
+  const statusMeta = driverStatusMeta[displayStatus];
+  const statusLabel = activeRequest && !activeTrip ? 'Incoming request' : statusMeta.label;
+  const statusSubtitle = activeTrip
+    ? `${activeTrip.pickupAddress} → ${activeTrip.dropoffAddress}`
+    : activeRequest
+      ? `Respond in ${requestTimeLeft}s · ${activeRequest.pickupAddress}`
+      : statusMeta.subtitle;
+  const accentColor = activeRequest && !activeTrip ? '#F43F5E' : statusMeta.accentColor;
 
   return (
     <View className="absolute left-4 right-4 top-14 z-20 rounded-3xl bg-white/92 p-4 shadow-soft dark:bg-zinc-900/92">
@@ -16,12 +24,10 @@ export const TopOverlay = () => {
           <View className="flex-1">
             <Text className="text-lg font-semibold text-zinc-950 dark:text-zinc-100">{profile.name}</Text>
             <View className="mt-1 flex-row items-center gap-2">
-              <View className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: statusMeta.accentColor }} />
-              <Text className="text-xs font-medium text-zinc-700 dark:text-zinc-200">{statusMeta.label}</Text>
+              <View className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: accentColor }} />
+              <Text className="text-xs font-medium text-zinc-700 dark:text-zinc-200">{statusLabel}</Text>
             </View>
-            <Text className="mt-1 text-xs text-zinc-500 dark:text-zinc-300">
-              {activeTrip ? `${activeTrip.pickupAddress} → ${activeTrip.dropoffAddress}` : statusMeta.subtitle}
-            </Text>
+            <Text className="mt-1 text-xs text-zinc-500 dark:text-zinc-300">{statusSubtitle}</Text>
           </View>
         </View>
 

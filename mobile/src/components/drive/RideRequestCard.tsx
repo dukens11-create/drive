@@ -13,6 +13,7 @@ export const RideRequestCard = () => {
   if (activeTrip) {
     const activeIndex = tripStatusOrder.indexOf(activeTrip.status);
     const statusMeta = driverStatusMeta[activeTrip.status];
+    const latestUpdates = activeTrip.timeline.slice(-3).reverse();
 
     return (
       <View className="absolute bottom-72 left-4 right-4 z-30 rounded-[28px] bg-white p-5 shadow-soft dark:bg-zinc-900">
@@ -49,7 +50,27 @@ export const RideRequestCard = () => {
           })}
         </View>
 
-        <Text className="mt-4 text-sm text-zinc-600 dark:text-zinc-300">{statusMeta.subtitle}</Text>
+        <View className="mt-4 rounded-2xl bg-zinc-100 p-3 dark:bg-zinc-800">
+          <Text className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 dark:text-zinc-300">Next step</Text>
+          <Text className="mt-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{statusMeta.label}</Text>
+          <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">{statusMeta.subtitle}</Text>
+        </View>
+
+        <View className="mt-4 gap-2">
+          {latestUpdates.map((event) => (
+            <View key={event.id} className="rounded-2xl border border-zinc-200 px-3 py-2 dark:border-zinc-700">
+              <View className="flex-row items-start justify-between gap-3">
+                <View className="flex-1">
+                  <Text className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{event.title}</Text>
+                  <Text className="mt-1 text-xs text-zinc-500 dark:text-zinc-300">{event.message}</Text>
+                </View>
+                <Text className="text-[11px] uppercase tracking-wide text-zinc-400">
+                  {new Date(event.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
 
         <Pressable className="mt-4 rounded-2xl bg-zinc-950 px-4 py-3 dark:bg-zinc-100" onPress={advanceTrip}>
           <Text className="text-center font-semibold text-white dark:text-zinc-950">{statusMeta.actionLabel}</Text>
@@ -68,7 +89,11 @@ export const RideRequestCard = () => {
     <View className="absolute bottom-72 left-4 right-4 z-30 rounded-[28px] bg-white p-5 shadow-soft dark:bg-zinc-900">
       <View className="flex-row items-start justify-between gap-3">
         <View className="flex-1">
-          <Text className="text-base font-semibold text-zinc-950 dark:text-zinc-100">{request.riderName}</Text>
+          <View className="self-start rounded-full bg-rose-100 px-3 py-1 dark:bg-rose-900/40">
+            <Text className="text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-500 dark:text-rose-300">Incoming ride request</Text>
+          </View>
+          <Text className="mt-3 text-base font-semibold text-zinc-950 dark:text-zinc-100">{request.riderName}</Text>
+          <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Pickup ETA {request.pickupEtaMinutes} min · Trip payout ${request.estimatedFare.toFixed(2)}</Text>
           <Text className="mt-2 text-xs uppercase tracking-[0.18em] text-zinc-400">Pickup</Text>
           <Text className="mt-1 text-sm text-zinc-700 dark:text-zinc-200">{request.pickupAddress}</Text>
           <Text className="mt-3 text-xs uppercase tracking-[0.18em] text-zinc-400">Dropoff</Text>
@@ -87,7 +112,11 @@ export const RideRequestCard = () => {
         <InfoItem label="Rider" value={`⭐ ${request.riderRating.toFixed(2)}`} />
       </View>
 
-      <Text className="mt-3 text-sm text-zinc-600 dark:text-zinc-300">Pickup ETA {request.pickupEtaMinutes} min · Premium mock request flow ready for backend data.</Text>
+      <View className="mt-4 rounded-2xl bg-zinc-100 p-3 dark:bg-zinc-800">
+        <Text className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 dark:text-zinc-300">Decision needed</Text>
+        <Text className="mt-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">Accept to start navigation to pickup now.</Text>
+        <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Declining keeps you online so the next nearby request can appear right away.</Text>
+      </View>
 
       <View className="mt-4 flex-row gap-3">
         <Pressable className="flex-1 rounded-2xl bg-zinc-200 px-4 py-3 dark:bg-zinc-800" onPress={declineRequest}>
