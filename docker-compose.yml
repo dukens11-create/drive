@@ -73,8 +73,9 @@ services:
 
   restaurant-web-dashboard:
     build:
-      context: .
-      dockerfile: restaurant-dashboard/Dockerfile
+      # The restaurant dashboard currently reuses the admin Next.js workspace.
+      context: ./admin
+      dockerfile: Dockerfile.restaurant
     restart: unless-stopped
     env_file:
       - .env
