@@ -119,6 +119,14 @@ Codemagic Android builds use EAS non-interactive auth and require a secure `EXPO
 4. Add a new **Secure** variable named `EXPO_TOKEN` and paste the token value.
 5. Save and rerun the workflow.
 
+
+## Infrastructure assets
+
+- Kubernetes manifests for namespaces, deployments, services, ingress, stateful workloads, daemonsets, and HPA are in `k8s/`.
+- Monitoring stack templates (Prometheus/Grafana/ELK) are in `monitoring/`.
+- Database bootstrap, migration, backup, and restore templates are in `database/` and `scripts/database/`.
+- Multi-service local stack is defined in `docker-compose.yml` (API, worker, Redis, admin, passenger web, restaurant web dashboard).
+
 ## CI
 
 - GitHub Actions (`.github/workflows/ci.yml`) runs backend build/test/audit checks, admin lint/build validation, mobile typecheck/Jest coverage/Expo export checks, web typecheck/build checks, dependency review on PRs, and auto-builds optional passenger app workspaces when they are added to the repository.

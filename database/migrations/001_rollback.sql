@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS drive.migrations;
+DROP SCHEMA IF EXISTS drive;
