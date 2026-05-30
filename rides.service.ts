@@ -147,6 +147,11 @@ function canAccessRide(authenticatedUser: any, ride: Ride) {
   return authenticatedUser.role === 'admin' || ride.riderId === authenticatedUser.id || ride.driverId === authenticatedUser.id;
 }
 
+function canParticipateInRideChat(authenticatedUser: any, ride: Ride) {
+  if (!authenticatedUser?.id || !authenticatedUser?.role) return false;
+  return authenticatedUser.role === 'admin' || ride.riderId === authenticatedUser.id || ride.driverId === authenticatedUser.id;
+}
+
 export async function estimate(body: any, _params?: any, _query?: any) {
   const miles = Number(body?.miles || body?.distanceMiles || 0);
   const minutes = Number(body?.minutes || body?.etaMinutes || 0);
@@ -353,6 +358,7 @@ export async function accept(body: any, _params?: any, _query?: any) {
   ride.driverId = driverId;
   ride.status = 'accepted';
   appendRideEvent(ride, 'driver_assigned', 'Driver assigned', 'Your driver accepted the trip.', 'driver', driverId);
+  appendRideEvent(ride, 'pickup_approaching', 'Pickup approaching', 'Driver is heading to your pickup point now.', 'system', driverId);
   return { module: 'rides', action: 'accept', ok: true, ride };
 }
 
@@ -364,6 +370,7 @@ export async function start(body: any, _params?: any, _query?: any) {
   if (ride.status !== 'accepted') return { module: 'rides', action: 'start', error: 'ride not accepted' };
   ride.status = 'started';
   appendRideEvent(ride, 'ride_started', 'Ride started', 'Your trip is in progress.', 'driver', driverId);
+  appendRideEvent(ride, 'passenger_waiting', 'Passenger onboard', 'Passenger has been picked up and the trip is underway.', 'system', driverId);
   return { module: 'rides', action: 'start', ok: true, ride };
 }
 
@@ -443,4 +450,48 @@ export async function rate(body: any, _params?: any, _query?: any) {
   appendRideEvent(ride, 'ride_rated', 'Trip rated', 'Thanks for rating this ride.', 'rider', riderId, ride.ratedAt);
   const driverRating = updateDriverRating(ride.driverId);
   return { module: 'rides', action: 'rate', ok: true, rideId: ride.id, rating, review: ride.review, driverRating };
+}
+
+export async function ratePassenger(body: any, _params?: any, _query?: any) {
+  const ride = getRide(body?.rideId);
+  if (!ride) return { module: 'rides', action: 'rate-passenger', error: 'ride not found' };
+  const driverId = getDriverId(body);
+  if (!driverId || ride.driverId !== driverId) {
+    return { module: 'rides', action: 'rate-passenger', error: 'only assigned driver can rate passenger' };
+  }
+  if (ride.status !== 'completed') {
+    return { module: 'rides', action: 'rate-passenger', error: 'only completed rides can be rated' };
+  }
+  if (typeof ride.passengerRating === 'number') {
+    return { module: 'rides', action: 'rate-passenger', error: 'passenger already rated' };
+  }
+  const rating = Number(body?.rating);
+  if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+    return { module: 'rides', action: 'rate-passenger', error: 'rating must be 1-5' };
+  }
+  ride.passengerRating = rating;
+  ride.passengerReview = typeof body?.comment === 'string' ? body.comment.trim() || undefined : undefined;
+  ride.passengerRatedAt = timestamp();
+  appendRideEvent(ride, 'passenger_rated', 'Passenger rated', 'Driver submitted passenger feedback.', 'driver', driverId, ride.passengerRatedAt);
+  return {
+    module: 'rides',
+    action: 'rate-passenger',
+    ok: true,
+    rideId: ride.id,
+    rating,
+    comment: ride.passengerReview
+  };
+}
+
+export async function message(body: any, _params?: any, _query?: any) {
+  const ride = getRide(body?.rideId);
+  if (!ride) return { module: 'rides', action: 'message', error: 'ride not found' };
+  if (!canParticipateInRideChat(body?.actor, ride)) {
+    return { module: 'rides', action: 'message', error: 'forbidden' };
+  }
+  const message = typeof body?.message === 'string' ? body.message.trim() : '';
+  if (!message) return { module: 'rides', action: 'message', error: 'message is required' };
+  const actor = body?.actor;
+  const event = appendRideEvent(ride, 'chat_message', 'Trip chat', message, actor?.role, actor?.id);
+  return { module: 'rides', action: 'message', ok: true, message: event, rideId: ride.id };
 }

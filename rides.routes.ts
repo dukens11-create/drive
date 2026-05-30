@@ -6,7 +6,9 @@ import {
   rideEstimateSchema,
   rideHistorySchema,
   rideLookupSchema,
+  rideMessageSchema,
   rideNotificationsSchema,
+  ridePassengerRateSchema,
   rideRateSchema,
   rideRequestSchema,
   rideStartCompleteCancelSchema
@@ -26,6 +28,8 @@ router.post('/notifications', requireRole('rider'), validateBody(rideNotificatio
 router.post('/accept', requireRole('driver'), validateBody(rideAcceptSchema), controller.accept);
 router.post('/start', requireRole('driver'), validateBody(rideStartCompleteCancelSchema), controller.start);
 router.post('/complete', requireRole('driver'), validateBody(rideStartCompleteCancelSchema), controller.complete);
+router.post('/rate-passenger', requireRole('driver'), validateBody(ridePassengerRateSchema), controller.ratePassenger);
+router.post('/message', validateBody(rideMessageSchema), controller.message);
 router.post('/cancel', requireRole('rider'), validateBody(rideStartCompleteCancelSchema), controller.cancel);
 router.post('/rate', requireRole('rider'), validateBody(rideRateSchema), controller.rate);
 export default router;

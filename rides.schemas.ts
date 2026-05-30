@@ -34,6 +34,17 @@ export const rideRateSchema = z.object({
   review: z.string().trim().max(280).optional()
 }).passthrough();
 
+export const ridePassengerRateSchema = z.object({
+  rideId: z.string().min(1),
+  rating: z.number().min(1).max(5),
+  comment: z.string().trim().max(280).optional()
+}).passthrough();
+
+export const rideMessageSchema = z.object({
+  rideId: z.string().min(1),
+  message: z.string().trim().min(1).max(500)
+}).passthrough();
+
 export const rideLookupSchema = z.object({
   rideId: z.string().min(1)
 }).passthrough();

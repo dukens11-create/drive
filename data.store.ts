@@ -44,6 +44,9 @@ export type Ride = {
   rating?: number;
   review?: string;
   ratedAt?: string;
+  passengerRating?: number;
+  passengerReview?: string;
+  passengerRatedAt?: string;
   canceledAt?: string;
   cancellationReason?: string;
   events?: RideEvent[];

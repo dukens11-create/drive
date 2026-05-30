@@ -7,6 +7,7 @@ export type DriverPreferences = {
   rideTypes: RideType[];
   minimumRiderRating: number;
   directionPreference: DirectionPreference;
+  availabilityWindows?: Array<{ day: string; start: string; end: string }>;
 };
 
 export type DriverProfile = {
@@ -18,6 +19,8 @@ export type DriverProfile = {
   isOnline: boolean;
   status: DriverStatus;
   preferences: DriverPreferences;
+  trustScore?: number;
+  verificationBadge?: 'verified' | 'pending';
 };
 
 export type DriverMetrics = {
@@ -63,6 +66,8 @@ export type ActiveTrip = Omit<RideRequest, 'expiresAt'> & {
   status: Extract<DriverStatus, 'accepted' | 'in-progress' | 'completed'>;
   rideId: string;
   timeline: Array<{ id: string; title: string; message: string; createdAt: string }>;
+  passengerRating?: number;
+  passengerReview?: string;
 };
 
 export type RideHistoryItem = {

@@ -67,3 +67,36 @@ test('ride request stays unassigned when no dispatch-eligible drivers exist', as
   assert.equal(request.ride.driverId, undefined);
   assert.equal(request.dispatch.selected, null);
 });
+
+test('driver can send trip chat and rate passenger after completion', async () => {
+  resetDriverData();
+  await drivers.apply({ userId: 'driver_feedback' });
+  await drivers.documents({ userId: 'driver_feedback', documents: ['license', 'insurance'] });
+  await kyc.webhook({ userId: 'driver_feedback', status: 'verified' });
+  await drivers.location({ userId: 'driver_feedback', lat: 9, lng: 9 });
+  await drivers.availability({ userId: 'driver_feedback', status: 'online' });
+
+  const request = await rides.request({ riderId: 'rider_feedback', pickupLat: 9.01, pickupLng: 9.01, miles: 4, minutes: 10 });
+  assert.equal(request.ok, true);
+  assert.equal(request.ride.driverId, 'driver_feedback');
+
+  const tripMessage = await rides.message({
+    rideId: request.ride.id,
+    message: 'I am arriving in 2 minutes.',
+    actor: { id: 'driver_feedback', role: 'driver' }
+  });
+  assert.equal(tripMessage.ok, true);
+  assert.equal(tripMessage.message.type, 'chat_message');
+
+  await rides.start({ rideId: request.ride.id, driverId: 'driver_feedback' });
+  await rides.complete({ rideId: request.ride.id, driverId: 'driver_feedback' });
+
+  const passengerRating = await rides.ratePassenger({
+    rideId: request.ride.id,
+    rating: 5,
+    comment: 'Great communication and on time.',
+    actor: { id: 'driver_feedback', role: 'driver' }
+  });
+  assert.equal(passengerRating.ok, true);
+  assert.equal(passengerRating.rating, 5);
+});

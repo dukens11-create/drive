@@ -5,7 +5,7 @@ import { useDriveRealtime } from '../../context/DriveRealtimeContext';
 import { driverStatusMeta } from '../../utils/driveStatus';
 
 export const TopOverlay = () => {
-  const { profile, activeRequest, activeTrip, requestTimeLeft, setOnline, error, onboardingRequired } = useDriveRealtime();
+  const { profile, activeRequest, activeTrip, requestTimeLeft, setOnline, error, onboardingRequired, isOfflineMode } = useDriveRealtime();
   const displayStatus = activeTrip?.status ?? profile.status;
   const statusMeta = driverStatusMeta[displayStatus];
   const statusLabel = activeRequest && !activeTrip ? 'Incoming request' : statusMeta.label;
@@ -28,6 +28,11 @@ export const TopOverlay = () => {
         <View className="ml-3 flex-1">
           <View className="flex-row items-center gap-2">
             <Text className="text-lg font-semibold text-zinc-950 dark:text-zinc-100">{profile.name}</Text>
+            {profile.verificationBadge === 'verified' ? (
+              <View className="rounded-full bg-emerald-100 px-2 py-0.5 dark:bg-emerald-900/40">
+                <Text className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-300">Verified</Text>
+              </View>
+            ) : null}
           </View>
           <View className="mt-1 flex-row items-center gap-2">
             <View className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: accentColor }} />
@@ -35,6 +40,10 @@ export const TopOverlay = () => {
           </View>
           <Text className="mt-1 text-xs text-zinc-500 dark:text-zinc-300" numberOfLines={1}>
             {statusSubtitle}
+          </Text>
+          <Text className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-300">
+            Trust score {profile.trustScore ?? 80}
+            {isOfflineMode ? ' · Offline cache active' : ''}
           </Text>
         </View>
 

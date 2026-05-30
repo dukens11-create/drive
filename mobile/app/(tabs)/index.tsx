@@ -8,7 +8,9 @@ import { BottomStatsPanel } from '../../src/components/drive/BottomStatsPanel';
 import { MapOverlayControls } from '../../src/components/drive/MapOverlayControls';
 import { RideRequestCard } from '../../src/components/drive/RideRequestCard';
 import { TopOverlay } from '../../src/components/drive/TopOverlay';
+import { useAuth } from '../../src/context/AuthContext';
 import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
+import { safetyApi } from '../../src/services/api/safetyApi';
 import type { LatLng } from '../../src/types/drive';
 import { buildNavigationRoute, distanceKmBetween } from '../../src/utils/navigation';
 
@@ -32,6 +34,7 @@ export default function DriveHomeScreen() {
   const mapRef = useRef<MapView | null>(null);
   const scheme = useColorScheme();
   const router = useRouter();
+  const { session } = useAuth();
   const [isSupportVisible, setIsSupportVisible] = useState(false);
   const { location, nearbyRequests, activeRequest, activeTrip, error, profile } = useDriveRealtime();
   const lastCameraCenterRef = useRef(location);
@@ -114,6 +117,23 @@ export default function DriveHomeScreen() {
   const handleEmergency = () => {
     Alert.alert('Emergency help', 'Call local emergency services right away if you are in danger or feel unsafe.', [
       { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Panic alert',
+        style: 'destructive',
+        onPress: () => {
+          if (!session?.user.id) {
+            return;
+          }
+          void safetyApi
+            .sos(session.user.id, 'Driver panic alert triggered from mobile app.', activeTrip?.rideId, location.latitude, location.longitude)
+            .then(() => {
+              Alert.alert('Alert sent', 'Support and safety teams were notified.');
+            })
+            .catch(() => {
+              Alert.alert('Alert failed', 'Unable to notify safety support right now.');
+            });
+        },
+      },
       {
         text: `Call ${emergencyNumber}`,
         style: 'destructive',

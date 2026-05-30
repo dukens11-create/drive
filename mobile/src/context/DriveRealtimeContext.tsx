@@ -1,4 +1,5 @@
 import * as Location from 'expo-location';
+import * as SecureStore from 'expo-secure-store';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuth } from './AuthContext';
@@ -25,7 +26,9 @@ type DriveContextValue = {
   isLoading: boolean;
   error: string | null;
   onboardingRequired: boolean;
+  isOfflineMode: boolean;
   setOnline: (isOnline: boolean) => Promise<void>;
+  updatePreferences: (nextPreferences: Partial<DriverProfile['preferences']>) => void;
   acceptRequest: () => Promise<void>;
   declineRequest: () => void;
   advanceTrip: () => Promise<void>;
@@ -56,6 +59,7 @@ const REQUEST_EXPIRATION_SECONDS = 18;
 const MOCK_REQUEST_PREFIX = 'mock-request-';
 const LOCATION_UPDATE_INTERVAL_MS = 2000;
 const LOCATION_UPDATE_DISTANCE_METERS = 2;
+const DRIVER_CACHE_KEY = 'drive.driver-cache.v1';
 type PendingRideRequest = Omit<RideRequest, 'expiresAt'>;
 
 type DriverNotification = {
@@ -75,7 +79,13 @@ const defaultProfile: DriverProfile = {
     rideTypes: ['standard', 'comfort'],
     minimumRiderRating: 4.85,
     directionPreference: 'toward_downtown',
+    availabilityWindows: [
+      { day: 'Mon-Fri', start: '07:00', end: '11:00' },
+      { day: 'Mon-Fri', start: '16:00', end: '21:00' },
+    ],
   },
+  trustScore: 80,
+  verificationBadge: 'pending',
 };
 
 const defaultMetrics: DriverMetrics = {
@@ -84,6 +94,18 @@ const defaultMetrics: DriverMetrics = {
   hoursOnline: 0,
   earningsPerTrip: 0,
   earningsPerHour: 0,
+};
+
+type DriverCacheSnapshot = {
+  profile: DriverProfile;
+  metrics: DriverMetrics;
+  rideHistory: RideHistoryItem[];
+  notifications: DriverNotification[];
+};
+
+const computeTrustScore = (rating?: number, verificationState?: string) => {
+  const base = Math.min(100, Math.max(60, Math.round((rating ?? 4.5) * 20)));
+  return verificationState === 'verified' ? Math.min(100, base + 5) : Math.max(50, base - 10);
 };
 
 const formatCoordinate = (lat?: number, lng?: number) => {
@@ -129,6 +151,8 @@ const mapRideToActiveTrip = (ride: RideSummary): ActiveTrip => {
     directionTag: 'toward_downtown',
     status: backendStatus,
     timeline: (ride.events ?? []).map((event) => ({ id: event.id, title: event.title, message: event.message, createdAt: event.createdAt })),
+    passengerRating: ride.passengerRating,
+    passengerReview: ride.passengerReview,
   };
 };
 
@@ -258,7 +282,29 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [onboardingRequired, setOnboardingRequired] = useState(false);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
   const activeTrip = backendActiveTrip ?? mockActiveTrip;
+
+  const persistCacheSnapshot = useCallback(async (snapshot: DriverCacheSnapshot) => {
+    await SecureStore.setItemAsync(DRIVER_CACHE_KEY, JSON.stringify(snapshot));
+  }, []);
+
+  const restoreFromCache = useCallback(async () => {
+    const raw = await SecureStore.getItemAsync(DRIVER_CACHE_KEY);
+    if (!raw) {
+      return false;
+    }
+    try {
+      const parsed = JSON.parse(raw) as DriverCacheSnapshot;
+      setProfile(parsed.profile);
+      setMetrics(parsed.metrics);
+      setRideHistory(parsed.rideHistory);
+      setNotifications(parsed.notifications);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
 
   const refreshData = useCallback(async () => {
     if (refreshInFlightRef.current) {
@@ -277,6 +323,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       setNotifications([]);
       setRequestTimeLeft(0);
       setOnboardingRequired(false);
+      setIsOfflineMode(false);
       handledRequestIdsRef.current.clear();
       previousTripRef.current = null;
       lastIncomingRequestIdRef.current = null;
@@ -323,6 +370,8 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
         isOnline: isDriverOnlineState(backendProfile.availabilityStatus),
         status: nextDriverStatus,
         preferences: current.preferences,
+        trustScore: computeTrustScore(backendProfile.rating, backendProfile.verificationState),
+        verificationBadge: backendProfile.verificationState === 'verified' ? 'verified' : 'pending',
       }));
 
       setRideHistory(history.rides.map(mapRideToHistory));
@@ -342,6 +391,29 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       });
       setNotifications(buildDriverNotifications(trip.ride ? [trip.ride, ...history.rides] : history.rides));
       setOnboardingRequired(onboardingStep !== 'ready');
+      setIsOfflineMode(false);
+      await persistCacheSnapshot({
+        profile: {
+          id: backendProfile.userId,
+          name: (session.user.email?.split('@')[0] || '').trim() || 'Driver',
+          email: session.user.email,
+          vehicleStatus: 'good',
+          isOnline: isDriverOnlineState(backendProfile.availabilityStatus),
+          status: nextDriverStatus,
+          preferences: profile.preferences,
+          trustScore: computeTrustScore(backendProfile.rating, backendProfile.verificationState),
+          verificationBadge: backendProfile.verificationState === 'verified' ? 'verified' : 'pending',
+        },
+        metrics: {
+          earningsToday: Number((earnings.earningsCents / 100).toFixed(2)),
+          tripsCompleted: earnings.rideCount,
+          hoursOnline: metrics.hoursOnline,
+          earningsPerTrip: earnings.rideCount > 0 ? Number(((earnings.earningsCents / 100) / earnings.rideCount).toFixed(2)) : 0,
+          earningsPerHour: metrics.hoursOnline > 0 ? Number(((earnings.earningsCents / 100) / metrics.hoursOnline).toFixed(2)) : 0,
+        },
+        rideHistory: history.rides.map(mapRideToHistory),
+        notifications: buildDriverNotifications(trip.ride ? [trip.ride, ...history.rides] : history.rides),
+      });
     } catch (err) {
       const message = toErrorMessage(err);
       if (message.includes('driver not found')) {
@@ -350,11 +422,23 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       } else {
         setError(message);
       }
+      const restored = await restoreFromCache();
+      setIsOfflineMode(restored);
     } finally {
       setIsLoading(false);
       refreshInFlightRef.current = false;
     }
   }, [onboardingStep, session, state]);
+
+  const updatePreferences = useCallback((nextPreferences: Partial<DriverProfile['preferences']>) => {
+    setProfile((current) => ({
+      ...current,
+      preferences: {
+        ...current.preferences,
+        ...nextPreferences,
+      },
+    }));
+  }, []);
 
   useEffect(() => {
     setNearbyRequests(buildNearbyRequests());
@@ -657,13 +741,15 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       isLoading,
       error,
       onboardingRequired,
+      isOfflineMode,
       setOnline,
+      updatePreferences,
       acceptRequest,
       declineRequest,
       advanceTrip,
       refreshData,
     }),
-    [acceptRequest, activeRequest, activeTrip, advanceTrip, declineRequest, error, isLoading, location, metrics, nearbyRequests, notifications, onboardingRequired, profile, refreshData, requestTimeLeft, rideHistory, setOnline]
+    [acceptRequest, activeRequest, activeTrip, advanceTrip, declineRequest, error, isLoading, isOfflineMode, location, metrics, nearbyRequests, notifications, onboardingRequired, profile, refreshData, requestTimeLeft, rideHistory, setOnline, updatePreferences]
   );
 
   return <DriveRealtimeContext.Provider value={value}>{children}</DriveRealtimeContext.Provider>;

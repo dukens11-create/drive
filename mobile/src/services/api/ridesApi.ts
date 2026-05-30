@@ -21,4 +21,16 @@ export const ridesApi = {
   complete(rideId: string) {
     return apiClient.post<ApiEnvelope<{ ride: RideSummary }>>('/api/rides/complete', { rideId }, { auth: true });
   },
+
+  message(rideId: string, message: string) {
+    return apiClient.post<ApiEnvelope<{ message: RideEvent; rideId: string }>>('/api/rides/message', { rideId, message }, { auth: true });
+  },
+
+  ratePassenger(rideId: string, rating: number, comment?: string) {
+    return apiClient.post<ApiEnvelope<{ rideId: string; rating: number; comment?: string }>>(
+      '/api/rides/rate-passenger',
+      { rideId, rating, comment },
+      { auth: true }
+    );
+  },
 };
