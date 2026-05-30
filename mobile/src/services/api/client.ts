@@ -1,4 +1,5 @@
 import { apiBaseUrl } from '../config/apiConfig';
+import { logError, logEvent, startPerformanceTimer } from '../observability';
 
 type AuthSnapshot = {
   accessToken: string;
@@ -68,6 +69,19 @@ type RequestOptions = {
 
 async function request<T>(path: string, options: RequestOptions = {}, hasRefreshed = false): Promise<T> {
   const { method = 'GET', body, auth = false, retryAttempts = 1 } = options;
+  const stopRequestTimerInternal = startPerformanceTimer('api_request_duration', {
+    path,
+    method,
+    auth,
+  });
+  let timerStopped = false;
+  const stopRequestTimer = (attributes: Record<string, boolean | number | string>) => {
+    if (timerStopped) {
+      return;
+    }
+    timerStopped = true;
+    stopRequestTimerInternal(attributes);
+  };
   const session = authHandlers?.getSession() ?? null;
 
   const headers: Record<string, string> = { ...defaultHeaders };
@@ -89,21 +103,63 @@ async function request<T>(path: string, options: RequestOptions = {}, hasRefresh
       if (response.status === 401 && auth && !hasRefreshed && authHandlers?.refreshSession) {
         const refreshed = await authHandlers.refreshSession();
         if (refreshed) {
-          return request<T>(path, options, true);
+          const retriedResponse = await request<T>(path, options, true);
+          stopRequestTimer({
+            attempt,
+            refreshedSession: true,
+            statusCode: response.status,
+            success: true,
+          });
+          logEvent('api_session_refreshed', { path, method });
+          return retriedResponse;
         }
       }
 
       if (!response.ok || payload.error) {
-        throw new HttpError(mapError(payload.error || `Request failed with status ${response.status}`, response.status));
+        const details = mapError(payload.error || `Request failed with status ${response.status}`, response.status);
+        stopRequestTimer({
+          attempt,
+          statusCode: response.status,
+          success: false,
+        });
+        logError('api_request_failed', details.message, {
+          path,
+          method,
+          statusCode: response.status,
+          retryable: details.retryable,
+        });
+        throw new HttpError(details);
       }
 
+      stopRequestTimer({
+        attempt,
+        statusCode: response.status,
+        success: true,
+      });
+      logEvent('api_request_succeeded', {
+        path,
+        method,
+        statusCode: response.status,
+      });
       return payload as T;
     } catch (error) {
       if (error instanceof HttpError) {
         if (!error.details.retryable || attempt === retryAttempts) {
+          stopRequestTimer({
+            attempt,
+            success: false,
+          });
           throw error;
         }
       } else if (attempt === retryAttempts) {
+        stopRequestTimer({
+          attempt,
+          success: false,
+        });
+        logError('api_network_request_failed', error, {
+          path,
+          method,
+        });
         throw new HttpError({
           message: 'Network request failed. Please check your connection and try again.',
           code: 'network_error',

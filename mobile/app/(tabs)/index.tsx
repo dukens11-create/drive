@@ -10,6 +10,8 @@ import { RideRequestCard } from '../../src/components/drive/RideRequestCard';
 import { TopOverlay } from '../../src/components/drive/TopOverlay';
 import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
 import { useLocale } from '../../src/context/LocaleContext';
+import { useScreenTracking } from '../../src/hooks/useScreenTracking';
+import { logError, logEvent } from '../../src/services/observability';
 import { logDriverError, logDriverWarning, trackDriverEvent } from '../../src/services/monitoring/telemetry';
 import type { LatLng } from '../../src/types/drive';
 import { buildNavigationRoute, distanceKmBetween } from '../../src/utils/navigation';
@@ -45,6 +47,7 @@ export default function DriveHomeScreen() {
   const [mapReady, setMapReady] = useState(false);
   const activeTripSnapshotRef = useRef<string | null>(null);
   const routeData = useMemo(() => buildNavigationRoute(location, activeTrip), [activeTrip, location]);
+  useScreenTracking('home');
 
   const sortedNearbyRequests = useMemo(
     () =>
@@ -112,11 +115,15 @@ export default function DriveHomeScreen() {
 
   const updateZoom = (nextZoom: number) => {
     const boundedZoom = Math.min(MAX_ZOOM_LEVEL, Math.max(MIN_ZOOM_LEVEL, nextZoom));
+    logEvent('map_zoom_changed', {
+      zoomLevel: boundedZoom,
+    });
     setZoomLevel(boundedZoom);
     mapRef.current?.animateCamera({ center: location, zoom: boundedZoom }, { duration: 220 });
   };
 
   const handleEmergency = () => {
+    logEvent('emergency_help_tapped');
     Alert.alert(t('home.emergencyTitle'), t('home.emergencyMessage'), [
       { text: t('home.cancel'), style: 'cancel' },
       {
@@ -142,6 +149,9 @@ export default function DriveHomeScreen() {
   };
 
   const handleShareTrip = async () => {
+    logEvent('share_trip_tapped', {
+      hasActiveTrip: Boolean(activeTrip),
+    });
     const message = activeTrip
       ? `Drive trip update: ${activeTrip.riderName} • ${activeTrip.pickupAddress} → ${activeTrip.dropoffAddress} • Status: ${activeTrip.status}.`
       : `Drive status update: I am ${profile.isOnline ? 'online and available with Drive right now' : 'currently offline with Drive'}.`;
@@ -150,9 +160,16 @@ export default function DriveHomeScreen() {
       trackDriverEvent('share_trip_tapped', { hasActiveTrip: Boolean(activeTrip) });
       await Share.share({ title: t('home.shareTripTitle'), message });
     } catch (shareError) {
+      logError('share_trip_failed', shareError, { hasActiveTrip: Boolean(activeTrip) });
       logDriverError('share_trip', shareError, { hasActiveTrip: Boolean(activeTrip) });
       Alert.alert(t('home.unableToShareTrip'), shareError instanceof Error ? shareError.message : 'Please try again.');
     }
+  };
+
+  const toggleSupportSheet = () => {
+    const nextVisible = !isSupportVisible;
+    logEvent('support_sheet_toggled', { visible: nextVisible });
+    setIsSupportVisible(nextVisible);
   };
 
   return (
@@ -167,7 +184,10 @@ export default function DriveHomeScreen() {
           latitudeDelta: 0.02,
           longitudeDelta: 0.02,
         }}
-        onMapReady={() => setMapReady(true)}
+        onMapReady={() => {
+          logEvent('map_ready');
+          setMapReady(true);
+        }}
         showsUserLocation
         followsUserLocation={false}
         showsTraffic
@@ -278,7 +298,7 @@ export default function DriveHomeScreen() {
         onRecenter={() => updateZoom(16)}
         onEmergency={handleEmergency}
         onShareTrip={() => void handleShareTrip()}
-        onSupport={() => setIsSupportVisible((current) => !current)}
+        onSupport={toggleSupportSheet}
         onZoomIn={() => updateZoom(zoomLevel + 1)}
         onZoomOut={() => updateZoom(zoomLevel - 1)}
         onOverview={() => {
@@ -290,6 +310,7 @@ export default function DriveHomeScreen() {
             });
             return;
           }
+          logEvent('map_route_overview_tapped');
           trackDriverEvent('route_overview_tapped', { tripStatus: activeTrip?.status ?? null });
           mapRef.current.fitToCoordinates(routeData.polyline, {
             edgePadding: ROUTE_OVERVIEW_EDGE_PADDING,

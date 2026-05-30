@@ -7,6 +7,8 @@ import { PLACEHOLDER_DRIVER_DOCUMENTS, REQUIRED_DRIVER_DOCUMENTS } from '../src/
 import { kycApi } from '../src/services/api/kycApi';
 import { useAuth } from '../src/context/AuthContext';
 import { useLocale } from '../src/context/LocaleContext';
+import { useScreenTracking } from '../src/hooks/useScreenTracking';
+import { logEvent } from '../src/services/observability';
 
 const FALLBACK_APPLICATION_LOCATION = { lat: 37.7749, lng: -122.4194 };
 const SAFETY_POLICIES = [
@@ -21,15 +23,16 @@ export default function OnboardingScreen() {
   const { t } = useLocale();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [screenError, setScreenError] = useState<string | null>(null);
+  useScreenTracking('onboarding');
   const documentsUploaded = (onboardingProfile?.documents ?? []).length;
   const verificationStatus =
     onboardingProfile?.verificationState === 'verified'
-      ? 'Verified'
+      ? t('profile.verificationStatus.verified')
       : onboardingProfile?.verificationState === 'rejected'
-        ? 'Needs review'
+        ? t('profile.verificationStatus.needsReview')
         : onboardingProfile?.verificationState === 'kyc_pending'
-          ? 'In progress'
-          : 'Pending';
+          ? t('profile.verificationStatus.inProgress')
+          : t('profile.verificationStatus.pending');
 
   if (state !== 'signed_in') {
     return <Redirect href="/(auth)/sign-in" />;
@@ -43,6 +46,7 @@ export default function OnboardingScreen() {
     setIsSubmitting(true);
     setScreenError(null);
     try {
+      logEvent('onboarding_application_submit_tapped');
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status !== Location.PermissionStatus.GRANTED) {
         await completeApplication(FALLBACK_APPLICATION_LOCATION);
@@ -61,6 +65,7 @@ export default function OnboardingScreen() {
     setIsSubmitting(true);
     setScreenError(null);
     try {
+      logEvent('onboarding_documents_submit_tapped');
       await submitDocuments(PLACEHOLDER_DRIVER_DOCUMENTS);
     } catch (error) {
       setScreenError(error instanceof Error ? error.message : 'Failed to upload onboarding documents');
@@ -77,6 +82,7 @@ export default function OnboardingScreen() {
     setIsSubmitting(true);
     setScreenError(null);
     try {
+      logEvent('onboarding_kyc_refresh_tapped');
       if (onboardingProfile?.verificationState === 'kyc_pending') {
         await kycApi.status(session.user.id);
       } else {
