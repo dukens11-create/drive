@@ -221,6 +221,14 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
 
       const backendProfile = driver.profile;
       const mappedTrip = trip.ride ? mapRideToActiveTrip(trip.ride) : null;
+      const nextDriverStatus =
+        onboardingStep !== 'ready'
+          ? 'onboarding'
+          : mappedTrip
+            ? mappedTrip.status
+            : isDriverOnlineState(backendProfile.availabilityStatus)
+              ? 'waiting'
+              : 'offline';
       setActiveTrip(mappedTrip);
       setActiveRequest(shouldSurfaceIncomingRequest(trip.ride, handledRequestIdsRef.current) && trip.ride ? mapRideToRequest(trip.ride) : null);
 
@@ -230,14 +238,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
         email: session.user.email,
         vehicleStatus: 'good',
         isOnline: isDriverOnlineState(backendProfile.availabilityStatus),
-        status:
-          onboardingStep !== 'ready'
-            ? 'onboarding'
-            : mappedTrip
-              ? mappedTrip.status
-              : isDriverOnlineState(backendProfile.availabilityStatus)
-                ? 'waiting'
-                : 'offline',
+        status: nextDriverStatus,
       });
 
       setRideHistory(history.rides.map(mapRideToHistory));
@@ -377,6 +378,8 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
     }
 
     if (previousTrip.status !== activeTrip.status && activeTrip.status === 'in-progress') {
+      // Suppress the next alert when the state change was initiated locally; the user already
+      // received feedback from the tap handler before refreshData observes the server update.
       if (suppressedTripAlertRef.current === buildSuppressedTripAlertKey(activeTrip.rideId, 'in-progress')) {
         suppressedTripAlertRef.current = null;
         previousTripRef.current = { rideId: activeTrip.rideId, status: activeTrip.status };

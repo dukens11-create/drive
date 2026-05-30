@@ -16,6 +16,7 @@ type LocationTaskData = {
 const postDriverLocation = async (latitude: number, longitude: number) => {
   const session = await sessionStorage.load();
   if (!session?.accessToken || session.user.role !== 'driver') {
+    console.info('Skipping background location sync because no driver session is available.');
     return;
   }
 

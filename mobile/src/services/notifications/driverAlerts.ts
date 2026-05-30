@@ -55,9 +55,10 @@ const playForegroundSound = async (kind: DriverAlertKind) => {
     await ensureAudioMode();
     const playback = await Audio.Sound.createAsync(soundAsset, { shouldPlay: true, volume: 1 });
     sound = playback.sound;
-    sound.setOnPlaybackStatusUpdate((status) => {
+    const playbackSound = playback.sound;
+    playbackSound.setOnPlaybackStatusUpdate((status) => {
       if ('isLoaded' in status && status.isLoaded && status.didJustFinish) {
-        void sound?.unloadAsync();
+        void playbackSound.unloadAsync();
       }
     });
   } catch (error) {
