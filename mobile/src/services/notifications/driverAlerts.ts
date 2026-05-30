@@ -39,7 +39,6 @@ const ensureAudioMode = async () => {
     allowsRecordingIOS: false,
     playsInSilentModeIOS: true,
     shouldDuckAndroid: true,
-    staysActiveInBackground: false,
   });
   audioModeReady = true;
 };

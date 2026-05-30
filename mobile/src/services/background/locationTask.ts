@@ -6,6 +6,8 @@ import { apiBaseUrl } from '../config/apiConfig';
 import { sessionStorage } from '../storage/sessionStorage';
 
 export const DRIVER_BACKGROUND_LOCATION_TASK = 'drive-home-driver-background-location';
+const LOCATION_UPDATE_INTERVAL_MS = 4000;
+const LOCATION_UPDATE_DISTANCE_METERS = 8;
 
 type LocationTaskData = {
   locations?: Location.LocationObject[];
@@ -78,8 +80,8 @@ export const syncDriverLocationInBackground = async (enabled: boolean) => {
 
   await Location.startLocationUpdatesAsync(DRIVER_BACKGROUND_LOCATION_TASK, {
     accuracy: Location.Accuracy.Balanced,
-    timeInterval: 4000,
-    distanceInterval: 8,
+    timeInterval: LOCATION_UPDATE_INTERVAL_MS,
+    distanceInterval: LOCATION_UPDATE_DISTANCE_METERS,
     pausesUpdatesAutomatically: false,
     ...(Platform.OS === 'android'
       ? {
