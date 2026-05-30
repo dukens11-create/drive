@@ -9,6 +9,7 @@ import { MapOverlayControls } from '../../src/components/drive/MapOverlayControl
 import { RideRequestCard } from '../../src/components/drive/RideRequestCard';
 import { TopOverlay } from '../../src/components/drive/TopOverlay';
 import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
+import { useLocale } from '../../src/context/LocaleContext';
 import { logDriverError, logDriverWarning, trackDriverEvent } from '../../src/services/monitoring/telemetry';
 import type { LatLng } from '../../src/types/drive';
 import { buildNavigationRoute, distanceKmBetween } from '../../src/utils/navigation';
@@ -37,6 +38,7 @@ export default function DriveHomeScreen() {
   const router = useRouter();
   const [isSupportVisible, setIsSupportVisible] = useState(false);
   const { location, nearbyRequests, activeRequest, activeTrip, error, profile } = useDriveRealtime();
+  const { t, formatNumber } = useLocale();
   const lastCameraCenterRef = useRef(location);
   const [zoomLevel, setZoomLevel] = useState(16);
   const [tripTrace, setTripTrace] = useState<LatLng[]>([]);
@@ -115,10 +117,10 @@ export default function DriveHomeScreen() {
   };
 
   const handleEmergency = () => {
-    Alert.alert('Emergency help', 'Call local emergency services right away if you are in danger or feel unsafe.', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('home.emergencyTitle'), t('home.emergencyMessage'), [
+      { text: t('home.cancel'), style: 'cancel' },
       {
-        text: `Call ${emergencyNumber}`,
+        text: t('home.callNumber', { number: emergencyNumber }),
         style: 'destructive',
         onPress: () => {
           void (async () => {
@@ -131,7 +133,7 @@ export default function DriveHomeScreen() {
               await Linking.openURL(`tel:${emergencyNumber}`);
             } catch (dialError) {
               logDriverError('open_emergency_dialer', dialError, { emergencyNumber });
-              Alert.alert('Unable to open dialer', 'Call your local emergency number directly from this device.');
+              Alert.alert(t('home.unableToOpenDialerTitle'), t('home.unableToOpenDialerBody'));
             }
           })();
         },
@@ -146,10 +148,10 @@ export default function DriveHomeScreen() {
 
     try {
       trackDriverEvent('share_trip_tapped', { hasActiveTrip: Boolean(activeTrip) });
-      await Share.share({ title: 'Share Drive trip', message });
+      await Share.share({ title: t('home.shareTripTitle'), message });
     } catch (shareError) {
       logDriverError('share_trip', shareError, { hasActiveTrip: Boolean(activeTrip) });
-      Alert.alert('Unable to share trip', shareError instanceof Error ? shareError.message : 'Please try again.');
+      Alert.alert(t('home.unableToShareTrip'), shareError instanceof Error ? shareError.message : 'Please try again.');
     }
   };
 
@@ -178,8 +180,8 @@ export default function DriveHomeScreen() {
         <Marker
           coordinate={location}
           pinColor="#2563EB"
-          title="You"
-          description="Current driver location"
+          title={t('home.markerYou')}
+          description={t('home.markerYouDescription')}
           tracksViewChanges={false}
         />
 
@@ -193,22 +195,22 @@ export default function DriveHomeScreen() {
             <Marker
               coordinate={activeTrip.pickupPosition}
               pinColor="#22C55E"
-              title="Pickup"
+              title={t('home.markerPickup')}
               description={activeTrip.pickupAddress}
               tracksViewChanges={false}
             />
             <Marker
               coordinate={activeTrip.dropoffPosition}
               pinColor="#F59E0B"
-              title="Dropoff"
+              title={t('home.markerDropoff')}
               description={activeTrip.dropoffAddress}
               tracksViewChanges={false}
             />
           </>
         ) : activeRequest ? (
           <>
-            <Marker coordinate={activeRequest.pickupPosition} pinColor="#22C55E" title="Pickup" description={activeRequest.pickupAddress} />
-            <Marker coordinate={activeRequest.dropoffPosition} pinColor="#F97316" title="Dropoff" description={activeRequest.dropoffAddress} />
+            <Marker coordinate={activeRequest.pickupPosition} pinColor="#22C55E" title={t('home.markerPickup')} description={activeRequest.pickupAddress} />
+            <Marker coordinate={activeRequest.dropoffPosition} pinColor="#F97316" title={t('home.markerDropoff')} description={activeRequest.dropoffAddress} />
           </>
         ) : (
           sortedNearbyRequests.map((request) => (
@@ -216,7 +218,7 @@ export default function DriveHomeScreen() {
               key={request.id}
               coordinate={request.position}
               title={request.zoneName}
-              description={`${request.distanceKm.toFixed(1)} km · surge x${request.surgeMultiplier.toFixed(1)}`}
+              description={`${formatNumber(request.distanceKm, { maximumFractionDigits: 1 })} km · surge x${formatNumber(request.surgeMultiplier, { maximumFractionDigits: 1 })}`}
               pinColor={request.surgeMultiplier > 1.3 ? '#F97316' : '#22C55E'}
               tracksViewChanges={false}
             />
@@ -227,16 +229,16 @@ export default function DriveHomeScreen() {
       <TopOverlay />
       {routeData ? (
         <View className="absolute left-4 right-20 top-44 z-30 rounded-2xl bg-white/95 px-4 py-3 shadow-soft dark:bg-zinc-900/95">
-          <Text className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-300">Turn-by-turn</Text>
+          <Text className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-300">{t('home.turnByTurn')}</Text>
           <Text className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{routeData.nextInstruction}</Text>
           <Text className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-            {routeData.remainingDistanceKm.toFixed(1)} km · {routeData.remainingDurationMinutes} min
+            {formatNumber(routeData.remainingDistanceKm, { maximumFractionDigits: 1 })} km · {formatNumber(routeData.remainingDurationMinutes)} min
           </Text>
         </View>
       ) : null}
       {isSupportVisible ? (
         <View className="absolute left-4 right-20 top-36 z-30 rounded-3xl border border-zinc-800 bg-zinc-950/95 px-4 py-4">
-          <Text className="text-sm font-semibold text-zinc-100">Safety & support</Text>
+          <Text className="text-sm font-semibold text-zinc-100">{t('home.supportTitle')}</Text>
           <Text className="mt-2 text-xs text-zinc-300">Use SOS for emergencies, share active trips with a trusted contact, and open Inbox for follow-up support.</Text>
           <View className="mt-3 gap-2">
             <Text className="text-xs text-zinc-400">• Pull over before responding to an incident.</Text>
@@ -254,7 +256,7 @@ export default function DriveHomeScreen() {
               accessibilityRole="button"
               accessibilityLabel="Open support inbox"
             >
-              <Text className="text-center text-sm font-semibold text-white">Open inbox</Text>
+              <Text className="text-center text-sm font-semibold text-white">{t('home.openInbox')}</Text>
             </Pressable>
             <Pressable
               className="rounded-2xl border border-zinc-700 px-3 py-3"
@@ -262,7 +264,7 @@ export default function DriveHomeScreen() {
               accessibilityRole="button"
               accessibilityLabel="Dismiss support panel"
             >
-              <Text className="text-sm font-semibold text-zinc-100">Dismiss</Text>
+              <Text className="text-sm font-semibold text-zinc-100">{t('home.dismiss')}</Text>
             </Pressable>
           </View>
         </View>

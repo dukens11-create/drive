@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, Text, View, useColorScheme } from 'react-native';
 
+import { useLocale } from '../../context/LocaleContext';
+
 type MapOverlayControlsProps = {
   onEmergency: () => void;
   onRecenter: () => void;
@@ -22,14 +24,15 @@ export const MapOverlayControls = ({
   onOverview,
   showOverview = false,
 }: MapOverlayControlsProps) => {
+  const { t } = useLocale();
   const isDark = useColorScheme() === 'dark';
   const neutralIconColor = isDark ? '#F4F4F5' : '#0F172A';
 
   return (
     <View className="absolute bottom-80 right-4 z-20 gap-3">
       <QuickActionButton tone="danger" label="SOS" icon="warning" onPress={onEmergency} />
-      <QuickActionButton tone="neutral" label="Share" icon="share-social" onPress={onShareTrip} />
-      <QuickActionButton tone="neutral" label="Help" icon="help-buoy" onPress={onSupport} />
+      <QuickActionButton tone="neutral" label={t('home.shareButton')} icon="share-social" onPress={onShareTrip} />
+      <QuickActionButton tone="neutral" label={t('home.supportButton')} icon="help-buoy" onPress={onSupport} />
       {showOverview ? (
         <Pressable
           className="h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-soft dark:bg-zinc-900"

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { useAuth } from '../../src/context/AuthContext';
+import { useLocale } from '../../src/context/LocaleContext';
 
 export default function SignInScreen() {
   const [email, setEmail] = useState('');
@@ -11,6 +12,7 @@ export default function SignInScreen() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const { signIn } = useAuth();
+  const { t } = useLocale();
   const canSubmit = email.trim().length > 0 && password.length > 0 && !isSubmitting;
 
   const handleSubmit = async () => {
@@ -32,8 +34,8 @@ export default function SignInScreen() {
 
   return (
     <ScrollView className="flex-1 bg-zinc-950" contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 40 }}>
-      <Text className="text-3xl font-bold text-zinc-100">Driver sign in</Text>
-      <Text className="mt-2 text-sm text-zinc-400">Connect your account to sync live trips, earnings, and onboarding status.</Text>
+    <Text className="text-3xl font-bold text-zinc-100">{t('auth.signInTitle')}</Text>
+    <Text className="mt-2 text-sm text-zinc-400">{t('auth.signInSubtitle')}</Text>
 
       <View className="mt-6 rounded-3xl bg-zinc-900 p-4">
         <Text className="text-sm font-semibold text-zinc-100">Returning drivers can:</Text>
@@ -45,7 +47,7 @@ export default function SignInScreen() {
       <TextInput
         value={email}
         onChangeText={setEmail}
-        placeholder="Email"
+        placeholder={t('auth.emailPlaceholder')}
         keyboardType="email-address"
         autoCapitalize="none"
         className="mt-6 rounded-2xl bg-zinc-900 px-4 py-3 text-zinc-100"
@@ -54,7 +56,7 @@ export default function SignInScreen() {
       <TextInput
         value={password}
         onChangeText={setPassword}
-        placeholder="Password"
+        placeholder={t('auth.passwordPlaceholder')}
         secureTextEntry
         className="mt-3 rounded-2xl bg-zinc-900 px-4 py-3 text-zinc-100"
         placeholderTextColor="#71717A"
@@ -67,12 +69,12 @@ export default function SignInScreen() {
         disabled={!canSubmit}
         onPress={handleSubmit}
       >
-        <Text className="text-center font-semibold text-white">{isSubmitting ? 'Signing in...' : 'Sign in'}</Text>
+        <Text className="text-center font-semibold text-white">{isSubmitting ? t('auth.signingIn') : t('auth.signInButton')}</Text>
       </Pressable>
 
       <Link href="/(auth)/sign-up" asChild>
         <Pressable className="mt-4">
-          <Text className="text-center text-sm text-zinc-300">Need an account? Create one</Text>
+          <Text className="text-center text-sm text-zinc-300">{t('auth.needAccount')}</Text>
         </Pressable>
       </Link>
     </ScrollView>

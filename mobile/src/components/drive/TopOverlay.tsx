@@ -3,12 +3,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image, Pressable, Switch, Text, View } from 'react-native';
 
 import { useDriveRealtime } from '../../context/DriveRealtimeContext';
+import { useLocale } from '../../context/LocaleContext';
 import { logDriverError } from '../../services/monitoring/telemetry';
 import { driverStatusMeta } from '../../utils/driveStatus';
 
 export const TopOverlay = () => {
   const router = useRouter();
   const { profile, activeRequest, activeTrip, requestTimeLeft, setOnline, error, onboardingRequired } = useDriveRealtime();
+  const { t } = useLocale();
   const displayStatus = activeTrip?.status ?? profile.status;
   const statusMeta = driverStatusMeta[displayStatus];
   const statusLabel = activeRequest && !activeTrip ? 'Incoming request' : statusMeta.label;
@@ -43,7 +45,7 @@ export const TopOverlay = () => {
 
         <View className="ml-2 items-center">
           <Text className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            {profile.isOnline ? 'Online' : 'Offline'}
+            {profile.isOnline ? t('common.online') : t('common.offline')}
           </Text>
           <Switch
             value={profile.isOnline}

@@ -4,6 +4,7 @@ import { Tabs } from 'expo-router';
 import { useColorScheme } from 'react-native';
 
 import { useAuth } from '../../src/context/AuthContext';
+import { useLocale } from '../../src/context/LocaleContext';
 
 const iconByRoute: Record<string, keyof typeof Ionicons.glyphMap> = {
   index: 'home',
@@ -17,6 +18,7 @@ export default function TabLayout() {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
   const { state, onboardingStep } = useAuth();
+  const { t } = useLocale();
 
   if (state !== 'signed_in') {
     return <Redirect href="/(auth)/sign-in" />;
@@ -44,11 +46,11 @@ export default function TabLayout() {
         tabBarIcon: ({ color, size }) => <Ionicons name={iconByRoute[route.name]} size={size} color={color} />,
       })}
     >
-      <Tabs.Screen name="index" options={{ title: 'Home' }} />
-      <Tabs.Screen name="trips" options={{ title: 'Trips' }} />
-      <Tabs.Screen name="earnings" options={{ title: 'Earnings' }} />
-      <Tabs.Screen name="inbox" options={{ title: 'Inbox' }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
+      <Tabs.Screen name="index" options={{ title: t('common.home') }} />
+      <Tabs.Screen name="trips" options={{ title: t('common.trips') }} />
+      <Tabs.Screen name="earnings" options={{ title: t('common.earnings') }} />
+      <Tabs.Screen name="inbox" options={{ title: t('common.inbox') }} />
+      <Tabs.Screen name="profile" options={{ title: t('common.profile') }} />
     </Tabs>
   );
 }
