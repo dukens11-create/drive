@@ -11,7 +11,6 @@ export default function EarningsScreen() {
   const { metrics, rideHistory, isLoading, error, refreshData } = useDriveRealtime();
   const { t, formatCurrency, formatNumber, formatTime } = useLocale();
   const hasEarnings = metrics.tripsCompleted > 0;
-  const tripWord = metrics.tripsCompleted === 1 ? t('earnings.tripWord_one') : t('earnings.tripWord_other');
 
   return (
     <View className="flex-1 bg-zinc-50 dark:bg-zinc-950">
@@ -35,8 +34,8 @@ export default function EarningsScreen() {
           <Text className="mt-1 text-5xl font-bold text-white">{formatCurrency(metrics.earningsToday)}</Text>
             <Text className="mt-3 text-sm text-emerald-100">
             {t('earnings.onlineSummary', {
+              count: metrics.tripsCompleted,
               trips: formatNumber(metrics.tripsCompleted),
-              tripWord,
               hours: formatNumber(metrics.hoursOnline, { maximumFractionDigits: 1, minimumFractionDigits: 1 }),
             })}
           </Text>

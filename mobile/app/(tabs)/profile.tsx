@@ -14,6 +14,7 @@ export default function ProfileScreen() {
   const { signOut, onboardingStep, onboardingProfile } = useAuth();
   const { t, locale, setLocale } = useLocale();
   const [signOutError, setSignOutError] = useState<string | null>(null);
+  const [localeError, setLocaleError] = useState<string | null>(null);
   const documentsUploaded = (onboardingProfile?.documents ?? []).length;
   const verificationStatus =
     onboardingProfile?.verificationState === 'verified'
@@ -30,6 +31,15 @@ export default function ProfileScreen() {
       await signOut();
     } catch (error) {
       setSignOutError(error instanceof Error ? error.message : 'Unable to sign out right now.');
+    }
+  };
+
+  const handleLanguageChange = async (languageCode: (typeof supportedLocales)[number]) => {
+    setLocaleError(null);
+    try {
+      await setLocale(languageCode);
+    } catch (error) {
+      setLocaleError(error instanceof Error ? error.message : 'Unable to update language right now.');
     }
   };
 
@@ -63,13 +73,14 @@ export default function ProfileScreen() {
                 <Pressable
                   key={languageCode}
                   className={`rounded-full px-3 py-2 ${selected ? 'bg-emerald-500' : 'bg-zinc-200 dark:bg-zinc-800'}`}
-                  onPress={() => void setLocale(languageCode)}
+                  onPress={() => void handleLanguageChange(languageCode)}
                 >
                   <Text className={`text-xs font-semibold ${selected ? 'text-white' : 'text-zinc-800 dark:text-zinc-100'}`}>{localeLabelByCode[languageCode]}</Text>
                 </Pressable>
               );
             })}
           </View>
+          {localeError ? <Text className="mt-2 text-xs text-rose-500 dark:text-rose-300">{localeError}</Text> : null}
         </View>
         <Pressable className="mt-4 rounded-2xl bg-zinc-200 px-4 py-3 dark:bg-zinc-800" onPress={() => void handleSignOut()}>
           <Text className="text-center font-semibold text-zinc-900 dark:text-zinc-100">{t('common.signOut')}</Text>

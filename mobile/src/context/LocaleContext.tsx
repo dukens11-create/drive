@@ -1,6 +1,6 @@
 import * as Localization from 'expo-localization';
 import { I18n } from 'i18n-js';
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { defaultLocale, localeLabelByCode, supportedLocales, translations, type SupportedLocale } from '../i18n/translations';
 import { localeStorage } from '../services/storage/localeStorage';
@@ -68,11 +68,11 @@ export const LocaleProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
-  const setLocale = async (nextLocale: SupportedLocale) => {
+  const setLocale = useCallback(async (nextLocale: SupportedLocale) => {
     i18n.locale = nextLocale;
     setLocaleState(nextLocale);
     await localeStorage.save(nextLocale);
-  };
+  }, []);
 
   const value = useMemo<LocaleContextValue>(
     () => ({
@@ -91,7 +91,7 @@ export const LocaleProvider = ({ children }: { children: React.ReactNode }) => {
           ...options,
         }).format(new Date(value)),
     }),
-    [locale]
+    [locale, setLocale]
   );
 
   return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;
