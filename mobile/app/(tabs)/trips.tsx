@@ -34,7 +34,7 @@ export default function TripsScreen() {
                   <Text className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{ride.riderName}</Text>
                   <Text className="text-base font-bold text-emerald-600">${ride.fare.toFixed(2)}</Text>
                 </View>
-                <Text className="mt-1 text-xs text-zinc-500 dark:text-zinc-400" numberOfLines={1}>{ride.route}</Text>
+                <Text className="mt-1 text-xs text-zinc-500 dark:text-zinc-400" numberOfLines={1} accessibilityLabel={ride.route}>{ride.route}</Text>
                 <View className="mt-2 flex-row items-center gap-2">
                   <Text className="text-xs text-zinc-400 dark:text-zinc-500">{ride.miles} mi</Text>
                   <Text className="text-xs text-zinc-300 dark:text-zinc-600">·</Text>
