@@ -5,12 +5,17 @@ on:
   push:
     branches:
       - main
+      - release/**
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-test:
+  backend:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -40,17 +45,41 @@ jobs:
             fi
           done
 
+      - name: Verify committed web project files
+        run: |
+          required_web_files=(
+            web/package.json
+            web/package-lock.json
+            web/tsconfig.json
+            web/next.config.ts
+            web/app/layout.tsx
+          )
+
+          for file in "${required_web_files[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "Missing required committed web file: $file" >&2
+              exit 1
+            fi
+          done
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
+      - name: Build backend
         run: npm run build
 
-      - name: Test
+      - name: Test backend
         run: node --test dist/*.test.js
 
-  mobile-test:
+      - name: Audit backend dependencies
+        # Keep this as a hard gate for new high/critical advisories. If a high
+        # severity issue is accepted temporarily, document the mitigation in the
+        # PR and pin/override the dependency in the same change.
+        run: npm audit --audit-level=high
+
+  mobile:
     runs-on: ubuntu-latest
+    if: ${{ hashFiles('mobile/package-lock.json') != '' }}
     defaults:
       run:
         working-directory: mobile
@@ -74,6 +103,9 @@ jobs:
       - name: Mobile tests with coverage
         run: npm run test:ci
 
+      - name: Export Expo bundles
+        run: npm run export:ci
+
       - name: Upload mobile coverage report
         if: always()
         uses: actions/upload-artifact@v4
@@ -81,11 +113,32 @@ jobs:
           name: mobile-coverage
           path: mobile/coverage
 
+<<<<<<< HEAD
   admin-build:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: admin
+=======
+      - name: Upload Expo export bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-export
+          path: mobile/dist
+
+      - name: Audit mobile dependencies
+        # Keep this as a hard gate for new high/critical advisories. If a high
+        # severity issue is accepted temporarily, document the mitigation in the
+        # PR and pin/override the dependency in the same change.
+        run: npm audit --audit-level=high
+
+  web-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+>>>>>>> origin/main
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -95,6 +148,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
+<<<<<<< HEAD
           cache-dependency-path: admin/package-lock.json
 
       - name: Install admin dependencies
@@ -105,3 +159,65 @@ jobs:
 
       - name: Admin build
         run: npm run build
+=======
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Web typecheck
+        run: npm run typecheck
+
+      - name: Web production build
+        run: npm run build
+
+  optional-app-builds:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build optional app workspaces when present
+        run: |
+          set -euo pipefail
+
+          run_optional_app() {
+            local label="$1"
+            shift
+
+            for candidate in "$@"; do
+              if [ -f "$candidate/package.json" ]; then
+                echo "Detected $label workspace at $candidate"
+                pushd "$candidate" >/dev/null
+                npm ci
+                npm run lint --if-present
+                npm run typecheck --if-present
+                npm test --if-present
+                npm run build --if-present
+                popd >/dev/null
+                return 0
+              fi
+            done
+
+            echo "No $label workspace found; skipping."
+          }
+
+          run_optional_app "admin dashboard" admin apps/admin
+          run_optional_app "passenger web" passenger-web apps/passenger-web
+          run_optional_app "passenger mobile" passenger-mobile apps/passenger-mobile
+
+  dependency-review:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@v4
+>>>>>>> origin/main

@@ -1,0 +1,115 @@
+import { Ionicons } from '@expo/vector-icons';
+import { Pressable, Text, View, useColorScheme } from 'react-native';
+
+import { useLocale } from '../../context/LocaleContext';
+
+type MapOverlayControlsProps = {
+  onEmergency: () => void;
+  onRecenter: () => void;
+  onShareTrip: () => void;
+  onSupport: () => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onOverview: () => void;
+  showOverview?: boolean;
+  highContrastEnabled?: boolean;
+};
+
+const actionAccessibilityLabel: Record<string, string> = {
+  SOS: 'Call emergency support',
+  Share: 'Share trip status',
+  Help: 'Open safety support information',
+};
+
+export const MapOverlayControls = ({
+  onEmergency,
+  onRecenter,
+  onShareTrip,
+  onSupport,
+  onZoomIn,
+  onZoomOut,
+  onOverview,
+  showOverview = false,
+  highContrastEnabled = false,
+}: MapOverlayControlsProps) => {
+  const { t } = useLocale();
+  const isDark = useColorScheme() === 'dark';
+  const neutralIconColor = highContrastEnabled ? '#FFFFFF' : isDark ? '#F4F4F5' : '#0F172A';
+  const routeIconColor = highContrastEnabled ? '#FACC15' : '#2563EB';
+  const recenterIconColor = highContrastEnabled ? '#FACC15' : '#16A34A';
+
+  return (
+    <View className="absolute bottom-80 right-4 z-20 gap-3">
+      <QuickActionButton tone="danger" label="SOS" icon="warning" onPress={onEmergency} highContrastEnabled={highContrastEnabled} accessibilityLabel={actionAccessibilityLabel.SOS} />
+      <QuickActionButton tone="neutral" label={t('home.shareButton')} icon="share-social" onPress={onShareTrip} highContrastEnabled={highContrastEnabled} accessibilityLabel={actionAccessibilityLabel.Share} />
+      <QuickActionButton tone="neutral" label={t('home.supportButton')} icon="help-buoy" onPress={onSupport} highContrastEnabled={highContrastEnabled} accessibilityLabel={actionAccessibilityLabel.Help} />
+      {showOverview ? (
+        <Pressable
+          className={`h-12 w-12 items-center justify-center rounded-2xl shadow-soft ${highContrastEnabled ? 'border border-white bg-black' : 'bg-white dark:bg-zinc-900'}`}
+          onPress={onOverview}
+          accessibilityRole="button"
+          accessibilityLabel="Overview route"
+          accessibilityHint="Zoom out to see the full current route"
+          hitSlop={8}
+        >
+          <Ionicons name="map" size={18} color={routeIconColor} />
+        </Pressable>
+      ) : null}
+      <Pressable
+        className={`h-12 w-12 items-center justify-center rounded-2xl shadow-soft ${highContrastEnabled ? 'border border-white bg-black' : 'bg-white dark:bg-zinc-900'}`}
+        onPress={onZoomIn}
+        accessibilityRole="button"
+        accessibilityLabel="Zoom in map"
+        hitSlop={8}
+      >
+        <Ionicons name="add" size={20} color={neutralIconColor} />
+      </Pressable>
+      <Pressable
+        className={`h-12 w-12 items-center justify-center rounded-2xl shadow-soft ${highContrastEnabled ? 'border border-white bg-black' : 'bg-white dark:bg-zinc-900'}`}
+        onPress={onZoomOut}
+        accessibilityRole="button"
+        accessibilityLabel="Zoom out map"
+        hitSlop={8}
+      >
+        <Ionicons name="remove" size={20} color={neutralIconColor} />
+      </Pressable>
+      <Pressable
+        className={`h-14 w-14 items-center justify-center rounded-2xl shadow-soft ${highContrastEnabled ? 'border border-white bg-black' : 'bg-white dark:bg-zinc-900'}`}
+        onPress={onRecenter}
+        accessibilityRole="button"
+        accessibilityLabel="Recenter map"
+        accessibilityHint="Centers the map on your live location"
+        hitSlop={8}
+      >
+        <Ionicons name="locate" size={22} color={recenterIconColor} />
+      </Pressable>
+    </View>
+  );
+};
+
+const QuickActionButton = ({
+  icon,
+  label,
+  onPress,
+  tone,
+  highContrastEnabled,
+  accessibilityLabel,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+  tone: 'danger' | 'neutral';
+  highContrastEnabled: boolean;
+  accessibilityLabel: string;
+}) => (
+  <Pressable
+    className={`items-center rounded-2xl px-2 py-2 shadow-soft ${tone === 'danger' ? 'bg-rose-500' : highContrastEnabled ? 'border border-white bg-black' : 'bg-white dark:bg-zinc-900'}`}
+    onPress={onPress}
+    accessibilityRole="button"
+    accessibilityLabel={accessibilityLabel}
+    hitSlop={8}
+  >
+    <Ionicons name={icon} size={18} color={tone === 'danger' ? '#FFFFFF' : highContrastEnabled ? '#FACC15' : '#16A34A'} />
+    <Text className={`mt-1 text-[10px] font-semibold ${tone === 'danger' || highContrastEnabled ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`}>{label}</Text>
+  </Pressable>
+);

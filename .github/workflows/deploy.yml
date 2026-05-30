@@ -1,0 +1,116 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - release/**
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment environment (configure required reviewers on the `production` GitHub Environment before manual production runs)
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.resolve.outputs.environment }}
+      image_tag: ${{ steps.resolve.outputs.image_tag }}
+    steps:
+      - name: Resolve deployment target
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_ENVIRONMENT: ${{ github.event.inputs.environment }}
+          REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            environment="$INPUT_ENVIRONMENT"
+          elif [ "$REF_NAME" = "main" ]; then
+            environment="development"
+          else
+            environment="staging"
+          fi
+
+          short_sha="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+          echo "environment=$environment" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$environment-$short_sha" >> "$GITHUB_OUTPUT"
+
+  backend:
+    needs: resolve-environment
+    runs-on: ubuntu-latest
+    # Production approval is enforced by configuring required reviewers on the
+    # `production` GitHub Environment in repository settings.
+    environment: ${{ needs.resolve-environment.outputs.environment }}
+    env:
+      DEPLOY_ENV: ${{ needs.resolve-environment.outputs.environment }}
+      IMAGE_NAME: ghcr.io/${{ github.repository }}-api
+      IMAGE_TAG: ${{ needs.resolve-environment.outputs.image_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build backend container
+        run: docker build -t "$IMAGE_NAME:$IMAGE_TAG" .
+
+      - name: Smoke test backend container
+        run: |
+          cp ".env.${DEPLOY_ENV}.example" .env.deploy
+          docker run -d --rm --name drive-api-smoke -p 8080:8080 --env-file .env.deploy "$IMAGE_NAME:$IMAGE_TAG"
+          cleanup() {
+            docker logs drive-api-smoke || true
+            docker stop drive-api-smoke || true
+            rm -f .env.deploy
+          }
+          trap cleanup EXIT
+          timeout 60 bash -c 'until curl --fail --silent http://127.0.0.1:8080/health >/dev/null; do sleep 2; done'
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Tag environment aliases
+        run: |
+          docker tag "$IMAGE_NAME:$IMAGE_TAG" "$IMAGE_NAME:$DEPLOY_ENV"
+          if [ "$DEPLOY_ENV" = "production" ]; then
+            docker tag "$IMAGE_NAME:$IMAGE_TAG" "$IMAGE_NAME:latest"
+          fi
+
+      - name: Push backend container
+        run: |
+          docker push "$IMAGE_NAME:$IMAGE_TAG"
+          docker push "$IMAGE_NAME:$DEPLOY_ENV"
+          if [ "$DEPLOY_ENV" = "production" ]; then
+            docker push "$IMAGE_NAME:latest"
+          fi
+
+      - name: Publish deployment metadata
+        run: |
+          cat <<EOF > deploy-metadata.json
+          {
+            "environment": "$DEPLOY_ENV",
+            "image": "$IMAGE_NAME:$IMAGE_TAG",
+            "commit": "${{ github.sha }}",
+            "workflow": "${{ github.workflow }}"
+          }
+          EOF
+
+      - name: Upload deployment metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-${{ env.DEPLOY_ENV }}
+          path: deploy-metadata.json
