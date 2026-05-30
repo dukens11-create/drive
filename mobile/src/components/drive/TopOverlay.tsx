@@ -1,10 +1,13 @@
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Image, Pressable, Switch, Text, View } from 'react-native';
 
 import { useDriveRealtime } from '../../context/DriveRealtimeContext';
+import { logDriverError } from '../../services/monitoring/telemetry';
 import { driverStatusMeta } from '../../utils/driveStatus';
 
 export const TopOverlay = () => {
+  const router = useRouter();
   const { profile, activeRequest, activeTrip, requestTimeLeft, setOnline, error, onboardingRequired } = useDriveRealtime();
   const displayStatus = activeTrip?.status ?? profile.status;
   const statusMeta = driverStatusMeta[displayStatus];
@@ -47,10 +50,25 @@ export const TopOverlay = () => {
             onValueChange={(value) => void setOnline(value)}
             trackColor={{ false: '#A1A1AA', true: '#22C55E' }}
             thumbColor="#FFFFFF"
+            accessibilityLabel={profile.isOnline ? 'Go offline' : 'Go online'}
+            accessibilityHint="Toggles your driver availability for incoming ride requests"
           />
         </View>
 
-        <Pressable className="ml-2 h-9 w-9 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800">
+        <Pressable
+          className="ml-2 h-9 w-9 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800"
+          onPress={() => {
+            try {
+              router.push('/(tabs)/inbox');
+            } catch (err) {
+              logDriverError('open_inbox', err);
+            }
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Open inbox"
+          accessibilityHint="View notifications and support updates"
+          hitSlop={8}
+        >
           <Ionicons name="notifications-outline" size={18} color={profile.isOnline ? '#0f172a' : '#6b7280'} />
         </Pressable>
       </View>

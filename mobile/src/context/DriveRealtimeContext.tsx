@@ -9,6 +9,7 @@ import { configureDriverAlerts, ensureDriverAlertPermissions, sendDriverAlert, v
 import { ridesApi } from '../services/api/ridesApi';
 import { logError, logEvent, startPerformanceTimer } from '../services/observability';
 import { buildIncomingRideRequests, buildNearbyRequests, estimateRequestExpirationSeconds, getSeedLocation } from '../services/realtime/mockDriveFeed';
+import { logDriverError, logDriverWarning, trackDriverEvent } from '../services/monitoring/telemetry';
 import type { RideEvent, RideSummary } from '../types/api';
 import type { ActiveTrip, DriverMetrics, DriverProfile, LatLng, RideHistoryItem, RideRequest } from '../types/drive';
 import { distanceKmBetween } from '../utils/navigation';
@@ -364,6 +365,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
         setError(message);
         logError('driver_refresh_data_failed', err);
       }
+      logDriverError('refresh_data', err, { onboardingStep, hasSession: Boolean(session) });
     } finally {
       setIsLoading(false);
       refreshInFlightRef.current = false;
@@ -375,8 +377,16 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
   }, [location]);
 
   useEffect(() => {
-    void configureDriverAlerts();
-    void ensureDriverAlertPermissions();
+    const configureAlerts = async () => {
+      try {
+        await configureDriverAlerts();
+        await ensureDriverAlertPermissions();
+      } catch (err) {
+        logDriverError('configure_alerts', err);
+      }
+    };
+
+    void configureAlerts();
   }, []);
 
   useEffect(() => {
@@ -421,50 +431,60 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
     let watcher: Location.LocationSubscription | null = null;
 
     const setupLocationTracking = async () => {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== Location.PermissionStatus.GRANTED) {
-        setError('Location permission is required for live trip updates.');
-        logEvent('location_permission_denied');
-        return;
-      }
-
       try {
-        const initialFix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
-        setLocation({ latitude: initialFix.coords.latitude, longitude: initialFix.coords.longitude });
-      } catch (initialFixError) {
-        // Keep seeded location fallback if a one-off high-accuracy fix is unavailable.
-        console.warn('Initial high-accuracy location fix unavailable', initialFixError);
-        logError('location_initial_fix_unavailable', initialFixError);
-      }
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (permission.status !== Location.PermissionStatus.GRANTED) {
+          setError('Location permission is required for live trip updates.');
+          logEvent('location_permission_denied');
+          return;
+        }
 
-      watcher = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.BestForNavigation,
-          timeInterval: LOCATION_UPDATE_INTERVAL_MS,
-          distanceInterval: LOCATION_UPDATE_DISTANCE_METERS,
-          mayShowUserSettingsDialog: true,
-        },
-        (update) => {
-          if (typeof update.coords.accuracy === 'number' && update.coords.accuracy > MAX_LOCATION_ACCURACY_METERS) {
-            return;
-          }
-          const nextLocation = { latitude: update.coords.latitude, longitude: update.coords.longitude };
-          setLocation(nextLocation);
-          if (state === 'signed_in' && profile.isOnline) {
-            const now = Date.now();
-            const distanceFromLastPush = lastLocationPushRef.current
-              ? distanceKmBetween(lastLocationPushRef.current, nextLocation) * 1000
-              : Number.POSITIVE_INFINITY;
-            const elapsed = now - lastLocationPushAtRef.current;
-            if (distanceFromLastPush >= LOCATION_SEND_DISTANCE_METERS || elapsed >= LOCATION_SEND_INTERVAL_MS) {
-              lastLocationPushRef.current = nextLocation;
-              lastLocationPushAtRef.current = now;
-              logEvent('driver_location_synced');
-              void driversApi.updateLocation(nextLocation.latitude, nextLocation.longitude);
+        try {
+          const initialFix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
+          setLocation({ latitude: initialFix.coords.latitude, longitude: initialFix.coords.longitude });
+        } catch (initialFixError) {
+          // Keep seeded location fallback if a one-off high-accuracy fix is unavailable.
+          logError('location_initial_fix_unavailable', initialFixError);
+          logDriverWarning('initial_location_fix', initialFixError);
+        }
+
+        watcher = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.BestForNavigation,
+            timeInterval: LOCATION_UPDATE_INTERVAL_MS,
+            distanceInterval: LOCATION_UPDATE_DISTANCE_METERS,
+            mayShowUserSettingsDialog: true,
+          },
+          (update) => {
+            if (typeof update.coords.accuracy === 'number' && update.coords.accuracy > MAX_LOCATION_ACCURACY_METERS) {
+              return;
+            }
+            const nextLocation = { latitude: update.coords.latitude, longitude: update.coords.longitude };
+            setLocation(nextLocation);
+            if (state === 'signed_in' && profile.isOnline) {
+              const now = Date.now();
+              const distanceFromLastPush = lastLocationPushRef.current
+                ? distanceKmBetween(lastLocationPushRef.current, nextLocation) * 1000
+                : Number.POSITIVE_INFINITY;
+              const elapsed = now - lastLocationPushAtRef.current;
+              if (distanceFromLastPush >= LOCATION_SEND_DISTANCE_METERS || elapsed >= LOCATION_SEND_INTERVAL_MS) {
+                lastLocationPushRef.current = nextLocation;
+                lastLocationPushAtRef.current = now;
+                logEvent('driver_location_synced');
+                void driversApi.updateLocation(nextLocation.latitude, nextLocation.longitude).catch((err) => {
+                  logDriverError('update_location', err, {
+                    latitude: Number(nextLocation.latitude.toFixed(3)),
+                    longitude: Number(nextLocation.longitude.toFixed(3)),
+                  });
+                });
+              }
             }
           }
-        }
-      );
+        );
+      } catch (err) {
+        setError('Unable to start live location updates right now.');
+        logDriverError('location_tracking_setup', err);
+      }
     };
 
     void setupLocationTracking();
@@ -502,6 +522,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
         logEvent('ride_request_expired', {
           requestId: activeRequest.id,
         });
+        trackDriverEvent('request_expired', { requestId: activeRequest.id });
         handledRequestIdsRef.current.add(activeRequest.id);
         setDeclinedRequestCooldowns((current) => ({ ...current, [activeRequest.id]: Date.now() + REQUEST_DECLINE_COOLDOWN_MS }));
         setTimeout(() => setRequestQueue([]), REQUEST_REMATCH_DELAY_MS);
@@ -596,6 +617,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
         stopAvailabilityTimer({ success: false, isOnline });
         logError('driver_set_availability_failed', err, { isOnline });
         setError(toErrorMessage(err));
+        logDriverError('set_online', err, { isOnline });
       }
     },
     [location.latitude, location.longitude, onboardingStep, refreshData]
@@ -608,6 +630,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
     const stopAcceptTimer = startPerformanceTimer('ride_request_accept_duration', { requestId: activeRequest.id });
     try {
       if (activeRequest.id.startsWith(MOCK_REQUEST_PREFIX)) {
+        trackDriverEvent('request_accepted', { requestId: activeRequest.id, mock: true });
         setMockActiveTrip(mapRequestToMockTrip(activeRequest));
         setActiveRequest(null);
         setRequestQueue([]);
@@ -622,6 +645,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       await ridesApi.accept(activeRequest.id);
       handledRequestIdsRef.current.add(activeRequest.id);
       previousTripRef.current = { rideId: activeRequest.id, status: 'accepted' };
+      trackDriverEvent('request_accepted', { requestId: activeRequest.id, mock: false });
       await sendDriverAlert('accepted', 'Request accepted', `Head to ${activeRequest.riderName} for pickup.`);
       await refreshData();
       setActiveRequest(null);
@@ -631,6 +655,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       stopAcceptTimer({ success: false });
       logError('ride_request_accept_failed', err, { requestId: activeRequest.id });
       setError(toErrorMessage(err));
+      logDriverError('accept_request', err, { requestId: activeRequest.id });
     }
   }, [activeRequest, refreshData]);
 
@@ -639,6 +664,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       logEvent('ride_request_declined', {
         requestId: activeRequest.id,
       });
+      trackDriverEvent('request_declined', { requestId: activeRequest.id });
       handledRequestIdsRef.current.add(activeRequest.id);
       setDeclinedRequestCooldowns((current) => ({ ...current, [activeRequest.id]: Date.now() + REQUEST_DECLINE_COOLDOWN_MS }));
       setTimeout(() => setRequestQueue([]), REQUEST_REMATCH_DELAY_MS);
@@ -663,9 +689,11 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
     try {
       if (activeTrip.rideId.startsWith(MOCK_REQUEST_PREFIX)) {
         if (activeTrip.status === 'accepted') {
+          trackDriverEvent('trip_status_advanced', { rideId: activeTrip.rideId, nextStatus: 'in-progress', mock: true });
           setMockActiveTrip(appendMockTripEvent(activeTrip, 'in-progress'));
           toStatus = 'in-progress';
         } else if (activeTrip.status === 'in-progress') {
+          trackDriverEvent('trip_status_advanced', { rideId: activeTrip.rideId, nextStatus: 'completed', mock: true });
           setMockActiveTrip(appendMockTripEvent(activeTrip, 'completed'));
           toStatus = 'completed';
         } else {
@@ -675,11 +703,13 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       } else if (activeTrip.status === 'accepted') {
         await ridesApi.start(activeTrip.rideId);
         suppressedTripAlertRef.current = buildSuppressedTripAlertKey(activeTrip.rideId, 'in-progress');
+        trackDriverEvent('trip_status_advanced', { rideId: activeTrip.rideId, nextStatus: 'in-progress', mock: false });
         await sendDriverAlert('trip-started', 'Trip started', `${activeTrip.riderName} is onboard. Continue to the destination.`);
         toStatus = 'in-progress';
       } else if (activeTrip.status === 'in-progress') {
         await ridesApi.complete(activeTrip.rideId);
         suppressedTripAlertRef.current = buildSuppressedTripAlertKey(activeTrip.rideId, 'completed');
+        trackDriverEvent('trip_status_advanced', { rideId: activeTrip.rideId, nextStatus: 'completed', mock: false });
         await sendDriverAlert('trip-ended', 'Trip ended', `${activeTrip.riderName}'s trip is complete.`);
         toStatus = 'completed';
       }
@@ -703,6 +733,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
         toStatus: resolvedToStatus,
       });
       setError(toErrorMessage(err));
+      logDriverError('advance_trip', err, { rideId: activeTrip.rideId, status: activeTrip.status });
     }
   }, [activeTrip, refreshData]);
 

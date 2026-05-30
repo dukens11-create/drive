@@ -11,6 +11,7 @@ import { TopOverlay } from '../../src/components/drive/TopOverlay';
 import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
 import { useScreenTracking } from '../../src/hooks/useScreenTracking';
 import { logError, logEvent } from '../../src/services/observability';
+import { logDriverError, logDriverWarning, trackDriverEvent } from '../../src/services/monitoring/telemetry';
 import type { LatLng } from '../../src/types/drive';
 import { buildNavigationRoute, distanceKmBetween } from '../../src/utils/navigation';
 
@@ -20,6 +21,7 @@ const TRIP_TRACE_KEEP_POINTS = TRIP_TRACE_MAX_POINTS - 1;
 const MIN_ZOOM_LEVEL = 12;
 const MAX_ZOOM_LEVEL = 19;
 const ROUTE_OVERVIEW_EDGE_PADDING = { top: 170, right: 60, bottom: 360, left: 60 };
+const MIN_ROUTE_OVERVIEW_POINTS = 2;
 
 type ExpoExtra = {
   emergencyNumber?: string;
@@ -29,6 +31,7 @@ const expoExtra = (Constants.expoConfig?.extra ?? {}) as ExpoExtra;
 const configuredEmergencyNumber = process.env.EXPO_PUBLIC_EMERGENCY_NUMBER?.trim();
 const expoEmergencyNumber = expoExtra.emergencyNumber?.trim();
 const emergencyNumber = configuredEmergencyNumber || expoEmergencyNumber || '911';
+const hasValidRouteOverview = (polyline?: LatLng[]) => Boolean(polyline && polyline.length >= MIN_ROUTE_OVERVIEW_POINTS);
 
 export default function DriveHomeScreen() {
   const mapRef = useRef<MapView | null>(null);
@@ -125,9 +128,19 @@ export default function DriveHomeScreen() {
         text: `Call ${emergencyNumber}`,
         style: 'destructive',
         onPress: () => {
-          void Linking.openURL(`tel:${emergencyNumber}`).catch(() => {
-            Alert.alert('Unable to open dialer', 'Call your local emergency number directly from this device.');
-          });
+          void (async () => {
+            trackDriverEvent('emergency_call_tapped');
+            try {
+              const supported = await Linking.canOpenURL(`tel:${emergencyNumber}`);
+              if (!supported) {
+                throw new Error('Dialer is unavailable on this device.');
+              }
+              await Linking.openURL(`tel:${emergencyNumber}`);
+            } catch (dialError) {
+              logDriverError('open_emergency_dialer', dialError, { emergencyNumber });
+              Alert.alert('Unable to open dialer', 'Call your local emergency number directly from this device.');
+            }
+          })();
         },
       },
     ]);
@@ -142,9 +155,11 @@ export default function DriveHomeScreen() {
       : `Drive status update: I am ${profile.isOnline ? 'online and available with Drive right now' : 'currently offline with Drive'}.`;
 
     try {
+      trackDriverEvent('share_trip_tapped', { hasActiveTrip: Boolean(activeTrip) });
       await Share.share({ title: 'Share Drive trip', message });
     } catch (shareError) {
-      logError('share_trip_failed', shareError);
+      logError('share_trip_failed', shareError, { hasActiveTrip: Boolean(activeTrip) });
+      logDriverError('share_trip', shareError, { hasActiveTrip: Boolean(activeTrip) });
       Alert.alert('Unable to share trip', shareError instanceof Error ? shareError.message : 'Please try again.');
     }
   };
@@ -252,13 +267,21 @@ export default function DriveHomeScreen() {
             <Pressable
               className="flex-1 rounded-2xl bg-emerald-500 px-3 py-3"
               onPress={() => {
+                trackDriverEvent('support_open_inbox_tapped');
                 setIsSupportVisible(false);
                 router.push('/(tabs)/inbox');
               }}
+              accessibilityRole="button"
+              accessibilityLabel="Open support inbox"
             >
               <Text className="text-center text-sm font-semibold text-white">Open inbox</Text>
             </Pressable>
-            <Pressable className="rounded-2xl border border-zinc-700 px-3 py-3" onPress={() => setIsSupportVisible(false)}>
+            <Pressable
+              className="rounded-2xl border border-zinc-700 px-3 py-3"
+              onPress={() => setIsSupportVisible(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss support panel"
+            >
               <Text className="text-sm font-semibold text-zinc-100">Dismiss</Text>
             </Pressable>
           </View>
@@ -277,10 +300,16 @@ export default function DriveHomeScreen() {
         onZoomIn={() => updateZoom(zoomLevel + 1)}
         onZoomOut={() => updateZoom(zoomLevel - 1)}
         onOverview={() => {
-          if (!routeData || !mapRef.current) {
+          if (!routeData || !mapRef.current || !hasValidRouteOverview(routeData.polyline)) {
+            logDriverWarning('route_overview_unavailable', {
+              hasRouteData: Boolean(routeData),
+              hasMapRef: Boolean(mapRef.current),
+              polylinePointCount: routeData?.polyline.length ?? 0,
+            });
             return;
           }
           logEvent('map_route_overview_tapped');
+          trackDriverEvent('route_overview_tapped', { tripStatus: activeTrip?.status ?? null });
           mapRef.current.fitToCoordinates(routeData.polyline, {
             edgePadding: ROUTE_OVERVIEW_EDGE_PADDING,
             animated: true,
