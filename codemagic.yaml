@@ -15,6 +15,9 @@ workflows:
         - pattern: main
           include: true
           source: true
+        - pattern: release/**
+          include: true
+          source: true
     scripts:
       - name: Show workflow config
         script: |

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "drive-api",
+      "changelog-path": "CHANGELOG.md"
+    },
+    "mobile": {
+      "release-type": "node",
+      "package-name": "drive-home-mobile",
+      "changelog-path": "mobile/CHANGELOG.md"
+    }
+  }
+}

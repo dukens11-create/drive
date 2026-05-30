@@ -28,5 +28,20 @@ Run `npm test` to compile and execute core API route tests.
 
 ## Docker quick run
 
-1. `docker build -t flupflap-ride .`
-2. `docker run --rm -p 8080:8080 --env-file .env flupflap-ride`
+1. `docker build -t drive .`
+2. `docker run --rm -p 8080:8080 --env-file .env drive`
+
+## Docker Compose stack
+
+1. `cp .env.development.example .env`
+2. `docker compose up --build`
+
+This starts:
+
+- Redis
+- API container on `http://localhost:8080`
+- queue worker container
+
+## CI/CD reference
+
+See `CI_CD.md` for GitHub Actions, release automation, deployment promotion, and environment configuration details.
