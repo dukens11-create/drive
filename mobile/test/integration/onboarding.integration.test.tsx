@@ -3,7 +3,9 @@ import * as Location from 'expo-location';
 
 import OnboardingScreen from '../../app/onboarding';
 import { PLACEHOLDER_DRIVER_DOCUMENTS } from '../../src/constants/onboarding';
+import { useAccessibilitySettings } from '../../src/context/AccessibilityContext';
 import { useAuth } from '../../src/context/AuthContext';
+import { useLocale } from '../../src/context/LocaleContext';
 import { kycApi } from '../../src/services/api/kycApi';
 
 jest.mock('../../src/context/AuthContext', () => ({
@@ -17,15 +19,48 @@ jest.mock('../../src/services/api/kycApi', () => ({
   },
 }));
 
+jest.mock('../../src/context/AccessibilityContext', () => ({
+  useAccessibilitySettings: jest.fn(),
+}));
+
+jest.mock('../../src/context/LocaleContext', () => ({
+  useLocale: jest.fn(),
+}));
+
 jest.mock('expo-router', () => ({
   Redirect: () => null,
 }));
 
 const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
+const mockUseAccessibilitySettings = useAccessibilitySettings as jest.MockedFunction<typeof useAccessibilitySettings>;
+const mockUseLocale = useLocale as jest.MockedFunction<typeof useLocale>;
 
 describe('OnboardingScreen integration', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    const translationMap: Record<string, string> = {
+      'onboarding.submitApplication': 'Submit application',
+      'onboarding.uploadDocuments': 'Upload required documents',
+      'onboarding.refreshKycStatus': 'Refresh KYC status',
+    };
+    mockUseAccessibilitySettings.mockReturnValue({
+      highContrastEnabled: false,
+      textScale: 'default',
+      maxFontSizeMultiplier: 1,
+      setHighContrastEnabled: jest.fn(),
+      setTextScale: jest.fn(),
+    });
+    mockUseLocale.mockReturnValue({
+      locale: 'en',
+      isRTL: false,
+      localeLabel: 'English',
+      setLocale: jest.fn(async () => undefined),
+      t: (key: string) => translationMap[key] ?? key,
+      formatCurrency: (value: number) => `$${value.toFixed(2)}`,
+      formatNumber: (value: number) => `${value}`,
+      formatDate: (value: string | number | Date) => new Date(value).toISOString(),
+      formatTime: (value: string | number | Date) => new Date(value).toISOString(),
+    });
   });
 
   test('submits application with fallback location when permission is denied', async () => {

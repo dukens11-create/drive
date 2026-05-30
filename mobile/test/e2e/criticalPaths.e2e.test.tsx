@@ -2,8 +2,10 @@ import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import OnboardingScreen from '../../app/onboarding';
 import { RideRequestCard } from '../../src/components/drive/RideRequestCard';
+import { useAccessibilitySettings } from '../../src/context/AccessibilityContext';
 import { useAuth } from '../../src/context/AuthContext';
 import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
+import { useLocale } from '../../src/context/LocaleContext';
 
 jest.mock('../../src/context/AuthContext', () => ({
   useAuth: jest.fn(),
@@ -13,12 +15,43 @@ jest.mock('../../src/context/DriveRealtimeContext', () => ({
   useDriveRealtime: jest.fn(),
 }));
 
+jest.mock('../../src/context/AccessibilityContext', () => ({
+  useAccessibilitySettings: jest.fn(),
+}));
+
+jest.mock('../../src/context/LocaleContext', () => ({
+  useLocale: jest.fn(),
+}));
+
 const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
 const mockUseDriveRealtime = useDriveRealtime as jest.MockedFunction<typeof useDriveRealtime>;
+const mockUseAccessibilitySettings = useAccessibilitySettings as jest.MockedFunction<typeof useAccessibilitySettings>;
+const mockUseLocale = useLocale as jest.MockedFunction<typeof useLocale>;
 
 describe('critical path e2e flows', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    const translationMap: Record<string, string> = {
+      'onboarding.submitApplication': 'Submit application',
+    };
+    mockUseAccessibilitySettings.mockReturnValue({
+      highContrastEnabled: false,
+      textScale: 'default',
+      maxFontSizeMultiplier: 1,
+      setHighContrastEnabled: jest.fn(),
+      setTextScale: jest.fn(),
+    });
+    mockUseLocale.mockReturnValue({
+      locale: 'en',
+      isRTL: false,
+      localeLabel: 'English',
+      setLocale: jest.fn(async () => undefined),
+      t: (key: string) => translationMap[key] ?? key,
+      formatCurrency: (value: number) => `$${value.toFixed(2)}`,
+      formatNumber: (value: number) => `${value}`,
+      formatDate: (value: string | number | Date) => new Date(value).toISOString(),
+      formatTime: (value: string | number | Date) => new Date(value).toISOString(),
+    });
   });
 
   test('onboarding flow can submit application for a signed-in driver', async () => {
@@ -51,8 +84,7 @@ describe('critical path e2e flows', () => {
     const acceptRequest = jest.fn();
     const advanceTrip = jest.fn();
 
-    mockUseDriveRealtime
-      .mockReturnValueOnce({
+    mockUseDriveRealtime.mockReturnValue({
         activeRequest: {
           id: 'mock-request-1',
           riderName: 'Olivia',
@@ -84,10 +116,18 @@ describe('critical path e2e flows', () => {
         isLoading: false,
         error: null,
         onboardingRequired: false,
+        isOfflineMode: false,
         setOnline: jest.fn(),
+        updatePreferences: jest.fn(),
         refreshData: jest.fn(),
-      })
-      .mockReturnValueOnce({
+      });
+
+    const requestCard = render(<RideRequestCard />);
+    fireEvent.press(requestCard.getByText('Accept'));
+    expect(acceptRequest).toHaveBeenCalledTimes(1);
+
+    // Re-mock and re-render to simulate the app state after the request has been accepted.
+    mockUseDriveRealtime.mockReturnValue({
         activeRequest: null,
         activeTrip: {
           id: 'trip-1',
@@ -121,13 +161,11 @@ describe('critical path e2e flows', () => {
         isLoading: false,
         error: null,
         onboardingRequired: false,
+        isOfflineMode: false,
         setOnline: jest.fn(),
+        updatePreferences: jest.fn(),
         refreshData: jest.fn(),
       });
-
-    const requestCard = render(<RideRequestCard />);
-    fireEvent.press(requestCard.getByText('Accept'));
-    expect(acceptRequest).toHaveBeenCalledTimes(1);
 
     const tripCard = render(<RideRequestCard />);
     fireEvent.press(tripCard.getByText('Complete Trip'));
