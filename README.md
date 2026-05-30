@@ -11,7 +11,10 @@ The `mobile/` app includes a production-style Uber-inspired driver home experien
 
 - Full-screen Google map background with traffic overlay
 - Live GPS tracking and recenter control
+- Zoom + route overview camera controls
 - Nearby ride indicators
+- Pickup/dropoff route rendering with turn-by-turn hint + ETA
+- Trip trace polyline for real-time route tracking
 - Top profile/status section (avatar, name, online toggle, notifications)
 - Animated bottom stats panel (collapsed and expanded content)
 - Live ride request popup with timer and accept/decline actions + incoming sound
