@@ -5,14 +5,14 @@ import { useDriveRealtime } from '../../context/DriveRealtimeContext';
 import { driverStatusMeta } from '../../utils/driveStatus';
 
 export const TopOverlay = () => {
-  const { profile, activeTrip, setOnline } = useDriveRealtime();
+  const { profile, activeTrip, setOnline, error, onboardingRequired } = useDriveRealtime();
   const statusMeta = driverStatusMeta[profile.status];
 
   return (
     <View className="absolute left-4 right-4 top-14 z-20 rounded-3xl bg-white/92 p-4 shadow-soft dark:bg-zinc-900/92">
       <View className="flex-row items-center justify-between gap-3">
         <View className="flex-1 flex-row items-center gap-3">
-          <Image source={{ uri: profile.avatarUrl }} className="h-12 w-12 rounded-full" />
+          <Image source={profile.avatarUrl ? { uri: profile.avatarUrl } : require('../../../assets/icon.png')} className="h-12 w-12 rounded-full" />
           <View className="flex-1">
             <Text className="text-lg font-semibold text-zinc-950 dark:text-zinc-100">{profile.name}</Text>
             <View className="mt-1 flex-row items-center gap-2">
@@ -29,7 +29,7 @@ export const TopOverlay = () => {
           <Text className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-300">
             {profile.isOnline ? 'Go Offline' : 'Go Online'}
           </Text>
-          <Switch value={profile.isOnline} onValueChange={setOnline} trackColor={{ false: '#A1A1AA', true: '#22C55E' }} />
+          <Switch value={profile.isOnline} onValueChange={(value) => void setOnline(value)} trackColor={{ false: '#A1A1AA', true: '#22C55E' }} />
         </View>
       </View>
 
@@ -38,6 +38,10 @@ export const TopOverlay = () => {
           <Ionicons name="notifications-outline" size={20} color={profile.isOnline ? '#0f172a' : '#6b7280'} />
         </Pressable>
       </View>
+
+      {(error || onboardingRequired) ? (
+        <Text className="mt-2 text-xs text-rose-500 dark:text-rose-300">{error || 'Finish onboarding to unlock online mode.'}</Text>
+      ) : null}
     </View>
   );
 };

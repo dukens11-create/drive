@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useColorScheme, View } from 'react-native';
+import { Text, useColorScheme, View } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 
 import { BottomStatsPanel } from '../../src/components/drive/BottomStatsPanel';
@@ -11,7 +11,7 @@ import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
 export default function DriveHomeScreen() {
   const mapRef = useRef<MapView | null>(null);
   const scheme = useColorScheme();
-  const { location, nearbyRequests, activeTrip } = useDriveRealtime();
+  const { location, nearbyRequests, activeTrip, error } = useDriveRealtime();
   const lastCameraCenterRef = useRef(location);
 
   useEffect(() => {
@@ -65,6 +65,11 @@ export default function DriveHomeScreen() {
       </MapView>
 
       <TopOverlay />
+      {error ? (
+        <View className="absolute left-4 right-4 top-44 z-30 rounded-2xl bg-rose-500/90 px-4 py-3">
+          <Text className="text-xs font-medium text-white">{error}</Text>
+        </View>
+      ) : null}
       <MapOverlayControls onRecenter={() => mapRef.current?.animateCamera({ center: location, zoom: 16 }, { duration: 450 })} />
       <RideRequestCard />
       <BottomStatsPanel />

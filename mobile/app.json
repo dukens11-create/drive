@@ -10,7 +10,8 @@
       "expo-router",
       "expo-location",
       "expo-av",
-      "expo-font"
+      "expo-font",
+      "expo-secure-store"
     ],
     "ios": {
       "supportsTablet": true,
@@ -32,6 +33,7 @@
       }
     },
     "extra": {
+      "apiBaseUrl": "http://localhost:3000",
       "firebase": {
         "apiKey": "",
         "authDomain": "",

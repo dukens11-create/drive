@@ -1,6 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Redirect } from 'expo-router';
 import { Tabs } from 'expo-router';
 import { useColorScheme } from 'react-native';
+
+import { useAuth } from '../../src/context/AuthContext';
 
 const iconByRoute: Record<string, keyof typeof Ionicons.glyphMap> = {
   index: 'home',
@@ -13,6 +16,15 @@ const iconByRoute: Record<string, keyof typeof Ionicons.glyphMap> = {
 export default function TabLayout() {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
+  const { state, onboardingStep } = useAuth();
+
+  if (state !== 'signed_in') {
+    return <Redirect href="/(auth)/sign-in" />;
+  }
+
+  if (onboardingStep !== 'ready') {
+    return <Redirect href="/onboarding" />;
+  }
 
   return (
     <Tabs
