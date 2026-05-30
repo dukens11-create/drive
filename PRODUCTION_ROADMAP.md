@@ -1,6 +1,6 @@
 # Production Roadmap
 
-## Implemented baseline
+## Implemented baseline components
 
 - Backend API, driver mobile app, passenger mobile app, passenger web app, and admin dashboard exist in this repository.
 - CI workflows run backend, driver mobile, passenger mobile, web, and admin validation on pull requests.
