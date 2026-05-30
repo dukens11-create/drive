@@ -119,12 +119,6 @@ export default function SignUpScreen() {
         accessibilityRole="button"
         accessibilityLabel="Create account"
       >
-        <Text className="text-center font-semibold text-white" maxFontSizeMultiplier={maxFontSizeMultiplier}>{isSubmitting ? 'Creating account...' : 'Create account'}</Text>
-      </Pressable>
-
-      <Link href="/(auth)/sign-in" asChild>
-        <Pressable className="mt-4" accessibilityRole="button" accessibilityLabel="Go to sign in">
-          <Text className="text-center text-sm text-zinc-300" maxFontSizeMultiplier={maxFontSizeMultiplier}>Already have an account? Sign in</Text>
         <Text className="text-center font-semibold text-white" maxFontSizeMultiplier={maxFontSizeMultiplier}>{isSubmitting ? t('auth.creatingAccount') : t('auth.createAccount')}</Text>
       </Pressable>
 
