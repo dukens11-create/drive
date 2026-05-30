@@ -115,7 +115,9 @@ export const RideRequestCard = () => {
             <Text className="text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-500 dark:text-rose-300">New request</Text>
           </View>
           <Text className="mt-3 text-base font-semibold text-zinc-950 dark:text-zinc-100">{request.riderName}</Text>
-          <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Pickup ETA {request.pickupEtaMinutes} min · Trip payout ${request.estimatedFare.toFixed(2)}</Text>
+          <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+            {request.rideType.toUpperCase()} · Pickup ETA {request.pickupEtaMinutes} min · Trip payout ${request.estimatedFare.toFixed(2)}
+          </Text>
           <Text className="mt-2 text-xs uppercase tracking-[0.18em] text-zinc-400">Pickup</Text>
           <Text className="mt-1 text-sm text-zinc-700 dark:text-zinc-200">{request.pickupAddress}</Text>
           <Text className="mt-2 text-xs uppercase tracking-[0.18em] text-zinc-400">Drop-off</Text>
@@ -139,6 +141,7 @@ export const RideRequestCard = () => {
         <InfoItem label="Pickup ETA" value={`${request.pickupEtaMinutes} min`} />
         <InfoItem label="Trip" value={`${request.tripDistanceKm} km`} />
         <InfoItem label="Fare" value={`$${request.estimatedFare.toFixed(2)}`} />
+        <InfoItem label="Surge" value={`x${request.surgeMultiplier.toFixed(1)}`} />
         <InfoItem label="Rating" value={`⭐ ${request.riderRating.toFixed(1)}`} />
       </View>
 

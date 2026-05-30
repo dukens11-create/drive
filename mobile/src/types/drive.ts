@@ -1,5 +1,14 @@
 export type DriverStatus = 'offline' | 'onboarding' | 'waiting' | 'accepted' | 'in-progress' | 'completed';
 
+export type RideType = 'standard' | 'comfort' | 'xl';
+export type DirectionPreference = 'any' | 'toward_downtown' | 'away_from_downtown';
+
+export type DriverPreferences = {
+  rideTypes: RideType[];
+  minimumRiderRating: number;
+  directionPreference: DirectionPreference;
+};
+
 export type DriverProfile = {
   id: string;
   name: string;
@@ -8,6 +17,7 @@ export type DriverProfile = {
   vehicleStatus: 'good' | 'service-soon';
   isOnline: boolean;
   status: DriverStatus;
+  preferences: DriverPreferences;
 };
 
 export type DriverMetrics = {
@@ -34,6 +44,7 @@ export type NearbyRequest = {
 export type RideRequest = {
   id: string;
   riderName: string;
+  rideType: RideType;
   pickupAddress: string;
   dropoffAddress: string;
   pickupPosition: LatLng;
@@ -41,8 +52,10 @@ export type RideRequest = {
   pickupDistanceKm: number;
   tripDistanceKm: number;
   estimatedFare: number;
+  surgeMultiplier: number;
   pickupEtaMinutes: number;
   riderRating: number;
+  directionTag: Exclude<DirectionPreference, 'any'>;
   expiresAt: number;
 };
 
