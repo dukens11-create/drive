@@ -12,7 +12,11 @@ export const RideRequestCard = () => {
     return null;
   }
 
-  if (activeTrip) {
+  if (!activeRequest) {
+    if (!activeTrip) {
+      return null;
+    }
+
     const activeIndex = tripStatusOrder.indexOf(activeTrip.status);
     const statusMeta = driverStatusMeta[activeTrip.status];
     const latestUpdates = activeTrip.timeline.slice(-3).reverse();
@@ -97,10 +101,6 @@ export const RideRequestCard = () => {
         </Pressable>
       </View>
     );
-  }
-
-  if (!activeRequest) {
-    return null;
   }
 
   const request = activeRequest;
