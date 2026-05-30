@@ -60,6 +60,7 @@ const MOCK_REQUEST_PREFIX = 'mock-request-';
 const LOCATION_UPDATE_INTERVAL_MS = 2000;
 const LOCATION_UPDATE_DISTANCE_METERS = 2;
 const DRIVER_CACHE_KEY = 'drive.driver-cache.v1';
+const DEFAULT_TRUST_SCORE = 80;
 type PendingRideRequest = Omit<RideRequest, 'expiresAt'>;
 
 type DriverNotification = {
@@ -84,7 +85,7 @@ const defaultProfile: DriverProfile = {
       { day: 'Mon-Fri', start: '16:00', end: '21:00' },
     ],
   },
-  trustScore: 80,
+  trustScore: DEFAULT_TRUST_SCORE,
   verificationBadge: 'pending',
 };
 
@@ -103,10 +104,25 @@ type DriverCacheSnapshot = {
   notifications: DriverNotification[];
 };
 
+// Trust score combines rating quality and verification state:
+// - Base score maps star rating to a 60-100 range using rating*20.
+// - Verified drivers get a +5 bonus.
+// - Rejected profiles get a -10 penalty (floored at 50).
 const computeTrustScore = (rating?: number, verificationState?: string) => {
   const base = Math.min(100, Math.max(60, Math.round((rating ?? 4.5) * 20)));
-  return verificationState === 'verified' ? Math.min(100, base + 5) : Math.max(50, base - 10);
+  if (verificationState === 'verified') {
+    return Math.min(100, base + 5);
+  }
+  if (verificationState === 'rejected') {
+    return Math.max(50, base - 10);
+  }
+  return base;
 };
+
+const buildTrustMetadata = (rating?: number, verificationState?: string) => ({
+  trustScore: computeTrustScore(rating, verificationState),
+  verificationBadge: verificationState === 'verified' ? ('verified' as const) : ('pending' as const),
+});
 
 const formatCoordinate = (lat?: number, lng?: number) => {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -286,7 +302,11 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
   const activeTrip = backendActiveTrip ?? mockActiveTrip;
 
   const persistCacheSnapshot = useCallback(async (snapshot: DriverCacheSnapshot) => {
-    await SecureStore.setItemAsync(DRIVER_CACHE_KEY, JSON.stringify(snapshot));
+    try {
+      await SecureStore.setItemAsync(DRIVER_CACHE_KEY, JSON.stringify(snapshot));
+    } catch (cacheError) {
+      console.warn('Unable to persist driver cache snapshot', cacheError);
+    }
   }, []);
 
   const restoreFromCache = useCallback(async () => {
@@ -345,6 +365,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
 
       const backendProfile = driver.profile;
       const mappedTrip = trip.ride ? mapRideToActiveTrip(trip.ride) : null;
+      const trustMetadata = buildTrustMetadata(backendProfile.rating, backendProfile.verificationState);
       const nextDriverStatus =
         onboardingStep !== 'ready'
           ? 'onboarding'
@@ -370,8 +391,8 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
         isOnline: isDriverOnlineState(backendProfile.availabilityStatus),
         status: nextDriverStatus,
         preferences: current.preferences,
-        trustScore: computeTrustScore(backendProfile.rating, backendProfile.verificationState),
-        verificationBadge: backendProfile.verificationState === 'verified' ? 'verified' : 'pending',
+        trustScore: trustMetadata.trustScore,
+        verificationBadge: trustMetadata.verificationBadge,
       }));
 
       setRideHistory(history.rides.map(mapRideToHistory));
@@ -401,8 +422,8 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
           isOnline: isDriverOnlineState(backendProfile.availabilityStatus),
           status: nextDriverStatus,
           preferences: profile.preferences,
-          trustScore: computeTrustScore(backendProfile.rating, backendProfile.verificationState),
-          verificationBadge: backendProfile.verificationState === 'verified' ? 'verified' : 'pending',
+          trustScore: trustMetadata.trustScore,
+          verificationBadge: trustMetadata.verificationBadge,
         },
         metrics: {
           earningsToday: Number((earnings.earningsCents / 100).toFixed(2)),
@@ -428,7 +449,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       setIsLoading(false);
       refreshInFlightRef.current = false;
     }
-  }, [onboardingStep, session, state]);
+  }, [onboardingStep, persistCacheSnapshot, restoreFromCache, session, state]);
 
   const updatePreferences = useCallback((nextPreferences: Partial<DriverProfile['preferences']>) => {
     setProfile((current) => ({
@@ -445,8 +466,12 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
   }, [location]);
 
   useEffect(() => {
-    void configureDriverAlerts();
-    void ensureDriverAlertPermissions();
+    void configureDriverAlerts().catch((alertError) => {
+      console.warn('Unable to configure driver alerts', alertError);
+    });
+    void ensureDriverAlertPermissions().catch((permissionError) => {
+      console.warn('Unable to request driver alert permissions', permissionError);
+    });
   }, []);
 
   useEffect(() => {
@@ -491,13 +516,13 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
     let watcher: Location.LocationSubscription | null = null;
 
     const setupLocationTracking = async () => {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== Location.PermissionStatus.GRANTED) {
-        setError('Location permission is required for live trip updates.');
-        return;
-      }
-
       try {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (permission.status !== Location.PermissionStatus.GRANTED) {
+          setError('Location permission is required for live trip updates.');
+          return;
+        }
+
         const initialFix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
         setLocation({ latitude: initialFix.coords.latitude, longitude: initialFix.coords.longitude });
       } catch (initialFixError) {
@@ -527,7 +552,9 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
             if (distanceFromLastPush >= LOCATION_SEND_DISTANCE_METERS || elapsed >= LOCATION_SEND_INTERVAL_MS) {
               lastLocationPushRef.current = nextLocation;
               lastLocationPushAtRef.current = now;
-              void driversApi.updateLocation(nextLocation.latitude, nextLocation.longitude);
+              void driversApi.updateLocation(nextLocation.latitude, nextLocation.longitude).catch((locationSyncError) => {
+                console.warn('Unable to sync driver location', locationSyncError);
+              });
             }
           }
         }

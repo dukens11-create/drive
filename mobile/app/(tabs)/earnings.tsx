@@ -9,6 +9,8 @@ import { LoadingState } from '../../src/components/ui/LoadingState';
 import { walletApi } from '../../src/services/api/walletApi';
 import type { RideHistoryItem } from '../../src/types/drive';
 
+const MAX_VISIBLE_LEDGER_ENTRIES = 8;
+
 export default function EarningsScreen() {
   const { metrics, rideHistory, isLoading, error, refreshData } = useDriveRealtime();
   const { session } = useAuth();
@@ -24,7 +26,7 @@ export default function EarningsScreen() {
       try {
         const ledger = await walletApi.ledger(session.user.id);
         if (!cancelled) {
-          setLedgerEntries(ledger.entries.slice().reverse().slice(0, 8));
+          setLedgerEntries(ledger.entries.slice().reverse().slice(0, MAX_VISIBLE_LEDGER_ENTRIES));
         }
       } catch {
         if (!cancelled) {

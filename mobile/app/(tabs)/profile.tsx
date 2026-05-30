@@ -112,8 +112,9 @@ export default function ProfileScreen() {
             onPress={() => {
               const next = Number(minimumRatingText);
               if (Number.isFinite(next)) {
-                updatePreferences({ minimumRiderRating: Math.min(5, Math.max(1, next)) });
-                setMinimumRatingText(Math.min(5, Math.max(1, next)).toFixed(1));
+                const clampedRating = Math.min(5, Math.max(1, next));
+                updatePreferences({ minimumRiderRating: clampedRating });
+                setMinimumRatingText(clampedRating.toFixed(1));
               }
             }}
           >
@@ -131,7 +132,7 @@ export default function ProfileScreen() {
                 onPress={() => updatePreferences({ directionPreference: direction })}
               >
                 <Text className={`text-[11px] font-semibold ${selected ? 'text-white' : 'text-zinc-700 dark:text-zinc-200'}`}>
-                  {direction.replaceAll('_', ' ')}
+                  {direction.replace(/_/g, ' ')}
                 </Text>
               </Pressable>
             );

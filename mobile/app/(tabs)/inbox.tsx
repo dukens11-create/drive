@@ -9,6 +9,9 @@ import { LoadingState } from '../../src/components/ui/LoadingState';
 import { ridesApi } from '../../src/services/api/ridesApi';
 import { supportApi } from '../../src/services/api/supportApi';
 
+const CHAT_EVENT_TITLE = 'Trip chat';
+const MAX_VISIBLE_CHAT_MESSAGES = 8;
+
 export default function InboxScreen() {
   const { notifications, activeTrip, isLoading, error, refreshData } = useDriveRealtime();
   const { session } = useAuth();
@@ -16,9 +19,10 @@ export default function InboxScreen() {
   const [supportMessage, setSupportMessage] = useState('');
   const [supportStatus, setSupportStatus] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [openTicketId, setOpenTicketId] = useState<string | null>(null);
   const hasNotifications = notifications.length > 0;
   const chatMessages = useMemo(
-    () => (activeTrip?.timeline ?? []).filter((event) => event.title === 'Trip chat').slice(-8),
+    () => (activeTrip?.timeline ?? []).filter((event) => event.title === CHAT_EVENT_TITLE).slice(-MAX_VISIBLE_CHAT_MESSAGES),
     [activeTrip?.timeline]
   );
 
@@ -44,12 +48,18 @@ export default function InboxScreen() {
     }
     setIsSubmitting(true);
     try {
-      const tickets = await supportApi.listTickets(session.user.id);
-      const openTicket = tickets.tickets.find((ticket) => ticket.status !== 'closed');
-      if (openTicket) {
-        await supportApi.replyTicket(session.user.id, openTicket.id, supportMessage.trim());
+      if (openTicketId) {
+        await supportApi.replyTicket(session.user.id, openTicketId, supportMessage.trim());
       } else {
-        await supportApi.createTicket(session.user.id, 'driver_help', supportMessage.trim());
+        const tickets = await supportApi.listTickets(session.user.id);
+        const openTicket = tickets.tickets.find((ticket) => ticket.status !== 'closed');
+        if (openTicket) {
+          setOpenTicketId(openTicket.id);
+          await supportApi.replyTicket(session.user.id, openTicket.id, supportMessage.trim());
+        } else {
+          const created = await supportApi.createTicket(session.user.id, 'driver_help', supportMessage.trim());
+          setOpenTicketId(created.ticket.id);
+        }
       }
       setSupportMessage('');
       setSupportStatus('Support message sent.');
@@ -99,7 +109,7 @@ export default function InboxScreen() {
                     placeholder="Message passenger"
                     className="flex-1 rounded-xl bg-zinc-100 px-3 py-2 text-sm text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
                   />
-                  <Pressable className="rounded-xl bg-emerald-500 px-3 py-2" onPress={() => void sendTripMessage()} disabled={isSubmitting}>
+                  <Pressable className={`rounded-xl px-3 py-2 ${isSubmitting ? 'bg-emerald-300' : 'bg-emerald-500'}`} onPress={() => void sendTripMessage()} disabled={isSubmitting}>
                     <Text className="text-xs font-semibold text-white">Send</Text>
                   </Pressable>
                 </View>
@@ -115,7 +125,7 @@ export default function InboxScreen() {
                   placeholder="Describe your issue"
                   className="flex-1 rounded-xl bg-zinc-100 px-3 py-2 text-sm text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
                 />
-                <Pressable className="rounded-xl bg-zinc-900 px-3 py-2 dark:bg-zinc-100" onPress={() => void sendSupportMessage()} disabled={isSubmitting}>
+                <Pressable className={`rounded-xl px-3 py-2 dark:bg-zinc-100 ${isSubmitting ? 'bg-zinc-500' : 'bg-zinc-900'}`} onPress={() => void sendSupportMessage()} disabled={isSubmitting}>
                   <Text className="text-xs font-semibold text-white dark:text-zinc-900">Submit</Text>
                 </Pressable>
               </View>

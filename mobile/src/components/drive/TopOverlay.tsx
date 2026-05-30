@@ -1,10 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { Image, Pressable, Switch, Text, View } from 'react-native';
 
 import { useDriveRealtime } from '../../context/DriveRealtimeContext';
 import { driverStatusMeta } from '../../utils/driveStatus';
 
+const DEFAULT_TRUST_SCORE = 80;
+
 export const TopOverlay = () => {
+  const router = useRouter();
   const { profile, activeRequest, activeTrip, requestTimeLeft, setOnline, error, onboardingRequired, isOfflineMode } = useDriveRealtime();
   const displayStatus = activeTrip?.status ?? profile.status;
   const statusMeta = driverStatusMeta[displayStatus];
@@ -42,7 +46,7 @@ export const TopOverlay = () => {
             {statusSubtitle}
           </Text>
           <Text className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-300">
-            Trust score {profile.trustScore ?? 80}
+            Trust score {profile.trustScore ?? DEFAULT_TRUST_SCORE}
             {isOfflineMode ? ' · Offline cache active' : ''}
           </Text>
         </View>
@@ -59,7 +63,7 @@ export const TopOverlay = () => {
           />
         </View>
 
-        <Pressable className="ml-2 h-9 w-9 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800">
+        <Pressable className="ml-2 h-9 w-9 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800" onPress={() => router.push('/(tabs)/inbox')}>
           <Ionicons name="notifications-outline" size={18} color={profile.isOnline ? '#0f172a' : '#6b7280'} />
         </Pressable>
       </View>

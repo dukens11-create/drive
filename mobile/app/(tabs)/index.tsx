@@ -138,9 +138,16 @@ export default function DriveHomeScreen() {
         text: `Call ${emergencyNumber}`,
         style: 'destructive',
         onPress: () => {
-          void Linking.openURL(`tel:${emergencyNumber}`).catch(() => {
-            Alert.alert('Unable to open dialer', 'Call your local emergency number directly from this device.');
-          });
+          void Linking.canOpenURL(`tel:${emergencyNumber}`)
+            .then((supported) => {
+              if (!supported) {
+                throw new Error('Dialer is not supported on this device.');
+              }
+              return Linking.openURL(`tel:${emergencyNumber}`);
+            })
+            .catch(() => {
+              Alert.alert('Unable to open dialer', 'Call your local emergency number directly from this device.');
+            });
         },
       },
     ]);

@@ -147,11 +147,6 @@ function canAccessRide(authenticatedUser: any, ride: Ride) {
   return authenticatedUser.role === 'admin' || ride.riderId === authenticatedUser.id || ride.driverId === authenticatedUser.id;
 }
 
-function canParticipateInRideChat(authenticatedUser: any, ride: Ride) {
-  if (!authenticatedUser?.id || !authenticatedUser?.role) return false;
-  return authenticatedUser.role === 'admin' || ride.riderId === authenticatedUser.id || ride.driverId === authenticatedUser.id;
-}
-
 export async function estimate(body: any, _params?: any, _query?: any) {
   const miles = Number(body?.miles || body?.distanceMiles || 0);
   const minutes = Number(body?.minutes || body?.etaMinutes || 0);
@@ -357,8 +352,7 @@ export async function accept(body: any, _params?: any, _query?: any) {
   if (!assigned.ok) return { module: 'rides', action: 'accept', error: assigned.error };
   ride.driverId = driverId;
   ride.status = 'accepted';
-  appendRideEvent(ride, 'driver_assigned', 'Driver assigned', 'Your driver accepted the trip.', 'driver', driverId);
-  appendRideEvent(ride, 'pickup_approaching', 'Pickup approaching', 'Driver is heading to your pickup point now.', 'system', driverId);
+  appendRideEvent(ride, 'driver_assigned', 'Pickup approaching', 'Driver is heading to your pickup point now.', 'driver', driverId);
   return { module: 'rides', action: 'accept', ok: true, ride };
 }
 
@@ -369,8 +363,7 @@ export async function start(body: any, _params?: any, _query?: any) {
   if (!driverId || ride.driverId !== driverId) return { module: 'rides', action: 'start', error: 'only assigned driver can start ride' };
   if (ride.status !== 'accepted') return { module: 'rides', action: 'start', error: 'ride not accepted' };
   ride.status = 'started';
-  appendRideEvent(ride, 'ride_started', 'Ride started', 'Your trip is in progress.', 'driver', driverId);
-  appendRideEvent(ride, 'passenger_waiting', 'Passenger onboard', 'Passenger has been picked up and the trip is underway.', 'system', driverId);
+  appendRideEvent(ride, 'passenger_onboard', 'Passenger onboard', 'Passenger has been picked up and the trip is now in progress.', 'driver', driverId);
   return { module: 'rides', action: 'start', ok: true, ride };
 }
 
@@ -486,7 +479,7 @@ export async function ratePassenger(body: any, _params?: any, _query?: any) {
 export async function message(body: any, _params?: any, _query?: any) {
   const ride = getRide(body?.rideId);
   if (!ride) return { module: 'rides', action: 'message', error: 'ride not found' };
-  if (!canParticipateInRideChat(body?.actor, ride)) {
+  if (!canAccessRide(body?.actor, ride)) {
     return { module: 'rides', action: 'message', error: 'forbidden' };
   }
   const message = typeof body?.message === 'string' ? body.message.trim() : '';

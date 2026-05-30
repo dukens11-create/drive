@@ -1,5 +1,5 @@
 import { Pressable, Text, TextInput, View } from 'react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { useDriveRealtime } from '../../context/DriveRealtimeContext';
 import { ridesApi } from '../../services/api/ridesApi';
@@ -12,6 +12,12 @@ export const RideRequestCard = () => {
   const [passengerRating, setPassengerRating] = useState(5);
   const [passengerComment, setPassengerComment] = useState('');
   const [ratingState, setRatingState] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPassengerRating(5);
+    setPassengerComment('');
+    setRatingState(null);
+  }, [activeTrip?.rideId]);
 
   if (!activeRequest && !activeTrip) {
     return null;
