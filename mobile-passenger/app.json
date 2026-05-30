@@ -1,0 +1,71 @@
+{
+  "expo": {
+    "name": "Drive Passenger",
+    "slug": "drive-passenger",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "drivepassenger",
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "isAndroidBackgroundLocationEnabled": true,
+          "isIosBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "sounds": [
+            "./assets/sounds/incoming-request.wav"
+          ]
+        }
+      ],
+      "expo-av",
+      "expo-font",
+      "expo-secure-store"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dukens11.drivepassenger",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Drive Home needs your location to track live trips and nearby riders.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Drive Home uses your location in the background so trip updates stay responsive while you are online.",
+        "UIBackgroundModes": [
+          "location"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.dukens11.drivepassenger",
+      "permissions": [
+        "POST_NOTIFICATIONS",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": ""
+        }
+      }
+    },
+    "extra": {
+      "apiBaseUrl": "http://localhost:3000",
+      "emergencyNumber": "911",
+      "firebase": {
+        "apiKey": "",
+        "authDomain": "",
+        "projectId": "",
+        "databaseURL": "",
+        "storageBucket": "",
+        "messagingSenderId": "",
+        "appId": ""
+      }
+    }
+  }
+}
