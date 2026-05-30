@@ -29,8 +29,8 @@ export const MapOverlayControls = ({
   return (
     <View className="absolute bottom-80 right-4 z-20 gap-3">
       <QuickActionButton tone="danger" label="SOS" icon="warning" onPress={onEmergency} />
-      <QuickActionButton tone="neutral" label={t('home.shareTripTitle')} icon="share-social" onPress={onShareTrip} />
-      <QuickActionButton tone="neutral" label={t('home.supportTitle')} icon="help-buoy" onPress={onSupport} />
+      <QuickActionButton tone="neutral" label={t('home.shareButton')} icon="share-social" onPress={onShareTrip} />
+      <QuickActionButton tone="neutral" label={t('home.supportButton')} icon="help-buoy" onPress={onSupport} />
     {showOverview ? (
       <Pressable
         className="h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-soft dark:bg-zinc-900"

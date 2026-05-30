@@ -49,7 +49,7 @@ export const LocaleProvider = ({ children }: { children: React.ReactNode }) => {
     let isActive = true;
 
     const hydrateLocale = async () => {
-      const deviceLocale = resolveSupportedLocale(Localization.getLocales()[0]?.languageTag);
+      const deviceLocale = resolveSupportedLocale(Localization.getLocales()[0]?.languageTag ?? null);
       const storedLocale = await localeStorage.load();
       const nextLocale = storedLocale || deviceLocale;
 

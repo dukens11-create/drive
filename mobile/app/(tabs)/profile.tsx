@@ -34,12 +34,12 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleLanguageChange = async (languageCode: (typeof supportedLocales)[number]) => {
+  const handleLanguageChange = async (locale: (typeof supportedLocales)[number]) => {
     setLocaleError(null);
     try {
-      await setLocale(languageCode);
+      await setLocale(locale);
     } catch (error) {
-      setLocaleError(error instanceof Error ? error.message : 'Unable to update language right now.');
+      setLocaleError(error instanceof Error ? error.message : t('language.updateError'));
     }
   };
 
@@ -67,15 +67,15 @@ export default function ProfileScreen() {
           <Text className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('language.title')}</Text>
           <Text className="mt-1 text-xs text-zinc-500 dark:text-zinc-300">{t('language.current')}: {localeLabelByCode[locale]}</Text>
           <View className="mt-3 flex-row flex-wrap gap-2">
-            {supportedLocales.map((languageCode) => {
-              const selected = languageCode === locale;
+            {supportedLocales.map((supportedLocale) => {
+              const selected = supportedLocale === locale;
               return (
                 <Pressable
-                  key={languageCode}
+                  key={supportedLocale}
                   className={`rounded-full px-3 py-2 ${selected ? 'bg-emerald-500' : 'bg-zinc-200 dark:bg-zinc-800'}`}
-                  onPress={() => void handleLanguageChange(languageCode)}
+                  onPress={() => void handleLanguageChange(supportedLocale)}
                 >
-                  <Text className={`text-xs font-semibold ${selected ? 'text-white' : 'text-zinc-800 dark:text-zinc-100'}`}>{localeLabelByCode[languageCode]}</Text>
+                  <Text className={`text-xs font-semibold ${selected ? 'text-white' : 'text-zinc-800 dark:text-zinc-100'}`}>{localeLabelByCode[supportedLocale]}</Text>
                 </Pressable>
               );
             })}
