@@ -16,7 +16,7 @@ export type NavigationRoute = {
 };
 
 const EARTH_RADIUS_KM = 6371;
-const AVERAGE_CITY_SPEED_KPH = 30;
+const DEFAULT_AVERAGE_CITY_SPEED_KPH = 30;
 
 const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
 const toDegrees = (radians: number) => (radians * 180) / Math.PI;
@@ -50,7 +50,7 @@ const headingToDirection = (heading: number) => {
   return sectors[Math.round(heading / 45) % sectors.length];
 };
 
-const estimateDurationMinutes = (distanceKm: number, speedKph = AVERAGE_CITY_SPEED_KPH) =>
+const estimateDurationMinutes = (distanceKm: number, speedKph = DEFAULT_AVERAGE_CITY_SPEED_KPH) =>
   Math.max(1, Math.round((distanceKm / speedKph) * 60));
 
 const interpolateSegment = (start: LatLng, end: LatLng, points = 16) => {

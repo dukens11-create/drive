@@ -5,13 +5,13 @@ type Props = {
   onRecenter: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
-  onOverview?: () => void;
+  onOverview: () => void;
   showOverview?: boolean;
 };
 
 export const MapOverlayControls = ({ onRecenter, onZoomIn, onZoomOut, onOverview, showOverview = false }: Props) => (
   <View className="absolute bottom-80 right-4 z-20 gap-3">
-    {showOverview && onOverview ? (
+    {showOverview ? (
       <Pressable
         className="h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-soft dark:bg-zinc-900"
         onPress={onOverview}

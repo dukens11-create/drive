@@ -9,6 +9,7 @@ import { ridesApi } from '../services/api/ridesApi';
 import { buildNearbyRequests, getSeedLocation } from '../services/realtime/mockDriveFeed';
 import type { RideSummary } from '../types/api';
 import type { ActiveTrip, DriverMetrics, DriverProfile, LatLng, RideHistoryItem, RideRequest } from '../types/drive';
+import { distanceKmBetween } from '../utils/navigation';
 
 type DriveContextValue = {
   profile: DriverProfile;
@@ -36,6 +37,7 @@ const HOURS_INCREMENT_PER_TICK = 0.01;
 const DATA_REFRESH_INTERVAL_MS = 6000;
 const LOCATION_SEND_INTERVAL_MS = 3000;
 const LOCATION_SEND_DISTANCE_METERS = 8;
+const MAX_LOCATION_ACCURACY_METERS = 90;
 
 const defaultProfile: DriverProfile = {
   id: 'driver',
@@ -114,19 +116,6 @@ const toErrorMessage = (error: unknown) => {
     return error.message;
   }
   return 'Something went wrong while syncing drive data.';
-};
-
-const distanceMetersBetween = (start: LatLng, end: LatLng) => {
-  const toRadians = (value: number) => (value * Math.PI) / 180;
-  const earthRadius = 6371000;
-  const dLat = toRadians(end.latitude - start.latitude);
-  const dLng = toRadians(end.longitude - start.longitude);
-  const lat1 = toRadians(start.latitude);
-  const lat2 = toRadians(end.latitude);
-
-  const haversine =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.sin(dLng / 2) * Math.sin(dLng / 2) * Math.cos(lat1) * Math.cos(lat2);
-  return earthRadius * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
 };
 
 export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode }) => {
@@ -251,8 +240,9 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       try {
         const initialFix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
         setLocation({ latitude: initialFix.coords.latitude, longitude: initialFix.coords.longitude });
-      } catch {
+      } catch (initialFixError) {
         // Keep seeded location fallback if a one-off high-accuracy fix is unavailable.
+        console.warn('Initial high-accuracy location fix unavailable', initialFixError);
       }
 
       watcher = await Location.watchPositionAsync(
@@ -263,7 +253,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
           mayShowUserSettingsDialog: true,
         },
         (update) => {
-          if (typeof update.coords.accuracy === 'number' && update.coords.accuracy > 90) {
+          if (typeof update.coords.accuracy === 'number' && update.coords.accuracy > MAX_LOCATION_ACCURACY_METERS) {
             return;
           }
           const nextLocation = { latitude: update.coords.latitude, longitude: update.coords.longitude };
@@ -271,7 +261,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
           if (state === 'signed_in' && profile.isOnline) {
             const now = Date.now();
             const distanceFromLastPush = lastLocationPushRef.current
-              ? distanceMetersBetween(lastLocationPushRef.current, nextLocation)
+              ? distanceKmBetween(lastLocationPushRef.current, nextLocation) * 1000
               : Number.POSITIVE_INFINITY;
             const elapsed = now - lastLocationPushAtRef.current;
             if (distanceFromLastPush >= LOCATION_SEND_DISTANCE_METERS || elapsed >= LOCATION_SEND_INTERVAL_MS) {

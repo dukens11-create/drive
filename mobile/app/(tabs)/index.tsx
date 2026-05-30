@@ -10,6 +10,13 @@ import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
 import type { LatLng } from '../../src/types/drive';
 import { buildNavigationRoute, distanceKmBetween } from '../../src/utils/navigation';
 
+const TRIP_TRACE_MIN_DISTANCE_KM = 0.03;
+const TRIP_TRACE_MAX_POINTS = 60;
+const TRIP_TRACE_KEEP_POINTS = TRIP_TRACE_MAX_POINTS - 1;
+const MIN_ZOOM_LEVEL = 12;
+const MAX_ZOOM_LEVEL = 19;
+const ROUTE_OVERVIEW_EDGE_PADDING = { top: 170, right: 60, bottom: 360, left: 60 };
+
 export default function DriveHomeScreen() {
   const mapRef = useRef<MapView | null>(null);
   const scheme = useColorScheme();
@@ -62,7 +69,9 @@ export default function DriveHomeScreen() {
       if (!last) {
         return [location];
       }
-      return distanceKmBetween(last, location) >= 0.03 ? [...currentPath.slice(-59), location] : currentPath;
+      return distanceKmBetween(last, location) >= TRIP_TRACE_MIN_DISTANCE_KM
+        ? [...currentPath.slice(-TRIP_TRACE_KEEP_POINTS), location]
+        : currentPath;
     });
   }, [activeTrip, location]);
 
@@ -77,14 +86,14 @@ export default function DriveHomeScreen() {
     }
 
     mapRef.current.fitToCoordinates(routeData.polyline, {
-      edgePadding: { top: 170, right: 60, bottom: 360, left: 60 },
+      edgePadding: ROUTE_OVERVIEW_EDGE_PADDING,
       animated: true,
     });
     activeTripSnapshotRef.current = snapshot;
   }, [activeTrip, routeData]);
 
   const updateZoom = (nextZoom: number) => {
-    const boundedZoom = Math.min(19, Math.max(12, nextZoom));
+    const boundedZoom = Math.min(MAX_ZOOM_LEVEL, Math.max(MIN_ZOOM_LEVEL, nextZoom));
     setZoomLevel(boundedZoom);
     mapRef.current?.animateCamera({ center: location, zoom: boundedZoom }, { duration: 220 });
   };
@@ -174,14 +183,15 @@ export default function DriveHomeScreen() {
         onRecenter={() => updateZoom(16)}
         onZoomIn={() => updateZoom(zoomLevel + 1)}
         onZoomOut={() => updateZoom(zoomLevel - 1)}
-        onOverview={() =>
-          routeData
-            ? mapRef.current?.fitToCoordinates(routeData.polyline, {
-                edgePadding: { top: 170, right: 60, bottom: 360, left: 60 },
-                animated: true,
-              })
-            : undefined
-        }
+        onOverview={() => {
+          if (!routeData || !mapRef.current) {
+            return;
+          }
+          mapRef.current.fitToCoordinates(routeData.polyline, {
+            edgePadding: ROUTE_OVERVIEW_EDGE_PADDING,
+            animated: true,
+          });
+        }}
         showOverview={Boolean(routeData)}
       />
       <RideRequestCard />
