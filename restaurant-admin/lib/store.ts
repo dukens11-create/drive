@@ -55,12 +55,16 @@ const sessionSlice = createSlice({
 export const { setSocketConnected, setLiveOrderCount, pushAlert } = realtimeSlice.actions;
 export const { setVerified, setEmail } = sessionSlice.actions;
 
-export const store = configureStore({
-  reducer: {
-    realtime: realtimeSlice.reducer,
-    session: sessionSlice.reducer
-  }
-});
+export function createAppStore() {
+  return configureStore({
+    reducer: {
+      realtime: realtimeSlice.reducer,
+      session: sessionSlice.reducer
+    }
+  });
+}
+
+export const store = createAppStore();
 
 export type RootState = ReturnType<typeof store.getState>;
 export type AppDispatch = typeof store.dispatch;

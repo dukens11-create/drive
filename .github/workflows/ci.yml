@@ -147,6 +147,9 @@ jobs:
       - name: Web typecheck
         run: npm run typecheck
 
+      - name: Web unit tests
+        run: npm run test:ci
+
       - name: Web production build
         run: npm run build
 
@@ -174,6 +177,9 @@ jobs:
 
       - name: Admin typecheck
         run: npm run typecheck
+
+      - name: Admin unit tests
+        run: npm run test:ci
 
       - name: Admin build
         run: npm run build
@@ -204,7 +210,11 @@ jobs:
                 npm ci
                 npm run lint --if-present
                 npm run typecheck --if-present
-                npm test --if-present
+                if node -e "const scripts = require('./package.json').scripts || {}; process.exit(scripts['test:ci'] ? 0 : 1)"; then
+                  npm run test:ci
+                else
+                  npm test --if-present
+                fi
                 npm run build --if-present
                 popd >/dev/null
                 return 0
