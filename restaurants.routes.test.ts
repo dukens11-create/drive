@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AddressInfo } from 'node:net';
-import { createApp } from './app';
-import { store } from './data.store';
+import { createApp } from './src/app';
+import { store } from './src/database/data.store';
 
 async function withServer(run: (baseUrl: string) => Promise<void>) {
   const { httpServer } = createApp();
