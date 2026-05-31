@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "Drive Restaurant",
+    "slug": "drive-restaurant",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "driverestaurant",
+    "plugins": [
+      "expo-router",
+      [
+        "expo-notifications",
+        {}
+      ],
+      "expo-av",
+      "expo-font",
+      "expo-secure-store"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dukens11.driverestaurant"
+    },
+    "android": {
+      "package": "com.dukens11.driverestaurant",
+      "permissions": [
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "extra": {
+      "apiBaseUrl": "http://localhost:3000",
+      "firebase": {
+        "apiKey": "",
+        "authDomain": "",
+        "projectId": "",
+        "databaseURL": "",
+        "storageBucket": "",
+        "messagingSenderId": "",
+        "appId": ""
+      }
+    }
+  }
+}
