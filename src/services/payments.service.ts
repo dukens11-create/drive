@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'crypto';
 import { handleStripeWebhook } from '../utils/stripe.webhook';
 import { env } from '../config/env';
-import { makeId, markStoreDirty, store, timestamp, type PaymentMethodType } from '../database/data.store';
+import { makeId, markStoreDirty, store, timestamp, type PaymentMethod, type PaymentMethodType } from '../database/data.store';
 import { applyCaptureLedger, applyRefundLedger } from '../utils/payment.records';
 
 const PAYMENT_METHOD_TYPES = new Set<PaymentMethodType>(['card', 'apple_pay', 'google_pay', 'paypal', 'bank_transfer', 'wallet']);
@@ -127,7 +127,7 @@ export async function save_method(body: any, _params?: any, _query?: any) {
     }
   }
 
-  const paymentMethod = existing || {
+  const paymentMethod: PaymentMethod = existing || {
     id: body?.paymentMethodId || makeId('pm'),
     userId,
     provider: 'stripe_mock' as const,
