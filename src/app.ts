@@ -8,24 +8,6 @@ import { errorHandler } from './middleware';
 import { authRoutes, ridesRoutes, driversRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, restaurantsRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes } from './routes';
 import { registerTrackingSocket, registerChatSocket } from './websocket';
 
-// Express 4 does not automatically forward unhandled async errors to the error
-// handler. Patch the internal router Layer so any Promise returned by a route
-// handler that rejects will call next(err) and reach errorHandler instead of
-// leaving the request hanging (which the client sees as "Failed to fetch").
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const Layer = require('express/lib/router/layer');
-const _handle = Layer.prototype.handle_request;
-Layer.prototype.handle_request = function (req: any, res: any, next: any) {
-  if (this.handle.length > 3) return _handle.call(this, req, res, next);
-  try {
-    const result = _handle.call(this, req, res, next);
-    if (result && typeof result.catch === 'function') result.catch(next);
-    return result;
-  } catch (err) {
-    next(err);
-  }
-};
-
 export function createApp() {
   const app = express();
   const httpServer = createServer(app);
