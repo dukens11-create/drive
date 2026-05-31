@@ -75,7 +75,7 @@ async function submitAuth(path, body, button) {
       throw new Error(payload.error || 'Authentication failed');
     }
 
-    if (path.endsWith('/login') && normalizeRole(payload.user?.role) && normalizeRole(payload.user.role) !== DRIVER_ROLE) {
+    if (path.endsWith('/login') && normalizeRole(payload.user?.role) !== DRIVER_ROLE) {
       throw new Error('Please sign in with a driver account');
     }
 
