@@ -19,10 +19,10 @@ function createDefaultDriverProfile(userId: string): DriverProfile {
   };
 }
 
-function getOrCreateProfile(userId: string, actorRole?: string): DriverProfile | undefined {
+function getOrCreateProfile(userId: string, role?: string): DriverProfile | undefined {
   const existing = getProfile(userId);
   if (existing) return existing;
-  if (actorRole === 'driver') {
+  if (role === 'driver') {
     const profile = createDefaultDriverProfile(userId);
     store.drivers.set(userId, profile);
     markStoreDirty();
