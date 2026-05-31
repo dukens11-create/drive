@@ -113,7 +113,7 @@ export async function signup(body: any, _params?: any, _query?: any) {
 
   const user = { id: makeId('user'), email, phone, password: hashPassword(password), role, createdAt: timestamp() };
   store.users.set(user.id, user);
-  if (role === 'driver' && !store.drivers.has(user.id)) {
+  if (role === 'driver') {
     store.drivers.set(user.id, createDefaultDriverProfile(user.id));
   }
 
