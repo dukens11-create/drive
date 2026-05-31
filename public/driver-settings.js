@@ -66,6 +66,10 @@ window.addEventListener('load', () => {
   document.getElementById('driver-settings-form').addEventListener('submit', event => {
     event.preventDefault();
     const payload = getFormPayload();
+    if (!/^\d{4}$/.test(payload.accountLast4)) {
+      showSettingsAlert('warning', 'Account Last 4 must be exactly 4 digits.');
+      return;
+    }
     localStorage.setItem(DRIVER_SETTINGS_KEY, JSON.stringify(payload));
     showSettingsAlert('success', 'Settings saved.');
   });

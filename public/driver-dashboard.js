@@ -436,6 +436,7 @@ async function loadEarnings() {
 function getDocumentStatus(expiryDate) {
   const now = new Date();
   const expiry = new Date(expiryDate);
+  if (Number.isNaN(expiry.getTime())) return { text: 'Invalid expiry date', className: 'bg-secondary' };
   const days = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
   if (days < 0) return { text: 'Expired', className: 'bg-danger' };
   if (days <= 30) return { text: `Expiring in ${days} day(s)`, className: 'bg-warning text-dark' };
@@ -476,8 +477,23 @@ async function handleDocumentSubmit(event) {
     return;
   }
 
+  const expiryDateValue = new Date(expiryDate);
+  if (Number.isNaN(expiryDateValue.getTime())) {
+    showAlert('warning', 'Provide a valid expiry date.');
+    return;
+  }
+
   const docs = getStoredList(DRIVER_DOCS_KEY);
-  const nextDocs = [{ id: `${Date.now()}`, type, expiryDate, fileName }, ...docs].slice(0, 15);
+  let docId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  let attempt = 0;
+  while (docs.some(doc => doc.id === docId) && attempt < 5) {
+    docId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    attempt += 1;
+  }
+  if (docs.some(doc => doc.id === docId)) docId = `${Date.now()}_${docs.length + 1}`;
+  const nextDocs = [{ id: docId, type, expiryDate, fileName }, ...docs].slice(0, 15);
   setStoredList(DRIVER_DOCS_KEY, nextDocs);
   renderDocumentList();
 
@@ -563,8 +579,16 @@ function openDirections(kind) {
     showAlert('warning', 'Accept a ride first to open navigation.');
     return;
   }
-  const pickup = `${selectedRideForDetails.pickupLat},${selectedRideForDetails.pickupLng}`;
-  const dropoff = `${selectedRideForDetails.dropoffLat},${selectedRideForDetails.dropoffLng}`;
+  const pickupLat = Number(selectedRideForDetails.pickupLat);
+  const pickupLng = Number(selectedRideForDetails.pickupLng);
+  const dropoffLat = Number(selectedRideForDetails.dropoffLat);
+  const dropoffLng = Number(selectedRideForDetails.dropoffLng);
+  if (![pickupLat, pickupLng, dropoffLat, dropoffLng].every(Number.isFinite)) {
+    showAlert('warning', 'Ride coordinates are unavailable for navigation.');
+    return;
+  }
+  const pickup = `${pickupLat},${pickupLng}`;
+  const dropoff = `${dropoffLat},${dropoffLng}`;
   const destination = kind === 'pickup' ? pickup : dropoff;
   const origin = kind === 'pickup' ? '' : `&origin=${encodeURIComponent(pickup)}`;
   const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}${origin}&travelmode=driving`;
