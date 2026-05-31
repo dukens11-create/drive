@@ -150,9 +150,9 @@ async function loadEarnings() {
 }
 
 function handleLogout() {
-  localStorage.removeItem('accessToken');
-  localStorage.removeItem('refreshToken');
-  localStorage.removeItem('user');
+  ['accessToken', 'refreshToken', 'user', 'drive.accessToken', 'drive.refreshToken', 'drive.user'].forEach(function(key) {
+    localStorage.removeItem(key);
+  });
   window.location.href = '/index.html';
 }
 

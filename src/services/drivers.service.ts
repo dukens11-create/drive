@@ -1,7 +1,34 @@
-import { markStoreDirty, store } from '../database/data.store';
+import { markStoreDirty, store, type DriverProfile } from '../database/data.store';
 
 function getProfile(userId: string) {
   return store.drivers.get(userId);
+}
+
+function createDefaultDriverProfile(userId: string): DriverProfile {
+  return {
+    userId,
+    status: 'pending',
+    verificationState: 'documents_pending',
+    availabilityStatus: 'offline',
+    available: false,
+    rating: 5,
+    acceptanceRate: 1,
+    cancellationRate: 0,
+    earningsCents: 0,
+    documents: []
+  };
+}
+
+function getOrCreateProfile(userId: string, actorRole?: string): DriverProfile | undefined {
+  const existing = getProfile(userId);
+  if (existing) return existing;
+  if (actorRole === 'driver') {
+    const profile = createDefaultDriverProfile(userId);
+    store.drivers.set(userId, profile);
+    markStoreDirty();
+    return profile;
+  }
+  return undefined;
 }
 
 function syncProfileState(profile: any) {
@@ -161,7 +188,8 @@ export async function location(body: any, _params?: any, _query?: any) {
 
 export async function me(body: any, _params?: any, _query?: any) {
   const userId = body?.actor?.id || body?.userId;
-  const profile = getProfile(userId);
+  if (!userId) return { module: 'drivers', action: 'me', error: 'actor ID or userId is required' };
+  const profile = getOrCreateProfile(userId, body?.actor?.role);
   if (!profile) return { module: 'drivers', action: 'me', error: 'driver not found' };
   syncProfileState(profile);
   markStoreDirty();
@@ -180,7 +208,8 @@ export async function currentTrip(body: any, _params?: any, _query?: any) {
 
 export async function earnings(body: any, _params?: any, _query?: any) {
   const userId = body?.actor?.id || body?.userId;
-  const profile = getProfile(userId);
+  if (!userId) return { module: 'drivers', action: 'earnings', error: 'actor ID or userId is required' };
+  const profile = getOrCreateProfile(userId, body?.actor?.role);
   if (!profile) return { module: 'drivers', action: 'earnings', error: 'driver not found' };
   const txs = store.walletTx.filter(tx => tx.userId === userId && tx.kind === 'credit');
   const total = txs.reduce((sum, tx) => sum + tx.amountCents, 0);
