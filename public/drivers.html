@@ -3,61 +3,61 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Drive Admin</title>
+    <title>Drive Driver Login</title>
     <link href="/styles.css" rel="stylesheet" />
   </head>
   <body class="dashboard-layout">
     <main class="dashboard-grid">
-      <section class="dashboard-left" aria-label="Drive platform overview">
+      <section class="dashboard-left" aria-label="Drive driver portal overview">
         <div class="dashboard-brand">
-          <span class="dashboard-logo">&#9650;</span>
+          <span class="dashboard-logo">DR</span>
           <div>
-            <span class="dashboard-brand-name">Drive Platform</span>
-            <p class="dashboard-brand-meta">Enterprise operations console</p>
+            <span class="dashboard-brand-name">Drive Driver</span>
+            <p class="dashboard-brand-meta">Driver partner console</p>
           </div>
         </div>
-        <p class="dashboard-badge">Live operations</p>
-        <h1 class="dashboard-heading">Professional visibility across rides, drivers, support, and payments.</h1>
+        <p class="dashboard-badge">Driver operations</p>
+        <h1 class="dashboard-heading">Stay online, manage requests, and track earnings in one place.</h1>
         <p class="dashboard-description">
-          Oversee active service lines, respond to customer issues, and monitor marketplace performance from a polished admin workspace designed for daily operations.
+          Use the dedicated driver portal to accept rides quickly, review active trips, and stay ready for your next pickup.
         </p>
 
-        <div class="dashboard-cards" aria-label="Key platform metrics">
+        <div class="dashboard-cards" aria-label="Driver performance metrics">
           <article class="dash-card">
-            <div class="dash-card-icon">DR</div>
-            <div class="dash-card-label">Active Drivers</div>
-            <div class="dash-card-value">1,248</div>
-            <div class="dash-card-meta">92% online availability</div>
+            <div class="dash-card-icon">ON</div>
+            <div class="dash-card-label">Drivers Online</div>
+            <div class="dash-card-value">82%</div>
+            <div class="dash-card-meta">High demand coverage</div>
           </article>
 
           <article class="dash-card">
-            <div class="dash-card-icon">RD</div>
-            <div class="dash-card-label">Live Rides</div>
-            <div class="dash-card-value">8,540</div>
-            <div class="dash-card-meta">+14.8% versus yesterday</div>
+            <div class="dash-card-icon">RQ</div>
+            <div class="dash-card-label">Active Requests</div>
+            <div class="dash-card-value">154</div>
+            <div class="dash-card-meta">Nearby rides waiting</div>
           </article>
 
           <article class="dash-card">
-            <div class="dash-card-icon">GM</div>
-            <div class="dash-card-label">Gross Revenue</div>
-            <div class="dash-card-value">$42,310</div>
-            <div class="dash-card-meta">Across ride and delivery channels</div>
+            <div class="dash-card-icon">RT</div>
+            <div class="dash-card-label">Avg Rating</div>
+            <div class="dash-card-value">4.9</div>
+            <div class="dash-card-meta">Based on weekly trips</div>
           </article>
 
           <article class="dash-card">
-            <div class="dash-card-icon">SL</div>
-            <div class="dash-card-label">Support Queue</div>
-            <div class="dash-card-value">73</div>
-            <div class="dash-card-meta">Median response time: 4m</div>
+            <div class="dash-card-icon">$$</div>
+            <div class="dash-card-label">Daily Earnings</div>
+            <div class="dash-card-value">$310</div>
+            <div class="dash-card-meta">Updated in real time</div>
           </article>
         </div>
       </section>
 
-      <section class="login-panel" aria-label="Admin login panel">
+      <section class="login-panel" aria-label="Driver login panel">
         <div class="login-box">
           <p class="login-eyebrow">Secure access</p>
-          <h2 class="login-title">Admin Login</h2>
-          <p class="login-subtitle">Sign in to the Drive workspace with your approved operations credentials.</p>
+          <h2 class="login-title">Driver Login</h2>
+          <p class="login-subtitle">Sign in with your driver account, or create one to start taking rides.</p>
 
           <ul class="nav nav-pills nav-fill mb-4" id="auth-tabs" role="tablist">
             <li class="nav-item" role="presentation">
@@ -96,16 +96,8 @@
               <input id="signup-password" name="password" type="password" class="form-control" autocomplete="new-password" minlength="12" required />
               <div class="form-text">At least 12 characters with upper, lower, number, and symbol.</div>
             </div>
-            <div class="mb-3">
-              <label for="signup-role" class="form-label">Role</label>
-              <select id="signup-role" name="role" class="form-select">
-                <option value="rider" selected>Rider</option>
-                <option value="driver">Driver</option>
-                <option value="merchant">Merchant</option>
-              </select>
-            </div>
             <button id="signup-btn" type="submit" class="btn btn-auth w-100">
-              <span class="btn-text">Create account</span>
+              <span class="btn-text">Create driver account</span>
               <span class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span>
             </button>
           </form>
@@ -113,15 +105,15 @@
           <div class="login-note">
             <div class="login-note-title">Choose your portal</div>
             <div class="login-links">
-              <a class="login-link active" href="/index.html">Admin</a>
-              <a class="login-link" href="/drivers.html">Driver</a>
+              <a class="login-link" href="/index.html">Admin</a>
+              <a class="login-link active" href="/drivers.html">Driver</a>
               <a class="login-link" href="/users.html">Rider</a>
             </div>
-            <p>Access dashboards, financial activity, safety incidents, and support workflows from one professional control center.</p>
+            <p>Use this page to access driver tools, active ride requests, and earnings insights.</p>
           </div>
         </div>
       </section>
     </main>
-    <script src="/index.js" defer></script>
+    <script src="/drivers.js" defer></script>
   </body>
 </html>
