@@ -125,10 +125,10 @@
         async function loadDriverProfile() {
             const profileDiv = document.getElementById('profile-info');
             try {
-                const { response, data } = await fetchJson(`${API_BASE_URL}/api/drivers/me`, {
+                const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/me`, {
                     headers: { 'Authorization': 'Bearer ' + accessToken }
                 });
-                if (!response.ok || !data.ok) {
+                if (!data?.ok) {
                     profileDiv.innerHTML = '<div class="text-danger">Unable to load driver profile.</div>';
                     return;
                 }
@@ -148,10 +148,10 @@
         async function loadAvailableRideRequests() {
             const listDiv = document.getElementById('available-rides');
             try {
-                const { response, data } = await fetchJson(`${API_BASE_URL}/api/rides/history`, {
+                const { data } = await fetchJson(`${API_BASE_URL}/api/rides/history`, {
                     headers: { 'Authorization': 'Bearer ' + accessToken }
                 });
-                if (!response.ok || !data.ok || !Array.isArray(data.rides)) {
+                if (!data?.ok || !Array.isArray(data.rides)) {
                     listDiv.innerHTML = '<div class="text-danger">Unable to load ride requests.</div>';
                     return;
                 }
@@ -180,7 +180,7 @@
             const rideId = document.getElementById('ride-id-input').value.trim();
             if (!rideId) return;
             try {
-                const { response, data } = await fetchJson(`${API_BASE_URL}/api/rides/accept`, {
+                const { data } = await fetchJson(`${API_BASE_URL}/api/rides/accept`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -188,7 +188,7 @@
                     },
                     body: JSON.stringify({ rideId })
                 });
-                if (!response.ok || !data.ok) {
+                if (!data?.ok) {
                     showAlert('danger', data.error || 'Unable to accept ride.');
                     return;
                 }
@@ -216,17 +216,19 @@
         async function loadEarnings() {
             const earningsDiv = document.getElementById('earnings-info');
             try {
-                const { response, data } = await fetchJson(`${API_BASE_URL}/api/drivers/earnings`, {
+                const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/earnings`, {
                     method: 'POST',
                     headers: { 'Authorization': 'Bearer ' + accessToken }
                 });
-                if (!response.ok || !data.ok) {
+                const earningsCents = Number(data?.earningsCents);
+                const rideCount = Number(data?.rideCount);
+                if (!data?.ok || !Number.isFinite(earningsCents) || !Number.isFinite(rideCount)) {
                     earningsDiv.innerHTML = '<div class="text-danger">Unable to load earnings.</div>';
                     return;
                 }
                 earningsDiv.innerHTML = `
-                    <div><strong>Total Earnings:</strong> $${(Number(data.earningsCents || 0) / 100).toFixed(2)}</div>
-                    <div><strong>Completed Ride Payouts:</strong> ${Number(data.rideCount || 0)}</div>
+                    <div><strong>Total Earnings:</strong> $${(earningsCents / 100).toFixed(2)}</div>
+                    <div><strong>Completed Ride Payouts:</strong> ${rideCount}</div>
                 `;
             } catch (_error) {
                 earningsDiv.innerHTML = '<div class="text-danger">Unable to load earnings.</div>';
