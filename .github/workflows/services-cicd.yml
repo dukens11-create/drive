@@ -1,0 +1,133 @@
+name: Services CI/CD
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - release/**
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  services:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            working_directory: .
+            docker_context: .
+            dockerfile: Dockerfile
+            docker_enabled: true
+            image: ghcr.io/${{ github.repository }}-api
+            lint_cmd: npm run lint --if-present
+            test_cmd: npm test
+            build_cmd: npm run build
+          - name: admin-dashboard
+            working_directory: admin
+            docker_context: admin
+            dockerfile: Dockerfile
+            docker_enabled: true
+            image: ghcr.io/${{ github.repository }}-admin
+            lint_cmd: npm run lint --if-present
+            test_cmd: npm test --if-present
+            build_cmd: npm run build
+          - name: passenger-web-app
+            working_directory: web
+            docker_context: web
+            dockerfile: Dockerfile
+            docker_enabled: true
+            image: ghcr.io/${{ github.repository }}-passenger-web
+            lint_cmd: npm run lint --if-present
+            test_cmd: npm test --if-present
+            build_cmd: npm run build
+          - name: restaurant-web-dashboard
+            working_directory: admin
+            docker_context: admin
+            dockerfile: Dockerfile.restaurant
+            docker_enabled: true
+            image: ghcr.io/${{ github.repository }}-restaurant-dashboard
+            lint_cmd: npm run lint --if-present
+            test_cmd: npm test --if-present
+            build_cmd: npm run build
+          - name: driver-mobile-app
+            working_directory: mobile
+            docker_context: mobile
+            dockerfile: Dockerfile
+            docker_enabled: false
+            image: ghcr.io/${{ github.repository }}-driver-mobile
+            lint_cmd: npm run lint --if-present
+            test_cmd: npm run test:ci --if-present
+            build_cmd: npx expo export --platform android --platform ios
+          - name: passenger-mobile-app
+            working_directory: mobile-passenger
+            docker_context: mobile-passenger
+            dockerfile: Dockerfile
+            docker_enabled: false
+            image: ghcr.io/${{ github.repository }}-passenger-mobile
+            lint_cmd: npm run lint --if-present
+            test_cmd: npm run test:ci --if-present
+            build_cmd: npx expo export --platform android --platform ios
+          - name: restaurant-mobile-app
+            working_directory: mobile
+            docker_context: mobile
+            dockerfile: Dockerfile
+            docker_enabled: false
+            image: ghcr.io/${{ github.repository }}-restaurant-mobile
+            lint_cmd: npm run lint --if-present
+            test_cmd: npm run test:ci --if-present
+            build_cmd: npx expo export --platform android --platform ios
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ${{ matrix.working_directory == '.' && 'package-lock.json' || format('{0}/package-lock.json', matrix.working_directory) }}
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.working_directory }}
+        run: npm ci
+
+      - name: Lint and format checks
+        working-directory: ${{ matrix.working_directory }}
+        run: ${{ matrix.lint_cmd }}
+
+      - name: Unit tests
+        working-directory: ${{ matrix.working_directory }}
+        run: ${{ matrix.test_cmd }}
+
+      - name: Build and optimize
+        working-directory: ${{ matrix.working_directory }}
+        run: ${{ matrix.build_cmd }}
+
+      - name: Build Docker image
+        if: ${{ matrix.docker_enabled }}
+        run: docker build -f ${{ matrix.dockerfile }} -t ${{ matrix.image }}:${{ github.sha }} ${{ matrix.docker_context }}
+
+      - name: Login to GHCR
+        if: ${{ matrix.docker_enabled && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')) }}
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Push Docker image
+        if: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')) && matrix.docker_enabled }}
+        run: |
+          docker push ${{ matrix.image }}:${{ github.sha }}
+
+      - name: Mobile distribution placeholder
+        if: ${{ contains(matrix.name, 'mobile-app') }}
+        run: |
+          echo "Configure EXPO_TOKEN, Android/iOS signing credentials, and release targets for TestFlight/Google Play beta."
+
+      - name: Deploy placeholder
+        if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
+        run: |
+          echo "Deploy ${{ matrix.name }} to staging/production using environment-specific GitHub Environments."
