@@ -2,13 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-<<<<<<< HEAD
-import { FormEvent, useMemo, useState } from 'react';
-import { useAdmin, useAuth, useTheme, useLocale, SUPPORTED_LOCALES, LOCALE_LABELS } from '@/components/providers';
-=======
 import { ChangeEvent, FormEvent, useMemo, useState } from 'react';
-import { useAdmin, useAuth, useTheme } from '@/components/providers';
->>>>>>> origin/main
+import { useAdmin, useAuth, useTheme, useLocale, SUPPORTED_LOCALES, LOCALE_LABELS } from '@/components/providers';
 import type { DriverSummary, SectionKey } from '@/lib/api';
 
 export const sectionOrder = [
