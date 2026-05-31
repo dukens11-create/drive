@@ -7,6 +7,9 @@ const STORAGE_KEYS = {
   legacyUser: 'drive.user'
 };
 const REDIRECT_DELAY_MS = 250;
+const ADMIN_ROLE = 'admin';
+const DRIVER_ROLE = 'driver';
+const RIDER_ROLE = 'rider';
 
 function showMessage(kind, text) {
   const error = document.getElementById('auth-error');
@@ -53,6 +56,17 @@ function validatePassword(password) {
   );
 }
 
+function normalizeRole(role) {
+  return String(role || '').toLowerCase();
+}
+
+function getPortalPathForRole(role) {
+  const normalizedRole = normalizeRole(role);
+  if (normalizedRole === DRIVER_ROLE) return '/drivers.html';
+  if (normalizedRole === RIDER_ROLE) return '/users.html';
+  return '/dashboard.html';
+}
+
 async function submitAuth(path, body, button) {
   toggleLoading(button, true);
   try {
@@ -65,10 +79,22 @@ async function submitAuth(path, body, button) {
     if (!response.ok || payload.error) {
       throw new Error(payload.error || 'Authentication failed');
     }
+
+    const role = normalizeRole(payload.user?.role);
+    if (path.endsWith('/login') && role !== ADMIN_ROLE) {
+      clearPersistedSession();
+      const portalPath = getPortalPathForRole(role);
+      showMessage('error', `This portal is for admin accounts only. Redirecting to ${portalPath}`);
+      setTimeout(() => {
+        window.location.href = portalPath;
+      }, REDIRECT_DELAY_MS);
+      return;
+    }
+
     persistSession(payload);
     showMessage('success', 'Authentication successful. Redirecting...');
     setTimeout(() => {
-      window.location.href = '/dashboard.html';
+      window.location.href = getPortalPathForRole(role);
     }, REDIRECT_DELAY_MS);
   } catch (error) {
     showMessage('error', error.message || 'Authentication failed');
@@ -109,7 +135,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!currentUser && legacyUser) {
       localStorage.setItem(STORAGE_KEYS.user, legacyUser);
     }
-    window.location.href = '/dashboard.html';
+    let role = '';
+    try {
+      role = JSON.parse(user || '{}').role || '';
+    } catch {
+      role = '';
+    }
+    window.location.href = getPortalPathForRole(role);
     return;
   }
 

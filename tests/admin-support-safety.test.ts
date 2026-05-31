@@ -62,6 +62,16 @@ test('GET /api/admin/stats requires admin token', async () => {
   });
 });
 
+test('GET /api/admin/stats rejects driver token', async () => {
+  await withServer(async baseUrl => {
+    const { token } = await signupAndLogin(baseUrl, 'driver');
+    const res = await fetch(`${baseUrl}/api/admin/stats`, {
+      headers: { authorization: 'Bearer ' + token }
+    });
+    assert.equal(res.status, 403);
+  });
+});
+
 test('GET /api/admin/stats returns platform statistics', async () => {
   await withServer(async baseUrl => {
     const adminToken = await loginAdmin(baseUrl);

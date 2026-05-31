@@ -117,6 +117,9 @@ test('GET / serves the professional dashboard login page', async () => {
     const body = await response.text();
     assert.match(body, /Drive Platform/);
     assert.match(body, /Admin Login/);
+    assert.match(body, /<option value="admin" selected>Admin<\/option>/);
+    assert.doesNotMatch(body, /<option value="driver">Driver<\/option>/);
+    assert.doesNotMatch(body, /<option value="rider" selected>Rider<\/option>/);
     assert.match(body, /Professional visibility across rides, drivers, support, and payments\./);
     ['Active Drivers', 'Live Rides', 'Gross Revenue', 'Support Queue'].forEach(metricLabel => {
       assert.match(body, new RegExp(metricLabel));
