@@ -108,6 +108,20 @@ test('GET /readyz returns readiness payload', async () => {
   });
 });
 
+test('GET / serves the professional dashboard login page', async () => {
+  await withServer(async baseUrl => {
+    const response = await fetch(`${baseUrl}/`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /text\/html/);
+
+    const body = await response.text();
+    assert.match(body, /Drive Platform/);
+    assert.match(body, /Admin Login/);
+    assert.match(body, /Professional visibility across rides, drivers, support, and payments\./);
+    assert.equal((body.match(/class="dash-card"/g) ?? []).length, 4);
+  });
+});
+
 test('POST /api/auth/signup creates user and returns tokens', async () => {
   await withServer(async baseUrl => {
     const response = await postJson(baseUrl, '/api/auth/signup', {

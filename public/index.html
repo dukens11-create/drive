@@ -4,65 +4,60 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Drive Admin</title>
-    <link
-      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-      rel="stylesheet"
-      integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
-      crossorigin="anonymous"
-    />
     <link href="/styles.css" rel="stylesheet" />
   </head>
   <body class="dashboard-layout">
-    <div class="dashboard-grid">
-
-      <!-- Left panel: 4 dashboard cards -->
-      <div class="dashboard-left">
-        <div class="dashboard-brand mb-4">
+    <main class="dashboard-grid">
+      <section class="dashboard-left" aria-label="Drive platform overview">
+        <div class="dashboard-brand">
           <span class="dashboard-logo">&#9650;</span>
-          <span class="dashboard-brand-name">Drive Platform</span>
-        </div>
-        <p class="dashboard-tagline">Real-time admin overview</p>
-
-        <div class="dashboard-cards">
-          <div class="dash-card">
-            <div class="dash-card-icon">&#128663;</div>
-            <div class="dash-card-body">
-              <div class="dash-card-label">Active Drivers</div>
-              <div class="dash-card-value">1,248</div>
-            </div>
-          </div>
-
-          <div class="dash-card">
-            <div class="dash-card-icon">&#128205;</div>
-            <div class="dash-card-body">
-              <div class="dash-card-label">Total Rides Today</div>
-              <div class="dash-card-value">8,540</div>
-            </div>
-          </div>
-
-          <div class="dash-card">
-            <div class="dash-card-icon">&#128176;</div>
-            <div class="dash-card-body">
-              <div class="dash-card-label">Revenue (Today)</div>
-              <div class="dash-card-value">$42,310</div>
-            </div>
-          </div>
-
-          <div class="dash-card">
-            <div class="dash-card-icon">&#128203;</div>
-            <div class="dash-card-body">
-              <div class="dash-card-label">Open Support Tickets</div>
-              <div class="dash-card-value">73</div>
-            </div>
+          <div>
+            <span class="dashboard-brand-name">Drive Platform</span>
+            <p class="dashboard-brand-meta">Enterprise operations console</p>
           </div>
         </div>
-      </div>
+        <p class="dashboard-badge">Live operations</p>
+        <h1 class="dashboard-heading">Professional visibility across rides, drivers, support, and payments.</h1>
+        <p class="dashboard-description">
+          Oversee active service lines, respond to customer issues, and monitor marketplace performance from a polished admin workspace designed for daily operations.
+        </p>
 
-      <!-- Right panel: Admin login form -->
-      <div class="login-panel">
+        <div class="dashboard-cards" aria-label="Key platform metrics">
+          <article class="dash-card">
+            <div class="dash-card-icon">DR</div>
+            <div class="dash-card-label">Active Drivers</div>
+            <div class="dash-card-value">1,248</div>
+            <div class="dash-card-meta">92% online availability</div>
+          </article>
+
+          <article class="dash-card">
+            <div class="dash-card-icon">RD</div>
+            <div class="dash-card-label">Live Rides</div>
+            <div class="dash-card-value">8,540</div>
+            <div class="dash-card-meta">+14.8% versus yesterday</div>
+          </article>
+
+          <article class="dash-card">
+            <div class="dash-card-icon">GM</div>
+            <div class="dash-card-label">Gross Revenue</div>
+            <div class="dash-card-value">$42,310</div>
+            <div class="dash-card-meta">Across ride and delivery channels</div>
+          </article>
+
+          <article class="dash-card">
+            <div class="dash-card-icon">SL</div>
+            <div class="dash-card-label">Support Queue</div>
+            <div class="dash-card-value">73</div>
+            <div class="dash-card-meta">Median response time: 4m</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="login-panel" aria-label="Admin login panel">
         <div class="login-box">
+          <p class="login-eyebrow">Secure access</p>
           <h2 class="login-title">Admin Login</h2>
-          <p class="login-subtitle">Sign in to your admin account</p>
+          <p class="login-subtitle">Sign in to the Drive workspace with your approved operations credentials.</p>
 
           <ul class="nav nav-pills nav-fill mb-4" id="auth-tabs" role="tablist">
             <li class="nav-item" role="presentation">
@@ -85,7 +80,7 @@
               <label for="login-password" class="form-label">Password</label>
               <input id="login-password" name="password" type="password" class="form-control" autocomplete="current-password" required />
             </div>
-            <button id="login-btn" type="submit" class="btn btn-dark w-100">
+            <button id="login-btn" type="submit" class="btn btn-auth w-100">
               <span class="btn-text">Sign In</span>
               <span class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span>
             </button>
@@ -109,15 +104,19 @@
                 <option value="merchant">Merchant</option>
               </select>
             </div>
-            <button id="signup-btn" type="submit" class="btn btn-success w-100">
+            <button id="signup-btn" type="submit" class="btn btn-auth w-100">
               <span class="btn-text">Create account</span>
               <span class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span>
             </button>
           </form>
-        </div>
-      </div>
 
-    </div>
+          <div class="login-note">
+            <div class="login-note-title">Operations-ready workspace</div>
+            <p>Access dashboards, financial activity, safety incidents, and support workflows from one professional control center.</p>
+          </div>
+        </div>
+      </section>
+    </main>
     <script src="/index.js" defer></script>
   </body>
 </html>
