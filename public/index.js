@@ -6,6 +6,7 @@ const STORAGE_KEYS = {
   legacyRefreshToken: 'drive.refreshToken',
   legacyUser: 'drive.user'
 };
+const REDIRECT_DELAY_MS = 250;
 
 function showMessage(kind, text) {
   const error = document.getElementById('auth-error');
@@ -68,7 +69,7 @@ async function submitAuth(path, body, button) {
     showMessage('success', 'Authentication successful. Redirecting...');
     setTimeout(() => {
       window.location.href = '/dashboard.html';
-    }, 250);
+    }, REDIRECT_DELAY_MS);
   } catch (error) {
     showMessage('error', error.message || 'Authentication failed');
   } finally {
@@ -88,15 +89,25 @@ function switchForm(formName) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const accessToken = localStorage.getItem(STORAGE_KEYS.accessToken) || localStorage.getItem(STORAGE_KEYS.legacyAccessToken);
-  const refreshToken = localStorage.getItem(STORAGE_KEYS.refreshToken) || localStorage.getItem(STORAGE_KEYS.legacyRefreshToken);
-  const user = localStorage.getItem(STORAGE_KEYS.user) || localStorage.getItem(STORAGE_KEYS.legacyUser);
+  const currentAccessToken = localStorage.getItem(STORAGE_KEYS.accessToken);
+  const currentRefreshToken = localStorage.getItem(STORAGE_KEYS.refreshToken);
+  const currentUser = localStorage.getItem(STORAGE_KEYS.user);
+  const legacyAccessToken = localStorage.getItem(STORAGE_KEYS.legacyAccessToken);
+  const legacyRefreshToken = localStorage.getItem(STORAGE_KEYS.legacyRefreshToken);
+  const legacyUser = localStorage.getItem(STORAGE_KEYS.legacyUser);
+  const accessToken = currentAccessToken || legacyAccessToken;
+  const refreshToken = currentRefreshToken || legacyRefreshToken;
+  const user = currentUser || legacyUser;
 
   if (accessToken && refreshToken) {
-    localStorage.setItem(STORAGE_KEYS.accessToken, accessToken);
-    localStorage.setItem(STORAGE_KEYS.refreshToken, refreshToken);
-    if (user) {
-      localStorage.setItem(STORAGE_KEYS.user, user);
+    if (!currentAccessToken && legacyAccessToken) {
+      localStorage.setItem(STORAGE_KEYS.accessToken, legacyAccessToken);
+    }
+    if (!currentRefreshToken && legacyRefreshToken) {
+      localStorage.setItem(STORAGE_KEYS.refreshToken, legacyRefreshToken);
+    }
+    if (!currentUser && legacyUser) {
+      localStorage.setItem(STORAGE_KEYS.user, legacyUser);
     }
     window.location.href = '/dashboard.html';
     return;
@@ -138,7 +149,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     if (!validatePassword(password)) {
-      showMessage('error', 'Password must be 12+ chars and include uppercase, lowercase, number, and symbol');
+      showMessage('error', 'Password must be 12+ characters and include uppercase, lowercase, number, and symbol');
       return;
     }
     await submitAuth('/api/auth/signup', { email, password, role }, signupButton);
