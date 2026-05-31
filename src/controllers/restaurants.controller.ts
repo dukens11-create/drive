@@ -1,4 +1,4 @@
-import * as service from './restaurants.service';
+import * as service from '../services/restaurants.service';
 
 function send(res: any, payload: any) {
   if (payload?.error) return res.status(400).json(payload);

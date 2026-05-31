@@ -1,5 +1,5 @@
-import * as authService from './src/services/auth.service';
-import { makeId, timestamp, store, type RideStatus } from './src/database/data.store';
+import * as authService from './auth.service';
+import { makeId, timestamp, store, type RideStatus } from '../database/data.store';
 
 type RestaurantDocument = { id: string; type: string; url?: string; status: string; createdAt: string; updatedAt: string };
 type MenuVariant = { id: string; name: string; priceDeltaCents?: number; available?: boolean };

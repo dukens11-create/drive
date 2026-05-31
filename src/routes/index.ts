@@ -11,6 +11,7 @@ export { default as marketplaceRoutes } from './marketplace.routes';
 export { default as merchantRoutes } from './merchant.routes';
 export { default as paymentsRoutes } from './payments.routes';
 export { default as ridesRoutes } from './rides.routes';
+export { default as restaurantsRoutes } from './restaurants.routes';
 export { default as safetyRoutes } from './safety.routes';
 export { default as scheduledRoutes } from './scheduled.routes';
 export { default as subscriptionRoutes } from './subscription.routes';

@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import * as controller from './restaurants.controller';
-import { requireAuth, requireRole } from './src/middleware/auth.middleware';
-import { validateBody } from './src/utils/validate';
+import * as controller from '../controllers/restaurants.controller';
+import { requireAuth, requireRole } from '../middleware/auth.middleware';
+import { validateBody } from '../utils/validate';
 import {
   foodOrderSchema,
   genericPassthroughSchema,
@@ -10,7 +10,7 @@ import {
   restaurantLoginSchema,
   restaurantProfileSchema,
   restaurantRegisterSchema
-} from './restaurants.schemas';
+} from '../schemas/restaurants.schemas';
 
 const router = Router();
 
