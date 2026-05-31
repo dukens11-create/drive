@@ -23,10 +23,10 @@ metadata:
     {{- include "drive-platform.labels" . | nindent 4 }}
 type: Opaque
 stringData:
-  JWT_SECRET: {{ required "inlineSecrets.JWT_SECRET is required when secretManagement.createSecret=true" .Values.inlineSecrets.JWT_SECRET | quote }}
-  STRIPE_WEBHOOK_SECRET: {{ required "inlineSecrets.STRIPE_WEBHOOK_SECRET is required when secretManagement.createSecret=true" .Values.inlineSecrets.STRIPE_WEBHOOK_SECRET | quote }}
-  POSTGRES_PASSWORD: {{ required "inlineSecrets.POSTGRES_PASSWORD is required when secretManagement.createSecret=true" .Values.inlineSecrets.POSTGRES_PASSWORD | quote }}
-  RABBITMQ_PASSWORD: {{ required "inlineSecrets.RABBITMQ_PASSWORD is required when secretManagement.createSecret=true" .Values.inlineSecrets.RABBITMQ_PASSWORD | quote }}
-  GRAFANA_ADMIN_PASSWORD: {{ required "inlineSecrets.GRAFANA_ADMIN_PASSWORD is required when secretManagement.createSecret=true" .Values.inlineSecrets.GRAFANA_ADMIN_PASSWORD | quote }}
-  ELASTIC_PASSWORD: {{ required "inlineSecrets.ELASTIC_PASSWORD is required when secretManagement.createSecret=true" .Values.inlineSecrets.ELASTIC_PASSWORD | quote }}
+  JWT_SECRET: {{ required "inlineSecrets.JWT_SECRET must be set to a non-empty value when secretManagement.createSecret=true" .Values.inlineSecrets.JWT_SECRET | quote }}
+  STRIPE_WEBHOOK_SECRET: {{ required "inlineSecrets.STRIPE_WEBHOOK_SECRET must be set to a non-empty value when secretManagement.createSecret=true" .Values.inlineSecrets.STRIPE_WEBHOOK_SECRET | quote }}
+  POSTGRES_PASSWORD: {{ required "inlineSecrets.POSTGRES_PASSWORD must be set to a non-empty value when secretManagement.createSecret=true" .Values.inlineSecrets.POSTGRES_PASSWORD | quote }}
+  RABBITMQ_PASSWORD: {{ required "inlineSecrets.RABBITMQ_PASSWORD must be set to a non-empty value when secretManagement.createSecret=true" .Values.inlineSecrets.RABBITMQ_PASSWORD | quote }}
+  GRAFANA_ADMIN_PASSWORD: {{ required "inlineSecrets.GRAFANA_ADMIN_PASSWORD must be set to a non-empty value when secretManagement.createSecret=true" .Values.inlineSecrets.GRAFANA_ADMIN_PASSWORD | quote }}
+  ELASTIC_PASSWORD: {{ required "inlineSecrets.ELASTIC_PASSWORD must be set to a non-empty value when secretManagement.createSecret=true" .Values.inlineSecrets.ELASTIC_PASSWORD | quote }}
 {{- end }}

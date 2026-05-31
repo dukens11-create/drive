@@ -38,6 +38,9 @@ secretManagement:
   secretName: drive-platform-secrets
   createSecret: false
 
+# These are intentionally blank. They must be overridden with non-empty values
+# only when secretManagement.createSecret=true. The default path is to bind an
+# existing secret via secretManagement.secretName.
 inlineSecrets:
   JWT_SECRET: ""
   STRIPE_WEBHOOK_SECRET: ""
