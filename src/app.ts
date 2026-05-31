@@ -19,8 +19,10 @@ export function createApp() {
   app.use(express.json({ limit: '10mb' }));
   app.use(rateLimit({ windowMs: 60_000, limit: 300 }));
 
-  // Serve static files from public directory
-  app.use(express.static(path.join(__dirname, '../public')));
+  // Serve static files BEFORE routes
+  const publicPath = path.join(process.cwd(), 'public');
+  console.log('🔍 [STATIC] Serving static files from:', publicPath);
+  app.use(express.static(publicPath));
 
   app.get('/health', (_, res) => res.json({ ok: true, service: 'flupflap-ride-v7' }));
   app.get('/livez', (_, res) => res.json({ ok: true }));
@@ -51,9 +53,9 @@ export function createApp() {
   app.use('/api/i18n', i18nRoutes);
   app.use('/api', restaurantsRoutes);
 
-  // Serve index.html for root path
+  // Fallback for SPA - serve index.html for root
   app.get('/', (_, res) => {
-    res.sendFile(path.join(__dirname, '../public/index.html'));
+    res.sendFile(path.join(publicPath, 'index.html'));
   });
 
   registerTrackingSocket(io);
