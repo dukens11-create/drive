@@ -1,0 +1,36 @@
+:root {
+  color-scheme: light dark;
+}
+
+.app-bg {
+  min-height: 100vh;
+  background: linear-gradient(180deg, rgba(13, 110, 253, 0.08), transparent 35%);
+}
+
+.location-map {
+  position: relative;
+  width: 100%;
+  height: 240px;
+  border-radius: 0.75rem;
+  border: 1px solid var(--bs-border-color);
+  background:
+    linear-gradient(90deg, rgba(108, 117, 125, 0.2) 1px, transparent 1px) 0 0 / 40px 40px,
+    linear-gradient(rgba(108, 117, 125, 0.2) 1px, transparent 1px) 0 0 / 40px 40px,
+    radial-gradient(circle at center, rgba(13, 110, 253, 0.2), rgba(13, 110, 253, 0.05));
+  overflow: hidden;
+}
+
+.location-pin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #dc3545;
+  border: 2px solid #fff;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 4px rgba(220, 53, 69, 0.3);
+}
+
+.list-group-item small {
+  word-break: break-word;
+}
