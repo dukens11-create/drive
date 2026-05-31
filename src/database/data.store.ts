@@ -120,6 +120,9 @@ export type Payment = {
   rideId?: string;
   riderId?: string;
   driverId?: string;
+  paymentMethodId?: string;
+  paymentMethodType?: PaymentMethodType;
+  description?: string;
   provider: 'stripe_mock';
   providerIntentId: string;
   providerCheckoutSessionId: string;
@@ -129,6 +132,58 @@ export type Payment = {
   status: 'requires_capture' | 'captured' | 'refunded' | 'failed';
   capturedAt?: string;
   refundedAt?: string;
+  invoiceId?: string;
+  receiptUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PaymentMethodType = 'card' | 'apple_pay' | 'google_pay' | 'paypal' | 'bank_transfer' | 'wallet';
+
+export type PaymentMethod = {
+  id: string;
+  userId: string;
+  type: PaymentMethodType;
+  provider: 'stripe_mock';
+  brand?: string;
+  label?: string;
+  last4?: string;
+  expiryMonth?: number;
+  expiryYear?: number;
+  token?: string;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Invoice = {
+  id: string;
+  paymentId: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  amountCents: number;
+  currency: string;
+  status: 'issued' | 'refunded';
+  recipientUserId?: string;
+  payerUserId?: string;
+  paymentMethodType?: PaymentMethodType;
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RefundDestination = 'wallet' | 'original_payment_method';
+
+export type Refund = {
+  id: string;
+  paymentId: string;
+  userId?: string;
+  amountCents: number;
+  currency: string;
+  reason?: string;
+  destination: RefundDestination;
+  status: 'succeeded';
+  providerRefundId: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -509,6 +564,9 @@ type PersistedStore = {
   rides: Ride[];
   drivers: DriverProfile[];
   payments: Payment[];
+  paymentMethods: PaymentMethod[];
+  invoices: Invoice[];
+  refunds: Refund[];
   walletTx: WalletTx[];
   walletBalances: WalletBalance[];
   kycStatus: Array<[string, 'pending' | 'verified' | 'rejected']>;
@@ -608,6 +666,9 @@ export const store = {
   rides: new PersistentMap<string, Ride>(),
   drivers: new PersistentMap<string, DriverProfile>(),
   payments: new PersistentMap<string, Payment>(),
+  paymentMethods: new PersistentMap<string, PaymentMethod>(),
+  invoices: new PersistentMap<string, Invoice>(),
+  refunds: new PersistentMap<string, Refund>(),
   walletTx: createPersistentArray<WalletTx>(),
   walletBalances: new PersistentMap<string, WalletBalance>(),
   kycStatus: new PersistentMap<string, 'pending' | 'verified' | 'rejected'>(),
@@ -648,6 +709,9 @@ function toSerializableStore(): PersistedStore {
     rides: Array.from(store.rides.values()),
     drivers: Array.from(store.drivers.values()),
     payments: Array.from(store.payments.values()),
+    paymentMethods: Array.from(store.paymentMethods.values()),
+    invoices: Array.from(store.invoices.values()),
+    refunds: Array.from(store.refunds.values()),
     walletTx: [...store.walletTx],
     walletBalances: Array.from(store.walletBalances.values()),
     kycStatus: Array.from(store.kycStatus.entries()),
@@ -718,6 +782,9 @@ function hydrateStore() {
     for (const ride of parsed.rides || []) store.rides.set(ride.id, ride);
     for (const driver of parsed.drivers || []) store.drivers.set(driver.userId, driver);
     for (const payment of parsed.payments || []) store.payments.set(payment.id, payment);
+    for (const paymentMethod of parsed.paymentMethods || []) store.paymentMethods.set(paymentMethod.id, paymentMethod);
+    for (const invoice of parsed.invoices || []) store.invoices.set(invoice.id, invoice);
+    for (const refund of parsed.refunds || []) store.refunds.set(refund.id, refund);
     for (const tx of parsed.walletTx || []) store.walletTx.push(tx);
     for (const walletBalance of parsed.walletBalances || []) store.walletBalances.set(walletBalance.userId, walletBalance);
     for (const [userId, status] of parsed.kycStatus || []) store.kycStatus.set(userId, status);

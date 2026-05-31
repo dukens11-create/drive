@@ -1,31 +1,5 @@
-import { markStoreDirty, pushWalletTx, store, timestamp } from '../database/data.store';
-import { DRIVER_PAYOUT_RATE } from '../constants/payments.constants';
-
-function walletTxExists(userId: string, reason: string) {
-  return store.walletTx.some(tx => tx.userId === userId && tx.reason === reason);
-}
-
-function applyCaptureLedger(payment: any) {
-  if (payment.riderId) {
-    const riderReason = `payment:${payment.id}:capture`;
-    if (!walletTxExists(payment.riderId, riderReason)) pushWalletTx(payment.riderId, 'debit', payment.amountCents, riderReason);
-  }
-  if (payment.driverId) {
-    const payoutReason = `payment:${payment.id}:driver_payout`;
-    if (!walletTxExists(payment.driverId, payoutReason)) pushWalletTx(payment.driverId, 'credit', Math.round(payment.amountCents * DRIVER_PAYOUT_RATE), payoutReason);
-  }
-}
-
-function applyRefundLedger(payment: any) {
-  if (payment.riderId) {
-    const riderReason = `payment:${payment.id}:refund`;
-    if (!walletTxExists(payment.riderId, riderReason)) pushWalletTx(payment.riderId, 'credit', payment.amountCents, riderReason);
-  }
-  if (payment.driverId) {
-    const reversalReason = `payment:${payment.id}:refund_reversal`;
-    if (!walletTxExists(payment.driverId, reversalReason)) pushWalletTx(payment.driverId, 'debit', Math.round(payment.amountCents * DRIVER_PAYOUT_RATE), reversalReason);
-  }
-}
+import { markStoreDirty, store, timestamp } from '../database/data.store';
+import { applyCaptureLedger, applyRefundLedger } from './payment.records';
 
 function findPaymentForEvent(event: any) {
   const paymentId = event?.data?.object?.metadata?.paymentId;
@@ -60,7 +34,7 @@ export async function handleStripeWebhook(event: any) {
       payment.status = 'refunded';
       payment.refundedAt = timestamp();
       payment.updatedAt = timestamp();
-      applyRefundLedger(payment);
+      applyRefundLedger(payment, 'original_payment_method');
       markStoreDirty();
       return { handled: true, action: 'mark_refund', payment };
     }
