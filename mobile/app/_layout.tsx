@@ -3,6 +3,7 @@ import '../global.css';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import { Provider } from 'react-redux';
 import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { View } from 'react-native';
@@ -12,6 +13,7 @@ import { AuthProvider } from '../src/context/AuthContext';
 import { DriveRealtimeProvider } from '../src/context/DriveRealtimeContext';
 import { LocaleProvider, useLocale } from '../src/context/LocaleContext';
 import { logEvent, markAppStartupComplete, trackMemoryUsage } from '../src/services/observability';
+import { store } from '../src/store';
 
 // Sample every 30 seconds to keep overhead low while still capturing usage trends.
 const MEMORY_SAMPLE_INTERVAL_MS = 30000;
@@ -57,15 +59,17 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <LocaleProvider>
-        <AuthProvider>
-          <AccessibilityProvider>
-            <DriveRealtimeProvider>
-              <AppNavigator />
-            </DriveRealtimeProvider>
-          </AccessibilityProvider>
-        </AuthProvider>
-      </LocaleProvider>
+      <Provider store={store}>
+        <LocaleProvider>
+          <AuthProvider>
+            <AccessibilityProvider>
+              <DriveRealtimeProvider>
+                <AppNavigator />
+              </DriveRealtimeProvider>
+            </AccessibilityProvider>
+          </AuthProvider>
+        </LocaleProvider>
+      </Provider>
     </GestureHandlerRootView>
   );
 }

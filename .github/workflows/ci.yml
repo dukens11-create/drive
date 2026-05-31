@@ -216,6 +216,7 @@ jobs:
 
           run_optional_app "passenger web" passenger-web apps/passenger-web
           run_optional_app "passenger mobile" passenger-mobile mobile-passenger apps/passenger-mobile
+          run_optional_app "restaurant admin" restaurant-admin apps/restaurant-admin
 
   dependency-review:
     if: ${{ github.event_name == 'pull_request' }}

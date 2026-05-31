@@ -1,0 +1,12 @@
+import { Router } from 'express';
+import * as controller from '../controllers/kyc.controller';
+import { validateBody } from '../utils/validate';
+import { genericSchema } from '../schemas/kyc.schemas';
+import { requireAuth } from '../middleware/auth.middleware';
+const router = Router();
+router.get('/health', controller.health);
+router.post('/webhook', validateBody(genericSchema), controller.webhook);
+router.use(requireAuth);
+router.post('/create-session', validateBody(genericSchema), controller.create_session);
+router.post('/status', validateBody(genericSchema), controller.status);
+export default router;

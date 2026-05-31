@@ -43,5 +43,49 @@ services:
     volumes:
       - drive_data:/app/.data
 
+  admin:
+    build:
+      context: ./admin
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_BASE_URL: http://api:8080
+    ports:
+      - '3001:3000'
+    depends_on:
+      - api
+
+  passenger-web:
+    build:
+      context: ./web
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_BASE_URL: http://api:8080
+    ports:
+      - '3002:3000'
+    depends_on:
+      - api
+
+  restaurant-web-dashboard:
+    build:
+      # The restaurant dashboard currently reuses the admin Next.js workspace.
+      context: ./admin
+      dockerfile: Dockerfile.restaurant
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_BASE_URL: http://api:8080
+    ports:
+      - '3003:3000'
+    depends_on:
+      - api
+
 volumes:
   drive_data:

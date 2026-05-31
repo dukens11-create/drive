@@ -11,10 +11,14 @@ export default function DrawerLayout() {
       <Drawer.Screen name="share-trip" options={{ drawerLabel: 'Share Trip' }} />
       <Drawer.Screen name="settings" options={{ drawerLabel: 'Settings' }} />
       <Drawer.Screen name="restaurant-detail" options={hiddenDrawerScreen} />
+      <Drawer.Screen name="food-restaurant-detail" options={hiddenDrawerScreen} />
       <Drawer.Screen name="food-cart" options={hiddenDrawerScreen} />
       <Drawer.Screen name="food-checkout" options={hiddenDrawerScreen} />
       <Drawer.Screen name="food-order-tracking" options={hiddenDrawerScreen} />
       <Drawer.Screen name="food-order-rating" options={hiddenDrawerScreen} />
+      <Drawer.Screen name="promo-code" options={hiddenDrawerScreen} />
+      <Drawer.Screen name="chat" options={hiddenDrawerScreen} />
+      <Drawer.Screen name="payment-methods" options={hiddenDrawerScreen} />
     </Drawer>
   );
 }

@@ -49,6 +49,7 @@ export const translations = {
       emailPlaceholder: 'Email',
       passwordPlaceholder: 'Password',
       passwordWithMinPlaceholder: 'Password (min 6 chars)',
+      rememberMe: 'Remember me',
     },
     onboarding: {
       title: 'Driver onboarding',

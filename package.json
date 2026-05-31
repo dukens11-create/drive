@@ -2,12 +2,14 @@
   "name": "drive-api",
   "version": "1.0.0",
   "description": "This V7 package adds more missing developer pieces for a ride-share, food delivery, courier, and FlupFlap Marketplace same-day delivery platform.",
-  "main": "dist/server.js",
+  "main": "dist/src/server.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js",
-    "dev": "tsx server.ts",
-    "test": "npm run build && node --test dist/*.test.js"
+    "start": "node dist/src/server.js",
+    "dev": "tsx watch src/server.ts",
+    "test": "npm run build && node --test dist/tests/*.test.js",
+    "db:migrate": "tsx src/database/migrations/index.ts",
+    "db:seed": "tsx src/database/seeds/index.ts"
   },
   "repository": {
     "type": "git",

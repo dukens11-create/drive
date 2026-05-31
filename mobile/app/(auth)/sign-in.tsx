@@ -1,12 +1,14 @@
 import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 
 import { useAccessibilitySettings } from '../../src/context/AccessibilityContext';
 import { useAuth } from '../../src/context/AuthContext';
 import { useLocale } from '../../src/context/LocaleContext';
 import { useScreenTracking } from '../../src/hooks/useScreenTracking';
 import { logEvent } from '../../src/services/observability';
+import { setRememberMe } from '../../src/store/authPreferencesSlice';
+import { useAppDispatch, useAppSelector } from '../../src/store';
 
 export default function SignInScreen() {
   const [email, setEmail] = useState('');
@@ -15,6 +17,8 @@ export default function SignInScreen() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const { signIn } = useAuth();
+  const dispatch = useAppDispatch();
+  const rememberMe = useAppSelector((state) => state.authPreferences.rememberMe);
   const { maxFontSizeMultiplier } = useAccessibilitySettings();
   const { t } = useLocale();
   useScreenTracking('sign_in');
@@ -29,7 +33,7 @@ export default function SignInScreen() {
     setError(null);
     logEvent('sign_in_submit_tapped');
     try {
-      await signIn(email.trim(), password);
+      await signIn(email.trim(), password, rememberMe);
       logEvent('sign_in_navigation_home');
       router.replace('/');
     } catch (err) {
@@ -74,6 +78,19 @@ export default function SignInScreen() {
         textContentType="password"
         maxFontSizeMultiplier={maxFontSizeMultiplier}
       />
+      <View className="mt-3 flex-row items-center justify-between rounded-2xl bg-zinc-900 px-4 py-3">
+        <Text className="text-sm text-zinc-200" maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('auth.rememberMe')}</Text>
+        <Switch
+          value={rememberMe}
+          onValueChange={(value) => {
+            dispatch(setRememberMe(value));
+          }}
+          accessibilityRole="switch"
+          accessibilityLabel={t('auth.rememberMe')}
+          trackColor={{ false: '#71717A', true: '#22C55E' }}
+          thumbColor="#FFFFFF"
+        />
+      </View>
 
       {error ? <Text className="mt-3 text-sm text-rose-400">{error}</Text> : null}
 

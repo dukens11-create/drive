@@ -1,0 +1,13 @@
+import { Router } from 'express';
+import * as controller from '../controllers/merchant.controller';
+import { validateBody } from '../utils/validate';
+import { genericSchema } from '../schemas/merchant.schemas';
+import { requireAuth } from '../middleware/auth.middleware';
+const router = Router();
+router.get('/health', controller.health);
+router.use(requireAuth);
+router.post('/create-product', validateBody(genericSchema), controller.create_product);
+router.post('/list-products', validateBody(genericSchema), controller.list_products);
+router.post('/orders', validateBody(genericSchema), controller.orders);
+router.post('/payouts', validateBody(genericSchema), controller.payouts);
+export default router;

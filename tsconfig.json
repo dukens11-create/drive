@@ -4,20 +4,68 @@
     "module": "CommonJS",
     "moduleResolution": "Node",
     "ignoreDeprecations": "5.0",
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "outDir": "dist",
     "rootDir": ".",
+    "baseUrl": ".",
+    "paths": {
+      "@src/*": [
+        "src/*"
+      ],
+      "@controllers/*": [
+        "src/controllers/*"
+      ],
+      "@services/*": [
+        "src/services/*"
+      ],
+      "@routes/*": [
+        "src/routes/*"
+      ],
+      "@schemas/*": [
+        "src/schemas/*"
+      ],
+      "@middleware/*": [
+        "src/middleware/*"
+      ],
+      "@config/*": [
+        "src/config/*"
+      ],
+      "@utils/*": [
+        "src/utils/*"
+      ],
+      "@types/*": [
+        "src/types/*"
+      ],
+      "@database/*": [
+        "src/database/*"
+      ],
+      "@queues/*": [
+        "src/queues/*"
+      ],
+      "@websocket/*": [
+        "src/websocket/*"
+      ],
+      "@constants/*": [
+        "src/constants/*"
+      ],
+      "@guards/*": [
+        "src/guards/*"
+      ]
+    },
     "strict": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
   "include": [
-    "*.ts"
+    "src/**/*.ts",
+    "tests/**/*.ts"
   ],
   "exclude": [
     "dist",
     "node_modules",
-    "seed.ts"
+    "src/database/seeds/legacy-prisma.seed.ts"
   ]
 }
