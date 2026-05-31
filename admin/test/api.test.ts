@@ -51,6 +51,7 @@ test('loginAdmin rejects non-admin accounts even when authentication succeeds', 
 
 test('adminApi retries retryable failures before returning a successful response', async () => {
   let attempts = 0;
+  const fixedTimestamp = '2025-01-01T00:00:00.000Z';
 
   globalThis.fetch = async () => {
     attempts += 1;
@@ -92,7 +93,7 @@ test('adminApi retries retryable failures before returning a successful response
         commissionRatePercent: 20,
         surgeMultiplier: 1,
         featureFlags: [],
-        updatedAt: new Date().toISOString()
+        updatedAt: fixedTimestamp
       },
       drivers: [],
       riders: [],
