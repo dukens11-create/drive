@@ -390,6 +390,31 @@ select {
   line-height: 1.35;
 }
 
+.login-links {
+  display: flex;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+}
+
+.login-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  color: var(--navy-soft);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.login-link.active {
+  border-color: var(--navy);
+  background: var(--navy);
+  color: #ffffff;
+}
+
 @keyframes spinner-border {
   to {
     transform: rotate(360deg);

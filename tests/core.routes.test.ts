@@ -137,6 +137,32 @@ test('GET / serves the professional dashboard login page', async () => {
   });
 });
 
+test('GET /drivers.html serves the dedicated driver login page', async () => {
+  await withServer(async baseUrl => {
+    const response = await fetch(`${baseUrl}/drivers.html`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /text\/html/);
+
+    const body = await response.text();
+    assert.match(body, /Drive Driver/);
+    assert.match(body, /Driver Login/);
+    assert.match(body, /<script src="\/drivers\.js" defer><\/script>/);
+  });
+});
+
+test('GET /users.html serves the dedicated rider login page', async () => {
+  await withServer(async baseUrl => {
+    const response = await fetch(`${baseUrl}/users.html`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /text\/html/);
+
+    const body = await response.text();
+    assert.match(body, /Drive Rider/);
+    assert.match(body, /User \/ Rider Login/);
+    assert.match(body, /<script src="\/users\.js" defer><\/script>/);
+  });
+});
+
 test('POST /api/auth/signup creates user and returns tokens', async () => {
   await withServer(async baseUrl => {
     const response = await postJson(baseUrl, '/api/auth/signup', {
