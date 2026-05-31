@@ -1,0 +1,8 @@
+:root {
+  color-scheme: light dark;
+}
+
+.app-bg {
+  min-height: 100vh;
+  background: linear-gradient(180deg, rgba(13, 110, 253, 0.08), transparent 35%);
+}
