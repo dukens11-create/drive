@@ -107,14 +107,14 @@ jobs:
 
       - name: Upload mobile coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mobile-coverage
           path: mobile/coverage
 
       - name: Upload Expo export bundle
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mobile-export
           path: mobile/dist
@@ -255,7 +255,7 @@ jobs:
 
       - name: Upload rendered manifests
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rendered-helm-manifests
           path: rendered-manifests.yaml
