@@ -5,8 +5,8 @@ import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { errorHandler } from './middleware';
-import { authRoutes, ridesRoutes, driversRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, restaurantsRoutes } from './routes';
-import { registerTrackingSocket } from './websocket';
+import { authRoutes, ridesRoutes, driversRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, restaurantsRoutes, chatRoutes, notificationsRoutes, mlRoutes } from './routes';
+import { registerTrackingSocket, registerChatSocket } from './websocket';
 
 export function createApp() {
   const app = express();
@@ -41,9 +41,13 @@ export function createApp() {
   app.use('/api/fraud', fraudRoutes);
   app.use('/api/analytics', analyticsRoutes);
   app.use('/api/2fa', twofaRoutes);
+  app.use('/api/chat', chatRoutes);
+  app.use('/api/notifications', notificationsRoutes);
+  app.use('/api/ml', mlRoutes);
   app.use('/api', restaurantsRoutes);
 
   registerTrackingSocket(io);
+  registerChatSocket(io);
   app.use(errorHandler);
 
   return { app, httpServer, io };

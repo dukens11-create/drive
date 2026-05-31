@@ -1,6 +1,7 @@
 export { default as adminRoutes } from './admin.routes';
 export { default as analyticsRoutes } from './analytics.routes';
 export { default as authRoutes } from './auth.routes';
+export { default as chatRoutes } from './chat.routes';
 export { default as carpoolRoutes } from './carpool.routes';
 export { default as corporateRoutes } from './corporate.routes';
 export { default as driversRoutes } from './drivers.routes';
@@ -9,6 +10,8 @@ export { default as kycRoutes } from './kyc.routes';
 export { default as loyaltyRoutes } from './loyalty.routes';
 export { default as marketplaceRoutes } from './marketplace.routes';
 export { default as merchantRoutes } from './merchant.routes';
+export { default as mlRoutes } from './ml.routes';
+export { default as notificationsRoutes } from './notifications.routes';
 export { default as paymentsRoutes } from './payments.routes';
 export { default as ridesRoutes } from './rides.routes';
 export { default as restaurantsRoutes } from './restaurants.routes';
