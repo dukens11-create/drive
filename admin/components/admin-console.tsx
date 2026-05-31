@@ -95,11 +95,8 @@ function readImportFile(file: File, format: string) {
           reject(new Error('Expected binary spreadsheet payload'));
           return;
         }
-        let binary = '';
         const bytes = new Uint8Array(result);
-        bytes.forEach(byte => {
-          binary += String.fromCharCode(byte);
-        });
+        const binary = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
         resolve(btoa(binary));
       };
       reader.readAsArrayBuffer(file);

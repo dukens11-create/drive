@@ -191,20 +191,20 @@ function parseCsv(content: string) {
     const values: string[] = [];
     let current = '';
     let inQuotes = false;
-    for (let index = 0; index < line.length; index += 1) {
-      const character = line[index];
-      if (character === '"') {
-        if (inQuotes && line[index + 1] === '"') {
+    for (let charIndex = 0; charIndex < line.length; charIndex += 1) {
+      const currentChar = line[charIndex];
+      if (currentChar === '"') {
+        if (inQuotes && line[charIndex + 1] === '"') {
           current += '"';
-          index += 1;
+          charIndex += 1;
         } else {
           inQuotes = !inQuotes;
         }
-      } else if (character === delimiter && !inQuotes) {
+      } else if (currentChar === delimiter && !inQuotes) {
         values.push(current);
         current = '';
       } else {
-        current += character;
+        current += currentChar;
       }
     }
     values.push(current);
@@ -373,8 +373,9 @@ async function createExportJob(body: any, actor?: AdminActor) {
     reusedFromId: reuse?.id
   };
   rememberExportJob(job);
-  if (actorId(actor)) {
-    appendAuditLog(actorId(actor)!, actorRole(actor), 'admin_export_created', job.id, 'admin_export', { dataType, format, rowCount: filtered.length });
+  const auditActorId = actorId(actor);
+  if (auditActorId) {
+    appendAuditLog(auditActorId, actorRole(actor), 'admin_export_created', job.id, 'admin_export', { dataType, format, rowCount: filtered.length });
   }
   const content = format === 'json'
     ? JSON.stringify(filtered, null, 2)
