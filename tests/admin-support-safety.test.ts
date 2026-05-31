@@ -238,6 +238,125 @@ test('GET /api/admin/audit-log returns audit entries', async () => {
   });
 });
 
+test('POST /api/admin/export-data creates reusable export jobs in multiple formats', async () => {
+  await withServer(async baseUrl => {
+    const adminToken = await loginAdmin(baseUrl);
+    const { userId } = await signupAndLogin(baseUrl, 'rider');
+
+    const exportRes = await fetch(`${baseUrl}/api/admin/export-data`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + adminToken },
+      body: JSON.stringify({
+        dataType: 'users',
+        format: 'json',
+        columns: ['id', 'email', 'role'],
+        filters: { search: userId }
+      })
+    });
+    assert.equal(exportRes.status, 200);
+    const exportBody = await exportRes.json() as any;
+    assert.equal(exportBody.ok, true);
+    assert.equal(exportBody.export.format, 'json');
+    assert.equal(exportBody.export.rowCount, 1);
+    assert.deepEqual(Object.keys(JSON.parse(exportBody.export.content)[0]), ['id', 'email', 'role']);
+
+    const reuseRes = await fetch(`${baseUrl}/api/admin/export-data`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + adminToken },
+      body: JSON.stringify({ reuseJobId: exportBody.export.id, format: 'xlsx' })
+    });
+    assert.equal(reuseRes.status, 200);
+    const reuseBody = await reuseRes.json() as any;
+    assert.equal(reuseBody.ok, true);
+    assert.equal(reuseBody.export.reusedFromId, exportBody.export.id);
+    assert.ok(Buffer.from(reuseBody.export.content, 'base64').toString('utf8').includes(userId));
+  });
+});
+
+test('POST /api/admin/import-data previews, imports, and rolls back imported users', async () => {
+  await withServer(async baseUrl => {
+    const adminToken = await loginAdmin(baseUrl);
+    const records = [
+      { email: `imported-a-${randomUUID()}@example.com`, role: 'rider' },
+      { email: `imported-b-${randomUUID()}@example.com`, role: 'driver' }
+    ];
+
+    const previewRes = await fetch(`${baseUrl}/api/admin/import-data`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + adminToken },
+      body: JSON.stringify({ dataType: 'users', format: 'api', records, previewOnly: true })
+    });
+    assert.equal(previewRes.status, 200);
+    const previewBody = await previewRes.json() as any;
+    assert.equal(previewBody.ok, true);
+    assert.equal(previewBody.preview.status, 'preview');
+    assert.equal(previewBody.preview.validRecords, 2);
+
+    const importRes = await fetch(`${baseUrl}/api/admin/import-data`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + adminToken },
+      body: JSON.stringify({ dataType: 'users', format: 'api', records, confirm: true })
+    });
+    assert.equal(importRes.status, 200);
+    const importBody = await importRes.json() as any;
+    assert.equal(importBody.ok, true);
+    assert.equal(importBody.importJob.importedCount, 2);
+
+    const listRes = await fetch(`${baseUrl}/api/admin/list-users`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + adminToken },
+      body: JSON.stringify({})
+    });
+    const listBody = await listRes.json() as any;
+    assert.ok(listBody.users.some((user: any) => user.email === records[0].email));
+
+    const rollbackRes = await fetch(`${baseUrl}/api/admin/import-data`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + adminToken },
+      body: JSON.stringify({ rollbackImportId: importBody.importJob.id })
+    });
+    assert.equal(rollbackRes.status, 200);
+    const rollbackBody = await rollbackRes.json() as any;
+    assert.equal(rollbackBody.ok, true);
+    assert.equal(rollbackBody.importJob.status, 'rolled_back');
+
+    const listAfterRollbackRes = await fetch(`${baseUrl}/api/admin/list-users`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + adminToken },
+      body: JSON.stringify({})
+    });
+    const listAfterRollbackBody = await listAfterRollbackRes.json() as any;
+    assert.equal(listAfterRollbackBody.users.some((user: any) => user.email === records[0].email), false);
+  });
+});
+
+test('POST /api/admin/bulk-operation updates multiple users and records job history', async () => {
+  await withServer(async baseUrl => {
+    const adminToken = await loginAdmin(baseUrl);
+    const first = await signupAndLogin(baseUrl, 'rider');
+    const second = await signupAndLogin(baseUrl, 'rider');
+
+    const bulkRes = await fetch(`${baseUrl}/api/admin/bulk-operation`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + adminToken },
+      body: JSON.stringify({ targetType: 'users', action: 'suspend', ids: [first.userId, second.userId] })
+    });
+    assert.equal(bulkRes.status, 200);
+    const bulkBody = await bulkRes.json() as any;
+    assert.equal(bulkBody.ok, true);
+    assert.equal(bulkBody.job.succeeded, 2);
+
+    const overviewRes = await fetch(`${baseUrl}/api/admin/overview`, {
+      headers: { authorization: 'Bearer ' + adminToken }
+    });
+    const overviewBody = await overviewRes.json() as any;
+    assert.ok(Array.isArray(overviewBody.bulkJobs));
+    assert.equal(overviewBody.bulkJobs[0].id, bulkBody.job.id);
+    const suspendedUsers = overviewBody.users.filter((user: any) => [first.userId, second.userId].includes(user.id));
+    assert.equal(suspendedUsers.every((user: any) => user.suspended === true), true);
+  });
+});
+
 test('POST /api/admin/update-ticket updates a support ticket status', async () => {
   await withServer(async baseUrl => {
     const adminToken = await loginAdmin(baseUrl);

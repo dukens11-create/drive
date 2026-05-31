@@ -19,5 +19,6 @@ Set `NEXT_PUBLIC_API_BASE_URL` to the backend base URL (for example `http://loca
 - Admin JWT login against the root Drive API
 - Operational dashboard, analytics, drivers, rides, payments, users, support, safety, promotions, settings, and reports views
 - Live admin notifications via Socket.IO for driver status and SOS events
-- CSV export helpers and print/PDF-friendly reports
+- Multi-format exports (CSV, JSON, XML, Excel-compatible downloads) with reusable job history and print/PDF-friendly reports
+- Previewable admin imports for users, promos, markets, and settings, plus bulk action history
 - Dark mode and tablet-friendly responsive layout

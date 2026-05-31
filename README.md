@@ -119,7 +119,7 @@ The admin app includes:
 - KPI dashboard with live driver/ride map and notifications
 - Analytics, driver, ride, payment, user, support, safety, promotions, settings, and reports sections
 - JWT-backed admin login against the existing backend API
-- CSV export and print/PDF-friendly reporting views
+- Advanced admin exports/imports with reusable job history, bulk actions, compliance snapshots, and print/PDF-friendly reporting views
 - Dockerfile for standalone admin container builds
 
 ## Restaurant admin dashboard

@@ -221,6 +221,56 @@ export type PlatformSettings = {
   updatedAt: string;
 };
 
+export type AdminExportJob = {
+  id: string;
+  dataType: string;
+  format: string;
+  filename: string;
+  rowCount: number;
+  columns: string[];
+  filters?: Record<string, unknown>;
+  requestedAt: string;
+  requestedBy?: string;
+  reusedFromId?: string;
+};
+
+export type AdminImportChange = {
+  key: string;
+  action: 'created' | 'updated';
+  previousValue?: unknown;
+};
+
+export type AdminImportJob = {
+  id: string;
+  dataType: string;
+  format: string;
+  status: 'preview' | 'completed' | 'rolled_back';
+  totalRecords: number;
+  validRecords: number;
+  importedCount: number;
+  duplicateCount: number;
+  errorCount: number;
+  requestedAt: string;
+  requestedBy?: string;
+  errors: string[];
+  changes: AdminImportChange[];
+  rollbackAt?: string;
+};
+
+export type AdminBulkJob = {
+  id: string;
+  targetType: string;
+  action: string;
+  total: number;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  requestedAt: string;
+  requestedBy?: string;
+  errors: string[];
+  status: 'completed';
+};
+
 export type MerchantProduct = {
   id: string;
   merchantId: string;
@@ -524,6 +574,9 @@ type PersistedStore = {
   markets: Array<[string, MarketConfig]>;
   adminApiKeys: AdminApiKey[];
   platformSettings: Array<[string, PlatformSettings]>;
+  adminExportJobs: AdminExportJob[];
+  adminImportJobs: AdminImportJob[];
+  adminBulkJobs: AdminBulkJob[];
   scheduledRides: ScheduledRide[];
   subscriptionPlans: Array<[string, SubscriptionPlan]>;
   userSubscriptions: Array<[string, UserSubscription]>;
@@ -623,6 +676,9 @@ export const store = {
   markets: new PersistentMap<string, MarketConfig>(),
   adminApiKeys: createPersistentArray<AdminApiKey>(),
   platformSettings: new PersistentMap<string, PlatformSettings>(),
+  adminExportJobs: createPersistentArray<AdminExportJob>(),
+  adminImportJobs: createPersistentArray<AdminImportJob>(),
+  adminBulkJobs: createPersistentArray<AdminBulkJob>(),
   scheduledRides: new PersistentMap<string, ScheduledRide>(),
   subscriptionPlans: new PersistentMap<string, SubscriptionPlan>(),
   userSubscriptions: new PersistentMap<string, UserSubscription>(),
@@ -663,6 +719,9 @@ function toSerializableStore(): PersistedStore {
     markets: Array.from(store.markets.entries()),
     adminApiKeys: [...store.adminApiKeys],
     platformSettings: Array.from(store.platformSettings.entries()),
+    adminExportJobs: [...store.adminExportJobs],
+    adminImportJobs: [...store.adminImportJobs],
+    adminBulkJobs: [...store.adminBulkJobs],
     scheduledRides: Array.from(store.scheduledRides.values()),
     subscriptionPlans: Array.from(store.subscriptionPlans.entries()),
     userSubscriptions: Array.from(store.userSubscriptions.entries()),
@@ -733,6 +792,9 @@ function hydrateStore() {
     for (const [id, market] of parsed.markets || []) store.markets.set(id, market);
     for (const apiKey of parsed.adminApiKeys || []) store.adminApiKeys.push(apiKey);
     for (const [key, settings] of parsed.platformSettings || []) store.platformSettings.set(key, settings);
+    for (const exportJob of parsed.adminExportJobs || []) store.adminExportJobs.push(exportJob);
+    for (const importJob of parsed.adminImportJobs || []) store.adminImportJobs.push(importJob);
+    for (const bulkJob of parsed.adminBulkJobs || []) store.adminBulkJobs.push(bulkJob);
     for (const ride of parsed.scheduledRides || []) store.scheduledRides.set(ride.id, ride);
     for (const [id, plan] of parsed.subscriptionPlans || []) store.subscriptionPlans.set(id, plan);
     for (const [id, sub] of parsed.userSubscriptions || []) store.userSubscriptions.set(id, sub);

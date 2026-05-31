@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { AdminOverview, adminApi, apiBaseUrl, decodeToken, loginAdmin, Session } from '@/lib/api';
+import { AdminImportJob, AdminOverview, adminApi, apiBaseUrl, decodeToken, loginAdmin, Session } from '@/lib/api';
 
 const SESSION_KEY = 'drive-admin-session';
 const THEME_KEY = 'drive-admin-theme';
@@ -36,6 +36,9 @@ type AdminValue = {
   updateSettings: (payload: Record<string, unknown>) => Promise<void>;
   upsertPromo: (payload: Record<string, unknown>) => Promise<void>;
   upsertMarket: (payload: Record<string, unknown>) => Promise<void>;
+  exportData: (payload: Record<string, unknown>) => Promise<{ content: string; contentType: string; filename: string }>;
+  importData: (payload: Record<string, unknown>) => Promise<{ preview?: AdminImportJob; importJob?: AdminImportJob }>;
+  bulkOperation: (payload: Record<string, unknown>) => Promise<void>;
   createApiKey: (name: string) => Promise<void>;
   revokeApiKey: (apiKeyId: string) => Promise<void>;
 };
@@ -202,6 +205,41 @@ function AdminProvider({ children }: { children: React.ReactNode }) {
     updateSettings: payload => run(() => adminApi.updateSettings(session!.accessToken, payload)),
     upsertPromo: payload => run(() => adminApi.upsertPromo(session!.accessToken, payload)),
     upsertMarket: payload => run(() => adminApi.upsertMarket(session!.accessToken, payload)),
+    exportData: async payload => {
+      if (!session) throw new Error('Not authenticated');
+      setLoading(true);
+      try {
+        const response = await adminApi.exportData(session.accessToken, payload);
+        await refresh();
+        setError(null);
+        return {
+          content: response.export.content,
+          contentType: response.export.contentType,
+          filename: response.export.filename
+        };
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unable to export data');
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    importData: async payload => {
+      if (!session) throw new Error('Not authenticated');
+      setLoading(true);
+      try {
+        const response = await adminApi.importData(session.accessToken, payload);
+        await refresh();
+        setError(null);
+        return response;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unable to import data');
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    bulkOperation: payload => run(() => adminApi.bulkOperation(session!.accessToken, payload)),
     createApiKey: async name => {
       if (!session) return;
       setLoading(true);

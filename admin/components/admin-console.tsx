@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { FormEvent, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, useMemo, useState } from 'react';
 import { useAdmin, useAuth, useTheme } from '@/components/providers';
 import type { DriverSummary, SectionKey } from '@/lib/api';
 
@@ -63,6 +63,51 @@ function csvDownload(filename: string, rows: Array<Record<string, unknown>>) {
   link.setAttribute('download', filename);
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function downloadContent(filename: string, content: string, contentType: string, isBase64 = false) {
+  const payload = isBase64
+    ? Uint8Array.from(atob(content), character => character.charCodeAt(0))
+    : content;
+  const blob = new Blob([payload], { type: contentType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', filename);
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function inferImportFormat(filename: string) {
+  if (/\.csv$/i.test(filename)) return 'csv';
+  if (/\.xlsx$/i.test(filename)) return 'xlsx';
+  return 'json';
+}
+
+function readImportFile(file: File, format: string) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('Unable to read file'));
+    if (format === 'xlsx') {
+      reader.onload = () => {
+        const result = reader.result;
+        if (!(result instanceof ArrayBuffer)) {
+          reject(new Error('Expected binary spreadsheet payload'));
+          return;
+        }
+        let binary = '';
+        const bytes = new Uint8Array(result);
+        bytes.forEach(byte => {
+          binary += String.fromCharCode(byte);
+        });
+        resolve(btoa(binary));
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.readAsText(file);
+  });
 }
 
 function SectionCard({ title, description, action, children }: { title: string; description?: string; action?: React.ReactNode; children: React.ReactNode }) {
@@ -248,13 +293,18 @@ export function AdminConsole({ children }: { children: React.ReactNode }) {
 }
 
 export function AdminSectionPage({ section }: { section: SectionKey }) {
-  const { overview, error, loading, approveDriver, suspendUser, updateIncident, updateSettings, upsertPromo, upsertMarket, updateTicket, replyTicket, createApiKey, revokeApiKey, lastApiKey } = useAdmin();
+  const { overview, error, loading, approveDriver, suspendUser, updateIncident, updateSettings, upsertPromo, upsertMarket, updateTicket, replyTicket, createApiKey, revokeApiKey, exportData, importData, bulkOperation, lastApiKey } = useAdmin();
   const [resolution, setResolution] = useState('Resolved in admin dashboard');
   const [replyMessage, setReplyMessage] = useState('We are reviewing your case and will follow up shortly.');
   const [promoForm, setPromoForm] = useState({ code: 'WELCOME10', discountType: 'percent', discountValue: '10', active: true });
   const [marketForm, setMarketForm] = useState({ name: 'Downtown', city: 'San Francisco', country: 'USA', status: 'active' });
   const [settingsForm, setSettingsForm] = useState({ maintenanceMode: false, commissionRatePercent: '20', surgeMultiplier: '1.5', appVersion: '1.0.0' });
   const [apiKeyName, setApiKeyName] = useState('reporting-service');
+  const [userSearch, setUserSearch] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState('all');
+  const [exportForm, setExportForm] = useState({ dataType: 'users', format: 'csv', columns: 'id,email,role', search: '', dateFrom: '', dateTo: '' });
+  const [importForm, setImportForm] = useState({ dataType: 'users', format: 'json', content: '' });
+  const [importFileName, setImportFileName] = useState('');
 
   const drivers = overview?.drivers || [];
   const rides = useMemo(() => (overview?.rides || []) as Array<Record<string, unknown>>, [overview]);
@@ -262,10 +312,20 @@ export function AdminSectionPage({ section }: { section: SectionKey }) {
   const incidents = overview?.incidents || [];
   const payments = overview?.payments || [];
   const refunds = overview?.refunds || [];
-  const users = overview?.users || [];
+  const users = useMemo(() => {
+    const source = overview?.users || [];
+    return source.filter(user => {
+      const matchesSearch = !userSearch.trim() || [user.email, user.phone, user.id].some(value => String(value || '').toLowerCase().includes(userSearch.trim().toLowerCase()));
+      const matchesRole = userRoleFilter === 'all' || user.role === userRoleFilter;
+      return matchesSearch && matchesRole;
+    });
+  }, [overview?.users, userRoleFilter, userSearch]);
   const flaggedDrivers = drivers.filter(driver => driver.status === 'pending' || driver.incidentsCount > 0 || driver.cancellationRate > 0.15);
   const selectedTicket = tickets[0];
   const selectedIncident = incidents[0];
+  const exportJobs = overview?.exportJobs || [];
+  const importJobs = overview?.importJobs || [];
+  const bulkJobs = overview?.bulkJobs || [];
 
   if (!overview && loading) {
     return <div className="flex min-h-[50vh] items-center justify-center text-sm text-[var(--muted)]">Loading dashboard data…</div>;
@@ -276,6 +336,34 @@ export function AdminSectionPage({ section }: { section: SectionKey }) {
   }
 
   const meta = sectionMeta[section];
+  const complianceReports = [
+    { label: 'Tax exposure', value: formatCurrency(overview.analytics.finance.capturedRevenueCents), helper: `${overview.orders.length} delivery orders + ${overview.stats.totalRides} rides` },
+    { label: 'Audit trail', value: String(overview.auditLogs.length), helper: 'Recent admin and security events' },
+    { label: 'Open compliance items', value: String(overview.incidents.filter(incident => incident.status !== 'resolved').length), helper: `${overview.restaurants.filter(restaurant => String(restaurant.complianceStatus) !== 'approved').length} restaurants need review` },
+    { label: 'Review volume', value: String(overview.reviews.length), helper: `${overview.restaurants.length} restaurants tracked` }
+  ];
+
+  async function handleAdvancedExport(payload?: Partial<typeof exportForm>) {
+    const next = { ...exportForm, ...payload };
+    const response = await exportData({
+      dataType: next.dataType,
+      format: next.format,
+      columns: next.columns.split(',').map(column => column.trim()).filter(Boolean),
+      filters: next.search.trim() ? { search: next.search.trim() } : {},
+      dateFrom: next.dateFrom || undefined,
+      dateTo: next.dateTo || undefined
+    });
+    downloadContent(response.filename, response.content, response.contentType, next.format === 'xlsx');
+  }
+
+  async function handleImportFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const nextFormat = inferImportFormat(file.name);
+    const content = await readImportFile(file, nextFormat);
+    setImportForm(current => ({ ...current, format: nextFormat, content }));
+    setImportFileName(file.name);
+  }
 
   return (
     <div className="space-y-6">
@@ -417,9 +505,14 @@ export function AdminSectionPage({ section }: { section: SectionKey }) {
           </SectionCard>
           <SectionCard title="Bulk driver actions" description="Run targeted operations on the riskiest accounts.">
             <div className="space-y-3 text-sm">
-              <button className="w-full rounded-2xl border border-[var(--border)] px-4 py-3" onClick={() => { flaggedDrivers.slice(0, 3).forEach(driver => void suspendUser(driver.userId, true)); }} type="button">Suspend top 3 flagged drivers</button>
-              <button className="w-full rounded-2xl border border-[var(--border)] px-4 py-3" onClick={() => { drivers.filter(driver => driver.status === 'pending').slice(0, 3).forEach(driver => void approveDriver(driver.userId, true)); }} type="button">Approve first 3 pending drivers</button>
+              <button className="w-full rounded-2xl border border-[var(--border)] px-4 py-3" onClick={() => { void bulkOperation({ targetType: 'drivers', action: 'suspend', ids: flaggedDrivers.slice(0, 3).map(driver => driver.userId) }); }} type="button">Suspend top 3 flagged drivers</button>
+              <button className="w-full rounded-2xl border border-[var(--border)] px-4 py-3" onClick={() => { void bulkOperation({ targetType: 'drivers', action: 'approve', ids: drivers.filter(driver => driver.status === 'pending').slice(0, 3).map(driver => driver.userId) }); }} type="button">Approve first 3 pending drivers</button>
               <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--muted)]">Messaging is surfaced through audit-ready support replies and account actions while dedicated broadcast messaging is implemented on the backend.</div>
+              {bulkJobs.filter(job => job.targetType === 'drivers').slice(0, 2).map(job => (
+                <div key={job.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--muted)]">
+                  {job.action} • {job.succeeded}/{job.total} complete • {formatDate(job.requestedAt)}
+                </div>
+              ))}
             </div>
           </SectionCard>
         </div>
@@ -510,6 +603,16 @@ export function AdminSectionPage({ section }: { section: SectionKey }) {
       {section === 'users' ? (
         <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
           <SectionCard title="Users" description="Searchable roster of riders, drivers, merchants, and admins.">
+            <div className="mb-4 grid gap-3 md:grid-cols-[1fr_220px]">
+              <input className="rounded-2xl border border-[var(--border)] px-4 py-3 text-sm" placeholder="Search by email, phone, or id" value={userSearch} onChange={event => setUserSearch(event.target.value)} />
+              <select className="rounded-2xl border border-[var(--border)] px-4 py-3 text-sm" value={userRoleFilter} onChange={event => setUserRoleFilter(event.target.value)}>
+                <option value="all">All roles</option>
+                <option value="rider">Riders</option>
+                <option value="driver">Drivers</option>
+                <option value="merchant">Merchants</option>
+                <option value="admin">Admins</option>
+              </select>
+            </div>
             <div className="space-y-3">
               {users.map(user => (
                 <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--border)] p-4">
@@ -525,8 +628,20 @@ export function AdminSectionPage({ section }: { section: SectionKey }) {
               ))}
             </div>
           </SectionCard>
-          <SectionCard title="Support demand by user" description="Quick view of the riders with the highest support volume and spending.">
-            <div className="space-y-3">
+          <div className="space-y-6">
+            <SectionCard title="Bulk user actions" description="Apply actions to the filtered segment and review recent batch history.">
+              <div className="space-y-3 text-sm">
+                <button className="w-full rounded-2xl border border-[var(--border)] px-4 py-3" onClick={() => { void bulkOperation({ targetType: 'users', action: 'suspend', ids: users.slice(0, 10).map(user => user.id) }); }} type="button">Suspend first 10 filtered users</button>
+                <button className="w-full rounded-2xl border border-[var(--border)] px-4 py-3" onClick={() => { void bulkOperation({ targetType: 'users', action: 'activate', ids: users.filter(user => user.suspended).slice(0, 10).map(user => user.id) }); }} type="button">Reactivate suspended segment</button>
+                {bulkJobs.filter(job => job.targetType === 'users').slice(0, 3).map(job => (
+                  <div key={job.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--muted)]">
+                    {job.action} • {job.succeeded}/{job.total} succeeded • {formatDate(job.requestedAt)}
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+            <SectionCard title="Support demand by user" description="Quick view of the riders with the highest support volume and spending.">
+              <div className="space-y-3">
               {overview.riders.slice(0, 6).map(rider => (
                 <div key={rider.user.id} className="rounded-2xl border border-[var(--border)] p-4 text-sm">
                   <div className="flex items-center justify-between gap-3">
@@ -536,8 +651,9 @@ export function AdminSectionPage({ section }: { section: SectionKey }) {
                   <p className="mt-2 text-[var(--muted)]">{rider.tripCount} trips • {formatCurrency(rider.spendingCents)}</p>
                 </div>
               ))}
-            </div>
-          </SectionCard>
+              </div>
+            </SectionCard>
+          </div>
         </div>
       ) : null}
 
@@ -766,18 +882,89 @@ export function AdminSectionPage({ section }: { section: SectionKey }) {
             </div>
             <div className="mt-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--muted)]">Use the export button above to download CSV snapshots for finance, driver performance, rider behaviour, and safety reporting. Print/PDF renders the current section for distribution.</div>
           </SectionCard>
-          <SectionCard title="Custom report builder" description="Compose focused exports from the current dashboard snapshot.">
-            <div className="grid gap-3 md:grid-cols-2 text-sm text-[var(--muted)]">
-              {[
-                { name: 'Driver performance', rows: drivers.map(driver => ({ driver: driver.user?.email || driver.userId, earnings: driver.earningsCents, rating: driver.rating, trips: driver.tripCount })) },
-                { name: 'Rider behavior', rows: overview.riders.map(rider => ({ rider: rider.user.email || rider.user.id, spending: rider.spendingCents, trips: rider.tripCount, retention: rider.retentionScore })) },
-                { name: 'Incident log', rows: incidents.map(incident => ({ incident: incident.id, type: incident.type, status: incident.status, user: incident.user?.email || incident.userId || '' })) },
-                { name: 'Refund queue', rows: refunds.map(refund => ({ payment: refund.id, ride: refund.rideId || '', amount: refund.amountCents, status: refund.status })) }
-              ].map(report => (
-                <button key={report.name} className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 text-left" onClick={() => csvDownload(`${report.name.toLowerCase().replace(/\s+/g, '-')}.csv`, report.rows)} type="button">
-                  <p className="font-semibold text-[var(--foreground)]">{report.name}</p>
-                  <p className="mt-2">Export {report.rows.length} records</p>
-                </button>
+          <SectionCard title="Advanced export center" description="Select format, columns, and filters, then reuse previous export jobs.">
+            <form
+              className="grid gap-4"
+              onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                event.preventDefault();
+                void handleAdvancedExport();
+              }}
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="text-sm font-medium">Data type<select className="mt-2" value={exportForm.dataType} onChange={event => setExportForm(current => ({ ...current, dataType: event.target.value }))}><option value="users">Users</option><option value="drivers">Drivers</option><option value="rides">Rides</option><option value="transactions">Transactions</option><option value="tickets">Support tickets</option><option value="restaurants">Restaurants</option><option value="orders">Orders</option><option value="reviews">Reviews</option></select></label>
+                <label className="text-sm font-medium">Format<select className="mt-2" value={exportForm.format} onChange={event => setExportForm(current => ({ ...current, format: event.target.value }))}><option value="csv">CSV</option><option value="json">JSON</option><option value="xml">XML</option><option value="xlsx">Excel</option></select></label>
+              </div>
+              <label className="text-sm font-medium">Columns (comma separated)<input className="mt-2" value={exportForm.columns} onChange={event => setExportForm(current => ({ ...current, columns: event.target.value }))} /></label>
+              <div className="grid gap-4 md:grid-cols-3">
+                <label className="text-sm font-medium">Search filter<input className="mt-2" value={exportForm.search} onChange={event => setExportForm(current => ({ ...current, search: event.target.value }))} /></label>
+                <label className="text-sm font-medium">Date from<input className="mt-2" type="date" value={exportForm.dateFrom} onChange={event => setExportForm(current => ({ ...current, dateFrom: event.target.value }))} /></label>
+                <label className="text-sm font-medium">Date to<input className="mt-2" type="date" value={exportForm.dateTo} onChange={event => setExportForm(current => ({ ...current, dateTo: event.target.value }))} /></label>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <button className="rounded-2xl bg-[var(--accent)] px-4 py-3 font-semibold text-[var(--accent-foreground)]" type="submit">Run export</button>
+                <button className="rounded-2xl border border-[var(--border)] px-4 py-3" onClick={() => window.print()} type="button">Print / PDF</button>
+              </div>
+            </form>
+            <div className="mt-4 grid gap-3 text-sm text-[var(--muted)]">
+              {exportJobs.slice(0, 4).map(job => (
+                <div key={job.id} className="rounded-2xl border border-[var(--border)] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-[var(--foreground)]">{job.dataType} • {job.format.toUpperCase()}</p>
+                      <p className="mt-1">{job.rowCount} rows • {formatDate(job.requestedAt)}</p>
+                    </div>
+                    <button className="rounded-xl border border-[var(--border)] px-3 py-2" onClick={() => { void handleAdvancedExport({ dataType: job.dataType, format: job.format, columns: job.columns.join(','), search: String(job.filters?.search || '') }); }} type="button">Reuse</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+          <SectionCard title="Import center" description="Preview and confirm bulk user, market, promo, and configuration imports with rollback history.">
+            <form
+              className="grid gap-4"
+              onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                event.preventDefault();
+                void importData({ ...importForm, previewOnly: true });
+              }}
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="text-sm font-medium">Import type<select className="mt-2" value={importForm.dataType} onChange={event => setImportForm(current => ({ ...current, dataType: event.target.value }))}><option value="users">Users</option><option value="promos">Promo codes</option><option value="markets">Markets</option><option value="settings">Configuration</option></select></label>
+                <label className="text-sm font-medium">Format<select className="mt-2" value={importForm.format} onChange={event => setImportForm(current => ({ ...current, format: event.target.value }))}><option value="json">JSON</option><option value="csv">CSV</option><option value="xlsx">Excel</option><option value="api">API payload</option></select></label>
+              </div>
+              <label className="text-sm font-medium">Upload file<input className="mt-2" accept=".json,.csv,.xlsx" onChange={event => { void handleImportFileChange(event); }} type="file" /></label>
+              {importFileName ? <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--muted)]">{importFileName}</div> : null}
+              <label className="text-sm font-medium">Payload<textarea className="mt-2 min-h-32" placeholder='[{"email":"ops@example.com","role":"driver"}]' value={importForm.content} onChange={event => setImportForm(current => ({ ...current, content: event.target.value }))} /></label>
+              <div className="flex flex-wrap gap-3">
+                <button className="rounded-2xl border border-[var(--border)] px-4 py-3" type="submit">Preview import</button>
+                <button className="rounded-2xl bg-[var(--accent)] px-4 py-3 font-semibold text-[var(--accent-foreground)]" onClick={() => { void importData({ ...importForm, confirm: true, previewOnly: false }); }} type="button">Confirm import</button>
+              </div>
+            </form>
+            <div className="mt-4 space-y-3 text-sm text-[var(--muted)]">
+              {importJobs.slice(0, 4).map(job => (
+                <div key={job.id} className="rounded-2xl border border-[var(--border)] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-[var(--foreground)]">{job.dataType} • {job.status}</p>
+                      <p className="mt-1">{job.importedCount}/{job.totalRecords} imported • {job.duplicateCount} duplicates • {job.errorCount} errors</p>
+                    </div>
+                    {job.status === 'completed' ? <button className="rounded-xl border border-[var(--border)] px-3 py-2" onClick={() => { void importData({ rollbackImportId: job.id }); }} type="button">Rollback</button> : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+          <SectionCard title="Compliance & audit reports" description="Review financial, tax, regulatory, and audit-readiness snapshots.">
+            <div className="grid gap-4 md:grid-cols-2">
+              {complianceReports.map(report => (
+                <StatCard key={report.label} label={report.label} value={report.value} helper={report.helper} />
+              ))}
+            </div>
+            <div className="mt-4 space-y-3 text-sm text-[var(--muted)]">
+              {overview.auditLogs.slice(0, 5).map(log => (
+                <div key={String(log.id)} className="rounded-2xl border border-[var(--border)] p-4">
+                  <p className="font-semibold text-[var(--foreground)]">{String(log.action)}</p>
+                  <p className="mt-1">{String(log.targetType || 'system')} • {formatDate(String(log.createdAt || ''))}</p>
+                </div>
               ))}
             </div>
           </SectionCard>
