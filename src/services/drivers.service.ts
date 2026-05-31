@@ -1,14 +1,15 @@
-import { markStoreDirty, store } from '../database/data.store';
+import { markStoreDirty, store, type DriverProfile } from '../database/data.store';
 
 function getProfile(userId: string) {
   return store.drivers.get(userId);
 }
 
 function getActorUserId(body: any) {
+  // Prefer current actor.id, but keep compatibility with legacy actor/userId payloads.
   return body?.actor?.id || body?.actor?.userId || body?.actor?.sub || body?.userId;
 }
 
-function createDefaultDriverProfile(userId: string): any {
+function createDefaultDriverProfile(userId: string): DriverProfile {
   return {
     userId,
     status: 'pending' as const,
@@ -21,11 +22,11 @@ function createDefaultDriverProfile(userId: string): any {
     acceptanceRate: 1,
     cancellationRate: 0,
     earningsCents: 0,
-    documents: [] as string[]
+    documents: []
   };
 }
 
-function getOrCreateProfile(body: any) {
+function getOrCreateProfile(body: any): { userId: string | null; profile: DriverProfile | null } {
   const userId = getActorUserId(body);
   if (!userId) return { userId: null, profile: null };
   const existing = getProfile(userId);

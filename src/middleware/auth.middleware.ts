@@ -14,6 +14,7 @@ export function requireAuth(req: any, res: any, next: any) {
       audience: 'flupflap-ride-clients'
     }) as any;
 
+    // Support current JWT claim (`sub`) and legacy claim shapes used by older clients.
     const userId = payload?.sub || payload?.userId || payload?.id;
     const role = payload?.role;
     if (!payload || typeof payload !== 'object' || typeof userId !== 'string' || typeof role !== 'string') {
