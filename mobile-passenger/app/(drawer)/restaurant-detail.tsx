@@ -138,7 +138,6 @@ export default function RestaurantDetailScreen() {
           <Text className="text-xs text-zinc-500">·</Text>
           <Text className="text-xs text-zinc-400">Min. ${activeRestaurant?.minimumOrder ?? 0}</Text>
         </View>
-        {id ? <Text className="mt-1 text-[11px] text-zinc-500">Restaurant ID: {id}</Text> : null}
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} className="border-b border-zinc-800">
