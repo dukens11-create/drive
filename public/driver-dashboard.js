@@ -108,7 +108,7 @@ async function handleAcceptRide(event) {
     }
     showAlert('success', `Ride ${rideId} accepted.`);
     await Promise.all([loadAvailableRideRequests(), loadEarnings()]);
-    document.getElementById('accept-ride-form').reset();
+    event.target.reset();
   } catch (_error) {
     showAlert('danger', 'Unable to accept ride.');
   }
