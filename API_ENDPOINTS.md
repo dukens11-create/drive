@@ -1,3 +1,7 @@
 # API Endpoints
 
-Auth, rides, drivers, payments, wallet, KYC, safety, support, merchant, marketplace, admin.
+The complete, continuously maintained endpoint catalog is available at:
+
+- [docs/api/endpoints.md](./docs/api/endpoints.md)
+- [docs/api/openapi.yaml](./docs/api/openapi.yaml)
+- [docs/api/usage-examples.md](./docs/api/usage-examples.md)

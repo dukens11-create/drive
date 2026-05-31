@@ -7,6 +7,15 @@ Drive is now a TypeScript codebase with:
 - Admin dashboard at `admin/` (Next.js + TypeScript + Tailwind CSS)
 - Passenger web app at `web/` (Next.js + TypeScript + Tailwind CSS)
 
+## Documentation
+
+- Full documentation hub: **[docs/README.md](./docs/README.md)**
+- API specification: **[docs/api/openapi.yaml](./docs/api/openapi.yaml)**
+- Endpoint catalog: **[docs/api/endpoints.md](./docs/api/endpoints.md)**
+- Backend README: **[src/README.md](./src/README.md)**
+- Driver mobile README: **[mobile/README.md](./mobile/README.md)**
+- Passenger mobile README: **[mobile-passenger/README.md](./mobile-passenger/README.md)**
+
 ## Mobile app: Drive Home
 
 The `mobile/` app includes a production-style Uber-inspired driver home experience:
