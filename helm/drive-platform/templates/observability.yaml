@@ -256,7 +256,7 @@ spec:
             - name: GF_SECURITY_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "drive-platform.fullname" . }}-secrets
+                  name: {{ include "drive-platform.secretName" . }}
                   key: GRAFANA_ADMIN_PASSWORD
             - name: GF_PATHS_PROVISIONING
               value: /etc/grafana/provisioning
@@ -342,7 +342,12 @@ spec:
             - name: discovery.type
               value: single-node
             - name: xpack.security.enabled
-              value: "false"
+              value: "true"
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "drive-platform.secretName" . }}
+                  key: ELASTIC_PASSWORD
             - name: ES_JAVA_OPTS
               value: -Xms512m -Xmx512m
           ports:
@@ -386,6 +391,8 @@ data:
     output {
       elasticsearch {
         hosts => ["http://{{ include "drive-platform.fullname" . }}-elasticsearch:{{ .Values.logging.elasticsearch.service.port }}"]
+        user => "${ELASTICSEARCH_USERNAME}"
+        password => "${ELASTICSEARCH_PASSWORD}"
         index => "drive-logs-%{+YYYY.MM.dd}"
       }
     }
@@ -413,6 +420,14 @@ spec:
       containers:
         - name: logstash
           image: {{ .Values.logging.logstash.image }}
+          env:
+            - name: ELASTICSEARCH_USERNAME
+              value: elastic
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "drive-platform.secretName" . }}
+                  key: ELASTIC_PASSWORD
           ports:
             - name: beats
               containerPort: {{ .Values.logging.logstash.service.port }}
@@ -468,6 +483,13 @@ spec:
           env:
             - name: ELASTICSEARCH_HOSTS
               value: http://{{ include "drive-platform.fullname" . }}-elasticsearch:{{ .Values.logging.elasticsearch.service.port }}
+            - name: ELASTICSEARCH_USERNAME
+              value: elastic
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "drive-platform.secretName" . }}
+                  key: ELASTIC_PASSWORD
           ports:
             - name: http
               containerPort: {{ .Values.logging.kibana.service.port }}

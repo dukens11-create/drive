@@ -477,8 +477,8 @@ resource "aws_secretsmanager_secret_version" "platform" {
     database_url            = "postgresql://${var.db_username}:${var.db_password}@${aws_db_instance.postgres.address}:5432/${var.project_name}"
     redis_primary_endpoint  = aws_elasticache_replication_group.redis.primary_endpoint_address
     kafka_bootstrap_brokers = aws_msk_cluster.platform.bootstrap_brokers_sasl_iam
-    jwt_secret              = "replace-me"
-    stripe_webhook_secret   = "replace-me"
+    jwt_secret              = var.jwt_secret
+    stripe_webhook_secret   = var.stripe_webhook_secret
   })
 }
 

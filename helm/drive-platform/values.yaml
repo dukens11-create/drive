@@ -34,13 +34,17 @@ config:
   RABBITMQ_URL: "amqp://drive@drive-platform-rabbitmq:5672"
   LOG_LEVEL: info
 
-secrets:
-  JWT_SECRET: replace-in-secret-manager
-  STRIPE_WEBHOOK_SECRET: replace-in-secret-manager
-  POSTGRES_PASSWORD: change-me
-  RABBITMQ_PASSWORD: change-me
-  GRAFANA_ADMIN_PASSWORD: change-me
-  ELASTIC_PASSWORD: change-me
+secretManagement:
+  secretName: drive-platform-secrets
+  createSecret: false
+
+inlineSecrets:
+  JWT_SECRET: ""
+  STRIPE_WEBHOOK_SECRET: ""
+  POSTGRES_PASSWORD: ""
+  RABBITMQ_PASSWORD: ""
+  GRAFANA_ADMIN_PASSWORD: ""
+  ELASTIC_PASSWORD: ""
 
 backend:
   enabled: true

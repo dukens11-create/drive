@@ -13,18 +13,20 @@ data:
   RABBITMQ_URL: {{ .Values.config.RABBITMQ_URL | quote }}
   LOG_LEVEL: {{ .Values.config.LOG_LEVEL | quote }}
 ---
+{{- if .Values.secretManagement.createSecret }}
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ include "drive-platform.fullname" . }}-secrets
+  name: {{ include "drive-platform.secretName" . }}
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "drive-platform.labels" . | nindent 4 }}
 type: Opaque
 stringData:
-  JWT_SECRET: {{ .Values.secrets.JWT_SECRET | quote }}
-  STRIPE_WEBHOOK_SECRET: {{ .Values.secrets.STRIPE_WEBHOOK_SECRET | quote }}
-  POSTGRES_PASSWORD: {{ .Values.secrets.POSTGRES_PASSWORD | quote }}
-  RABBITMQ_PASSWORD: {{ .Values.secrets.RABBITMQ_PASSWORD | quote }}
-  GRAFANA_ADMIN_PASSWORD: {{ .Values.secrets.GRAFANA_ADMIN_PASSWORD | quote }}
-  ELASTIC_PASSWORD: {{ .Values.secrets.ELASTIC_PASSWORD | quote }}
+  JWT_SECRET: {{ .Values.inlineSecrets.JWT_SECRET | quote }}
+  STRIPE_WEBHOOK_SECRET: {{ .Values.inlineSecrets.STRIPE_WEBHOOK_SECRET | quote }}
+  POSTGRES_PASSWORD: {{ .Values.inlineSecrets.POSTGRES_PASSWORD | quote }}
+  RABBITMQ_PASSWORD: {{ .Values.inlineSecrets.RABBITMQ_PASSWORD | quote }}
+  GRAFANA_ADMIN_PASSWORD: {{ .Values.inlineSecrets.GRAFANA_ADMIN_PASSWORD | quote }}
+  ELASTIC_PASSWORD: {{ .Values.inlineSecrets.ELASTIC_PASSWORD | quote }}
+{{- end }}

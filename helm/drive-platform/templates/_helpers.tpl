@@ -25,3 +25,7 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
 {{- include "drive-platform.fullname" . -}}
 {{- end -}}
 {{- end -}}
+
+{{- define "drive-platform.secretName" -}}
+{{- .Values.secretManagement.secretName -}}
+{{- end -}}

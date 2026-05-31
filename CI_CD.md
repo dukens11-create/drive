@@ -41,6 +41,8 @@ helm template drive-platform ./helm/drive-platform --namespace drive-development
 cd terraform && terraform init -backend=false && terraform validate
 ```
 
+Do not commit runtime secrets to `values.yaml` or `.tfvars`. Provide Terraform secrets via `TF_VAR_db_password`, `TF_VAR_jwt_secret`, and `TF_VAR_stripe_webhook_secret`, and bind Kubernetes runtime secrets through an existing secret named `drive-platform-secrets` (or override `secretManagement.secretName`).
+
 ## Mobile build and release
 
 - PR and branch validation use `npm run export:ci` to generate Android and iOS bundles from `mobile/`
