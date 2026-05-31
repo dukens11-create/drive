@@ -4,8 +4,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { io } from 'socket.io-client';
-import { Button, Card, Input, Metric, Pill, SectionTitle, Select, Textarea } from './ui';
-import { useAppState, useTranslation } from './providers';
+import { Button, Card, Input, Metric, Pill, SectionTitle, Select, Textarea, LanguageSwitcher } from './ui';
+import { useAppState, useTranslation, SUPPORTED_LOCALES, LOCALE_LABELS } from './providers';
 import { apiReady, apiBaseUrl } from '../lib/config';
 import { autocompleteAddresses } from '../lib/places';
 import { authApi, foodApi, marketplaceApi, ridesApi, supportApi, walletApi } from '../lib/api';
@@ -639,9 +639,9 @@ export function PassengerPortalPage({ section, rideId }: { section: PortalSectio
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <Select value={preferences.locale} onChange={(event) => setLocale(event.target.value as typeof preferences.locale)}>
-                <option value="en">English</option>
-                <option value="es">Español</option>
-                <option value="fr">Français</option>
+                {SUPPORTED_LOCALES.map((code) => (
+                  <option key={code} value={code}>{LOCALE_LABELS[code]}</option>
+                ))}
               </Select>
               <Select value={preferences.textScale} onChange={(event) => setTextScale(event.target.value as typeof preferences.textScale)}>
                 <option value="sm">Compact text</option>
@@ -926,10 +926,16 @@ export function PassengerPortalPage({ section, rideId }: { section: PortalSectio
               <p className="mt-1 text-xs text-slate-400">Dark mode, locale, text scaling, and high-contrast preferences apply instantly.</p>
             </div>
             <div className="flex flex-wrap gap-3">
-              <Pill>{preferences.locale.toUpperCase()}</Pill>
+              <Pill>{LOCALE_LABELS[preferences.locale] ?? preferences.locale.toUpperCase()}</Pill>
               <Pill>{preferences.theme}</Pill>
               <Button tone="secondary" onClick={() => setTheme(preferences.theme === 'dark' ? 'light' : 'dark')}>Theme</Button>
-              <Button tone="secondary" onClick={() => setLocale(preferences.locale === 'en' ? 'es' : preferences.locale === 'es' ? 'fr' : 'en')}>Language</Button>
+              <LanguageSwitcher
+                locale={preferences.locale}
+                localeLabel={t('language')}
+                locales={SUPPORTED_LOCALES}
+                localeLabels={LOCALE_LABELS}
+                onChange={(code) => setLocale(code as typeof preferences.locale)}
+              />
               <Button tone="ghost" onClick={() => void signOut()}>Sign out</Button>
             </div>
           </Card>

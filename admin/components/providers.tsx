@@ -6,6 +6,190 @@ import { AdminImportJob, AdminOverview, adminApi, apiBaseUrl, decodeToken, login
 
 const SESSION_KEY = 'drive-admin-session';
 const THEME_KEY = 'drive-admin-theme';
+const LOCALE_KEY = 'drive-admin-locale';
+
+export const SUPPORTED_LOCALES = ['en','es','fr','de','it','pt','ru','zh-CN','zh-TW','ja','ko','ar','hi','th','tr','vi','id','nl','pl','sv'] as const;
+export type LocaleCode = typeof SUPPORTED_LOCALES[number];
+export const DEFAULT_LOCALE: LocaleCode = 'en';
+export const RTL_LOCALES = new Set<LocaleCode>(['ar']);
+export const LOCALE_LABELS: Record<LocaleCode, string> = {
+  en: 'English', es: 'Español', fr: 'Français', de: 'Deutsch', it: 'Italiano',
+  pt: 'Português', ru: 'Русский', 'zh-CN': '中文(简)', 'zh-TW': '中文(繁)',
+  ja: '日本語', ko: '한국어', ar: 'العربية', hi: 'हिन्दी', th: 'ภาษาไทย',
+  tr: 'Türkçe', vi: 'Tiếng Việt', id: 'Bahasa Indonesia', nl: 'Nederlands',
+  pl: 'Polski', sv: 'Svenska',
+};
+
+type AdminTranslations = Record<string, string>;
+const translations: Partial<Record<LocaleCode, AdminTranslations>> = {
+  en: {
+    dashboard: 'Dashboard', users: 'Users', drivers: 'Drivers', rides: 'Rides',
+    orders: 'Orders', payments: 'Payments', reports: 'Reports', settings: 'Settings',
+    signIn: 'Sign in', signOut: 'Sign out', loading: 'Loading…', error: 'Error',
+    approve: 'Approve', suspend: 'Suspend', refresh: 'Refresh', save: 'Save',
+    cancel: 'Cancel', delete: 'Delete', search: 'Search', filter: 'Filter',
+    language: 'Language', theme: 'Theme',
+  },
+  es: {
+    dashboard: 'Panel', users: 'Usuarios', drivers: 'Conductores', rides: 'Viajes',
+    orders: 'Pedidos', payments: 'Pagos', reports: 'Informes', settings: 'Configuración',
+    signIn: 'Iniciar sesión', signOut: 'Cerrar sesión', loading: 'Cargando…', error: 'Error',
+    approve: 'Aprobar', suspend: 'Suspender', refresh: 'Actualizar', save: 'Guardar',
+    cancel: 'Cancelar', delete: 'Eliminar', search: 'Buscar', filter: 'Filtrar',
+    language: 'Idioma', theme: 'Tema',
+  },
+  fr: {
+    dashboard: 'Tableau de bord', users: 'Utilisateurs', drivers: 'Chauffeurs', rides: 'Trajets',
+    orders: 'Commandes', payments: 'Paiements', reports: 'Rapports', settings: 'Paramètres',
+    signIn: 'Se connecter', signOut: 'Se déconnecter', loading: 'Chargement…', error: 'Erreur',
+    approve: 'Approuver', suspend: 'Suspendre', refresh: 'Actualiser', save: 'Enregistrer',
+    cancel: 'Annuler', delete: 'Supprimer', search: 'Rechercher', filter: 'Filtrer',
+    language: 'Langue', theme: 'Thème',
+  },
+  de: {
+    dashboard: 'Dashboard', users: 'Benutzer', drivers: 'Fahrer', rides: 'Fahrten',
+    orders: 'Bestellungen', payments: 'Zahlungen', reports: 'Berichte', settings: 'Einstellungen',
+    signIn: 'Anmelden', signOut: 'Abmelden', loading: 'Wird geladen…', error: 'Fehler',
+    approve: 'Genehmigen', suspend: 'Sperren', refresh: 'Aktualisieren', save: 'Speichern',
+    cancel: 'Abbrechen', delete: 'Löschen', search: 'Suchen', filter: 'Filtern',
+    language: 'Sprache', theme: 'Thema',
+  },
+  it: {
+    dashboard: 'Dashboard', users: 'Utenti', drivers: 'Autisti', rides: 'Corse',
+    orders: 'Ordini', payments: 'Pagamenti', reports: 'Report', settings: 'Impostazioni',
+    signIn: 'Accedi', signOut: 'Disconnetti', loading: 'Caricamento…', error: 'Errore',
+    approve: 'Approva', suspend: 'Sospendi', refresh: 'Aggiorna', save: 'Salva',
+    cancel: 'Annulla', delete: 'Elimina', search: 'Cerca', filter: 'Filtra',
+    language: 'Lingua', theme: 'Tema',
+  },
+  pt: {
+    dashboard: 'Painel', users: 'Usuários', drivers: 'Motoristas', rides: 'Corridas',
+    orders: 'Pedidos', payments: 'Pagamentos', reports: 'Relatórios', settings: 'Configurações',
+    signIn: 'Entrar', signOut: 'Sair', loading: 'Carregando…', error: 'Erro',
+    approve: 'Aprovar', suspend: 'Suspender', refresh: 'Atualizar', save: 'Salvar',
+    cancel: 'Cancelar', delete: 'Excluir', search: 'Pesquisar', filter: 'Filtrar',
+    language: 'Idioma', theme: 'Tema',
+  },
+  ru: {
+    dashboard: 'Панель', users: 'Пользователи', drivers: 'Водители', rides: 'Поездки',
+    orders: 'Заказы', payments: 'Платежи', reports: 'Отчёты', settings: 'Настройки',
+    signIn: 'Войти', signOut: 'Выйти', loading: 'Загрузка…', error: 'Ошибка',
+    approve: 'Одобрить', suspend: 'Заблокировать', refresh: 'Обновить', save: 'Сохранить',
+    cancel: 'Отмена', delete: 'Удалить', search: 'Поиск', filter: 'Фильтр',
+    language: 'Язык', theme: 'Тема',
+  },
+  'zh-CN': {
+    dashboard: '控制台', users: '用户', drivers: '司机', rides: '行程',
+    orders: '订单', payments: '支付', reports: '报告', settings: '设置',
+    signIn: '登录', signOut: '退出', loading: '加载中…', error: '错误',
+    approve: '批准', suspend: '暂停', refresh: '刷新', save: '保存',
+    cancel: '取消', delete: '删除', search: '搜索', filter: '筛选',
+    language: '语言', theme: '主题',
+  },
+  'zh-TW': {
+    dashboard: '控制台', users: '使用者', drivers: '司機', rides: '行程',
+    orders: '訂單', payments: '付款', reports: '報告', settings: '設定',
+    signIn: '登入', signOut: '登出', loading: '載入中…', error: '錯誤',
+    approve: '批准', suspend: '暫停', refresh: '重新整理', save: '儲存',
+    cancel: '取消', delete: '刪除', search: '搜尋', filter: '篩選',
+    language: '語言', theme: '主題',
+  },
+  ja: {
+    dashboard: 'ダッシュボード', users: 'ユーザー', drivers: 'ドライバー', rides: '乗車',
+    orders: '注文', payments: '支払い', reports: 'レポート', settings: '設定',
+    signIn: 'ログイン', signOut: 'ログアウト', loading: '読み込み中…', error: 'エラー',
+    approve: '承認', suspend: '停止', refresh: '更新', save: '保存',
+    cancel: 'キャンセル', delete: '削除', search: '検索', filter: 'フィルター',
+    language: '言語', theme: 'テーマ',
+  },
+  ko: {
+    dashboard: '대시보드', users: '사용자', drivers: '드라이버', rides: '탑승',
+    orders: '주문', payments: '결제', reports: '보고서', settings: '설정',
+    signIn: '로그인', signOut: '로그아웃', loading: '로딩 중…', error: '오류',
+    approve: '승인', suspend: '정지', refresh: '새로고침', save: '저장',
+    cancel: '취소', delete: '삭제', search: '검색', filter: '필터',
+    language: '언어', theme: '테마',
+  },
+  ar: {
+    dashboard: 'لوحة التحكم', users: 'المستخدمون', drivers: 'السائقون', rides: 'الرحلات',
+    orders: 'الطلبات', payments: 'المدفوعات', reports: 'التقارير', settings: 'الإعدادات',
+    signIn: 'تسجيل الدخول', signOut: 'تسجيل الخروج', loading: 'جارٍ التحميل…', error: 'خطأ',
+    approve: 'موافقة', suspend: 'تعليق', refresh: 'تحديث', save: 'حفظ',
+    cancel: 'إلغاء', delete: 'حذف', search: 'بحث', filter: 'تصفية',
+    language: 'اللغة', theme: 'السمة',
+  },
+  hi: {
+    dashboard: 'डैशबोर्ड', users: 'उपयोगकर्ता', drivers: 'चालक', rides: 'सवारियाँ',
+    orders: 'ऑर्डर', payments: 'भुगतान', reports: 'रिपोर्ट', settings: 'सेटिंग्स',
+    signIn: 'साइन इन', signOut: 'साइन आउट', loading: 'लोड हो रहा है…', error: 'त्रुटि',
+    approve: 'स्वीकृत करें', suspend: 'निलंबित करें', refresh: 'ताज़ा करें', save: 'सहेजें',
+    cancel: 'रद्द करें', delete: 'हटाएं', search: 'खोजें', filter: 'फ़िल्टर',
+    language: 'भाषा', theme: 'थीम',
+  },
+  th: {
+    dashboard: 'แดชบอร์ด', users: 'ผู้ใช้', drivers: 'ผู้ขับ', rides: 'การเดินทาง',
+    orders: 'คำสั่งซื้อ', payments: 'การชำระเงิน', reports: 'รายงาน', settings: 'การตั้งค่า',
+    signIn: 'เข้าสู่ระบบ', signOut: 'ออกจากระบบ', loading: 'กำลังโหลด…', error: 'ข้อผิดพลาด',
+    approve: 'อนุมัติ', suspend: 'ระงับ', refresh: 'รีเฟรช', save: 'บันทึก',
+    cancel: 'ยกเลิก', delete: 'ลบ', search: 'ค้นหา', filter: 'กรอง',
+    language: 'ภาษา', theme: 'ธีม',
+  },
+  tr: {
+    dashboard: 'Gösterge Paneli', users: 'Kullanıcılar', drivers: 'Sürücüler', rides: 'Yolculuklar',
+    orders: 'Siparişler', payments: 'Ödemeler', reports: 'Raporlar', settings: 'Ayarlar',
+    signIn: 'Giriş yap', signOut: 'Çıkış yap', loading: 'Yükleniyor…', error: 'Hata',
+    approve: 'Onayla', suspend: 'Askıya al', refresh: 'Yenile', save: 'Kaydet',
+    cancel: 'İptal', delete: 'Sil', search: 'Ara', filter: 'Filtrele',
+    language: 'Dil', theme: 'Tema',
+  },
+  vi: {
+    dashboard: 'Bảng điều khiển', users: 'Người dùng', drivers: 'Tài xế', rides: 'Chuyến đi',
+    orders: 'Đơn hàng', payments: 'Thanh toán', reports: 'Báo cáo', settings: 'Cài đặt',
+    signIn: 'Đăng nhập', signOut: 'Đăng xuất', loading: 'Đang tải…', error: 'Lỗi',
+    approve: 'Phê duyệt', suspend: 'Đình chỉ', refresh: 'Làm mới', save: 'Lưu',
+    cancel: 'Hủy', delete: 'Xóa', search: 'Tìm kiếm', filter: 'Lọc',
+    language: 'Ngôn ngữ', theme: 'Chủ đề',
+  },
+  id: {
+    dashboard: 'Dasbor', users: 'Pengguna', drivers: 'Pengemudi', rides: 'Perjalanan',
+    orders: 'Pesanan', payments: 'Pembayaran', reports: 'Laporan', settings: 'Pengaturan',
+    signIn: 'Masuk', signOut: 'Keluar', loading: 'Memuat…', error: 'Kesalahan',
+    approve: 'Setujui', suspend: 'Tangguhkan', refresh: 'Segarkan', save: 'Simpan',
+    cancel: 'Batal', delete: 'Hapus', search: 'Cari', filter: 'Saring',
+    language: 'Bahasa', theme: 'Tema',
+  },
+  nl: {
+    dashboard: 'Dashboard', users: 'Gebruikers', drivers: 'Bestuurders', rides: 'Ritten',
+    orders: 'Bestellingen', payments: 'Betalingen', reports: 'Rapporten', settings: 'Instellingen',
+    signIn: 'Inloggen', signOut: 'Uitloggen', loading: 'Laden…', error: 'Fout',
+    approve: 'Goedkeuren', suspend: 'Opschorten', refresh: 'Vernieuwen', save: 'Opslaan',
+    cancel: 'Annuleren', delete: 'Verwijderen', search: 'Zoeken', filter: 'Filteren',
+    language: 'Taal', theme: 'Thema',
+  },
+  pl: {
+    dashboard: 'Panel', users: 'Użytkownicy', drivers: 'Kierowcy', rides: 'Przejazdy',
+    orders: 'Zamówienia', payments: 'Płatności', reports: 'Raporty', settings: 'Ustawienia',
+    signIn: 'Zaloguj się', signOut: 'Wyloguj się', loading: 'Ładowanie…', error: 'Błąd',
+    approve: 'Zatwierdź', suspend: 'Zawieś', refresh: 'Odśwież', save: 'Zapisz',
+    cancel: 'Anuluj', delete: 'Usuń', search: 'Szukaj', filter: 'Filtruj',
+    language: 'Język', theme: 'Motyw',
+  },
+  sv: {
+    dashboard: 'Instrumentpanel', users: 'Användare', drivers: 'Förare', rides: 'Resor',
+    orders: 'Beställningar', payments: 'Betalningar', reports: 'Rapporter', settings: 'Inställningar',
+    signIn: 'Logga in', signOut: 'Logga ut', loading: 'Laddar…', error: 'Fel',
+    approve: 'Godkänn', suspend: 'Stäng av', refresh: 'Uppdatera', save: 'Spara',
+    cancel: 'Avbryt', delete: 'Ta bort', search: 'Sök', filter: 'Filtrera',
+    language: 'Språk', theme: 'Tema',
+  },
+};
+
+type LocaleValue = {
+  locale: LocaleCode;
+  setLocale: (locale: LocaleCode) => void;
+  t: (key: string) => string;
+  isRTL: boolean;
+};
 const MIN_POLL_INTERVAL_MS = 15000;
 const DEFAULT_POLL_INTERVAL_MS = Math.max(MIN_POLL_INTERVAL_MS, Number(process.env.NEXT_PUBLIC_ADMIN_POLL_INTERVAL_MS || '60000'));
 
@@ -46,6 +230,34 @@ type AdminValue = {
 const ThemeContext = createContext<ThemeValue | null>(null);
 const AuthContext = createContext<AuthValue | null>(null);
 const AdminContext = createContext<AdminValue | null>(null);
+const LocaleContext = createContext<LocaleValue | null>(null);
+
+function LocaleProvider({ children }: { children: React.ReactNode }) {
+  const [locale, setLocaleState] = useState<LocaleCode>(() => {
+    if (typeof window === 'undefined') return DEFAULT_LOCALE;
+    const stored = window.localStorage.getItem(LOCALE_KEY);
+    return (stored && SUPPORTED_LOCALES.includes(stored as LocaleCode) ? stored as LocaleCode : DEFAULT_LOCALE);
+  });
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    document.documentElement.dir = RTL_LOCALES.has(locale) ? 'rtl' : 'ltr';
+  }, [locale]);
+
+  const setLocale = useCallback((next: LocaleCode) => {
+    setLocaleState(next);
+    window.localStorage.setItem(LOCALE_KEY, next);
+  }, []);
+
+  const t = useCallback(
+    (key: string) => translations[locale]?.[key] ?? translations[DEFAULT_LOCALE]?.[key] ?? key,
+    [locale],
+  );
+
+  const isRTL = RTL_LOCALES.has(locale);
+  const value = useMemo(() => ({ locale, setLocale, t, isRTL }), [locale, setLocale, t, isRTL]);
+  return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;
+}
 
 function createNotification(title: string, message: string) {
   return {
@@ -263,9 +475,11 @@ function AdminProvider({ children }: { children: React.ReactNode }) {
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <AdminProvider>{children}</AdminProvider>
-      </AuthProvider>
+      <LocaleProvider>
+        <AuthProvider>
+          <AdminProvider>{children}</AdminProvider>
+        </AuthProvider>
+      </LocaleProvider>
     </ThemeProvider>
   );
 }
@@ -285,5 +499,11 @@ export function useAuth() {
 export function useAdmin() {
   const context = useContext(AdminContext);
   if (!context) throw new Error('Admin context missing');
+  return context;
+}
+
+export function useLocale() {
+  const context = useContext(LocaleContext);
+  if (!context) throw new Error('Locale context missing');
   return context;
 }

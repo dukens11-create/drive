@@ -55,3 +55,26 @@ export function Metric({ label, value, hint }: { label: string; value: string; h
     </Card>
   );
 }
+
+export function LanguageSwitcher({ locale, localeLabel, locales, localeLabels, onChange }: {
+  locale: string;
+  localeLabel: string;
+  locales: string[];
+  localeLabels: Record<string, string>;
+  onChange: (locale: string) => void;
+}) {
+  return (
+    <select
+      value={locale}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={localeLabel}
+      className="min-h-9 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-1.5 text-sm text-white"
+    >
+      {locales.map((code) => (
+        <option key={code} value={code}>
+          {localeLabels[code] ?? code}
+        </option>
+      ))}
+    </select>
+  );
+}

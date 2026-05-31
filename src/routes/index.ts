@@ -1,4 +1,5 @@
 export { default as adminRoutes } from './admin.routes';
+export { i18nRoutes } from './i18n.routes';
 export { default as analyticsRoutes } from './analytics.routes';
 export { default as authRoutes } from './auth.routes';
 export { default as chatRoutes } from './chat.routes';

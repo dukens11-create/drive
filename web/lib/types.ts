@@ -1,7 +1,27 @@
 export type UserRole = 'rider' | 'driver' | 'merchant' | 'admin';
 export type ThemeMode = 'dark' | 'light';
 export type TextScale = 'sm' | 'md' | 'lg';
-export type LocaleCode = 'en' | 'es' | 'fr';
+export type LocaleCode =
+  | 'en'
+  | 'es'
+  | 'fr'
+  | 'de'
+  | 'it'
+  | 'pt'
+  | 'ru'
+  | 'zh-CN'
+  | 'zh-TW'
+  | 'ja'
+  | 'ko'
+  | 'ar'
+  | 'hi'
+  | 'th'
+  | 'tr'
+  | 'vi'
+  | 'id'
+  | 'nl'
+  | 'pl'
+  | 'sv';
 export type PortalSection = 'home' | 'auth' | 'book' | 'liveRide' | 'history' | 'rideDetail' | 'wallet' | 'promotions' | 'support' | 'account' | 'scheduled' | 'food' | 'foodCart' | 'foodOrderLive' | 'foodOrders';
 
 export type AuthUser = {

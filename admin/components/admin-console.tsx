@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ChangeEvent, FormEvent, useMemo, useState } from 'react';
-import { useAdmin, useAuth, useTheme } from '@/components/providers';
+import { useAdmin, useAuth, useTheme, useLocale, SUPPORTED_LOCALES, LOCALE_LABELS } from '@/components/providers';
 import type { DriverSummary, SectionKey } from '@/lib/api';
 
 export const sectionOrder = [
@@ -243,6 +243,7 @@ export function AdminConsole({ children }: { children: React.ReactNode }) {
   const { logout, session } = useAuth();
   const { notifications, loading, refresh } = useAdmin();
   const { theme, toggleTheme } = useTheme();
+  const { locale, setLocale, t } = useLocale();
   const currentSection = (pathname.replace('/dashboard', '').replace(/^\//, '') || 'dashboard') as SectionKey;
 
   return (
@@ -280,9 +281,19 @@ export function AdminConsole({ children }: { children: React.ReactNode }) {
         </div>
         <div className="mt-5 flex gap-2">
           <button className="flex-1 rounded-2xl border border-[var(--border)] px-4 py-3 text-sm" onClick={toggleTheme} type="button">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</button>
-          <button className="flex-1 rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-semibold text-[var(--accent-foreground)]" onClick={() => { void refresh(); }} type="button">{loading ? 'Refreshing…' : 'Refresh'}</button>
+          <button className="flex-1 rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-semibold text-[var(--accent-foreground)]" onClick={() => { void refresh(); }} type="button">{loading ? t('loading') : t('refresh')}</button>
         </div>
-        <button className="mt-3 w-full rounded-2xl border border-[var(--border)] px-4 py-3 text-sm text-[var(--muted)]" onClick={logout} type="button">Sign out</button>
+        <select
+          value={locale}
+          onChange={(e) => setLocale(e.target.value as typeof locale)}
+          aria-label={t('language')}
+          className="mt-3 w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--foreground)]"
+        >
+          {SUPPORTED_LOCALES.map((code) => (
+            <option key={code} value={code}>{LOCALE_LABELS[code]}</option>
+          ))}
+        </select>
+        <button className="mt-3 w-full rounded-2xl border border-[var(--border)] px-4 py-3 text-sm text-[var(--muted)]" onClick={logout} type="button">{t('signOut')}</button>
       </aside>
       <main className="min-w-0 p-4 md:p-6 lg:p-8">{children}</main>
     </div>

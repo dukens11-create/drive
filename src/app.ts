@@ -5,7 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { errorHandler } from './middleware';
-import { authRoutes, ridesRoutes, driversRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, restaurantsRoutes, chatRoutes, notificationsRoutes, mlRoutes } from './routes';
+import { authRoutes, ridesRoutes, driversRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, restaurantsRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes } from './routes';
 import { registerTrackingSocket, registerChatSocket } from './websocket';
 
 export function createApp() {
@@ -44,6 +44,7 @@ export function createApp() {
   app.use('/api/chat', chatRoutes);
   app.use('/api/notifications', notificationsRoutes);
   app.use('/api/ml', mlRoutes);
+  app.use('/api/i18n', i18nRoutes);
   app.use('/api', restaurantsRoutes);
 
   registerTrackingSocket(io);
