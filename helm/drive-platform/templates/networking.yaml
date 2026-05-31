@@ -1,0 +1,83 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "drive-platform.fullname" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
+    {{- range $key, $value := .Values.ingress.annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.hosts.api }}
+        - {{ .Values.ingress.hosts.admin }}
+        - {{ .Values.ingress.hosts.web }}
+      secretName: {{ .Values.ingress.tlsSecretName }}
+  rules:
+    - host: {{ .Values.ingress.hosts.api }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "drive-platform.fullname" . }}-backend
+                port:
+                  number: {{ .Values.backend.service.port }}
+    - host: {{ .Values.ingress.hosts.admin }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "drive-platform.fullname" . }}-admin
+                port:
+                  number: {{ .Values.admin.service.port }}
+    - host: {{ .Values.ingress.hosts.web }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "drive-platform.fullname" . }}-passenger-web
+                port:
+                  number: {{ .Values.passengerWeb.service.port }}
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "drive-platform.fullname" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace }}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace }}
+        - ipBlock:
+            cidr: 0.0.0.0/0
+{{- end }}

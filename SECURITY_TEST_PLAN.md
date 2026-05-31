@@ -1,3 +1,3 @@
 # Security Test Plan
 
-Auth bypass, role escalation, webhook forgery, rate limit, input validation, payment tampering.
+Auth bypass, MFA challenge enforcement, session revocation, login history audit coverage, role escalation, webhook forgery, rate limit, input validation, and payment tampering.

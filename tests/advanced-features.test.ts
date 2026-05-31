@@ -24,7 +24,7 @@ async function signup(baseUrl: string, role: string = 'rider') {
   const res = await fetch(`${baseUrl}/api/auth/signup`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email, password: 'password123', role }),
+    body: JSON.stringify({ email, password: 'Password123!', role }),
   });
   const body = await res.json() as any;
   return { userId: body.user?.id as string, token: body.accessToken as string };
@@ -54,6 +54,27 @@ async function post(baseUrl: string, path: string, data: unknown, token?: string
     method: 'POST',
     headers,
     body: JSON.stringify(data),
+  });
+  return { status: res.status, body: await res.json() as any };
+}
+
+async function patch(baseUrl: string, path: string, data: unknown, token?: string) {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (token) headers['authorization'] = 'Bearer ' + token;
+  const res = await fetch(baseUrl + path, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify(data),
+  });
+  return { status: res.status, body: await res.json() as any };
+}
+
+async function del(baseUrl: string, path: string, token?: string) {
+  const headers: Record<string, string> = {};
+  if (token) headers['authorization'] = 'Bearer ' + token;
+  const res = await fetch(baseUrl + path, {
+    method: 'DELETE',
+    headers,
   });
   return { status: res.status, body: await res.json() as any };
 }
@@ -268,6 +289,179 @@ test('analytics: overview, KPIs and churn endpoints return expected fields', asy
     const churn = await get(baseUrl, '/api/analytics/churn', adminToken);
     assert.equal(churn.status, 200);
     assert.ok(typeof churn.body.churnRate === 'number');
+  });
+});
+
+// ─── Chat / Messaging ─────────────────────────────────────────────────────────
+
+test('GET /api/chat/health returns ok', async () => {
+  await withServer(async baseUrl => {
+    const { status, body } = await get(baseUrl, '/api/chat/health');
+    assert.equal(status, 200);
+    assert.equal(body.module, 'chat');
+    assert.equal(body.realtime, true);
+  });
+});
+
+test('chat: create conversation, send/edit/react/read/search/delete message', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+    const driver = await signup(baseUrl, 'driver');
+
+    const conversation = await post(baseUrl, '/api/chat/conversations', {
+      participantIds: [driver.userId],
+      type: 'direct',
+    }, rider.token);
+    assert.equal(conversation.status, 201, JSON.stringify(conversation.body));
+    assert.ok(conversation.body.id);
+
+    const sent = await post(baseUrl, `/api/chat/conversations/${conversation.body.id}/messages`, {
+      content: 'Driver is on the way',
+    }, rider.token);
+    assert.equal(sent.status, 201, JSON.stringify(sent.body));
+    assert.equal(sent.body.content, 'Driver is on the way');
+
+    const edited = await patch(baseUrl, `/api/chat/messages/${sent.body.id}`, {
+      content: 'Driver is arriving now',
+    }, rider.token);
+    assert.equal(edited.status, 200);
+    assert.equal(edited.body.content, 'Driver is arriving now');
+    assert.ok(edited.body.editedAt);
+
+    const reacted = await post(baseUrl, `/api/chat/messages/${sent.body.id}/reactions`, {
+      emoji: '👍',
+    }, driver.token);
+    assert.equal(reacted.status, 200);
+    assert.equal(reacted.body.reactions[0].emoji, '👍');
+
+    const messages = await get(baseUrl, `/api/chat/conversations/${conversation.body.id}/messages`, driver.token);
+    assert.equal(messages.status, 200);
+    assert.ok(Array.isArray(messages.body.messages));
+    assert.equal(messages.body.messages.length, 1);
+
+    const read = await post(baseUrl, `/api/chat/conversations/${conversation.body.id}/read`, {}, driver.token);
+    assert.equal(read.status, 200);
+    assert.equal(read.body.updatedCount, 1);
+
+    const search = await get(baseUrl, '/api/chat/search?q=arriving', driver.token);
+    assert.equal(search.status, 200);
+    assert.equal(search.body.total, 1);
+
+    const deleted = await del(baseUrl, `/api/chat/messages/${sent.body.id}`, rider.token);
+    assert.equal(deleted.status, 200);
+    assert.ok(deleted.body.deletedAt);
+  });
+});
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+test('GET /api/notifications/health returns ok', async () => {
+  await withServer(async baseUrl => {
+    const { status } = await get(baseUrl, '/api/notifications/health');
+    assert.equal(status, 200);
+  });
+});
+
+test('notifications: preferences, device tokens, push/email/sms, and logs work', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+
+    const prefs = await post(baseUrl, '/api/notifications/preferences', {
+      pushOptIn: true,
+      frequency: 'daily',
+      categories: ['rides', 'promotions'],
+      timezone: 'America/New_York',
+    }, rider.token);
+    assert.equal(prefs.status, 200);
+    assert.equal(prefs.body.frequency, 'daily');
+
+    const token = await post(baseUrl, '/api/notifications/device-tokens', {
+      token: 'device-token-123',
+      platform: 'ios',
+      topics: ['rides'],
+    }, rider.token);
+    assert.equal(token.status, 200);
+    assert.equal(token.body.token, 'device-token-123');
+
+    const push = await post(baseUrl, '/api/notifications/push', {
+      userId: rider.userId,
+      title: 'Ride accepted',
+      body: 'Your driver is heading to pickup.',
+    }, rider.token);
+    assert.equal(push.status, 200, JSON.stringify(push.body));
+    assert.equal(push.body.delivered, 1);
+
+    const email = await post(baseUrl, '/api/notifications/email', {
+      userId: rider.userId,
+      subject: 'Welcome to Drive',
+      html: '<p>Hello there</p>',
+    }, rider.token);
+    assert.equal(email.status, 200);
+
+    const sms = await post(baseUrl, '/api/notifications/sms', {
+      phone: '+15555550123',
+      message: 'Your order is ready for pickup.',
+    }, rider.token);
+    assert.equal(sms.status, 200);
+
+    const logs = await get(baseUrl, '/api/notifications/logs', rider.token);
+    assert.equal(logs.status, 200);
+    assert.ok(Array.isArray(logs.body));
+    assert.ok(logs.body.length >= 3);
+  });
+});
+
+// ─── Machine Learning ─────────────────────────────────────────────────────────
+
+test('GET /api/ml/health returns ok', async () => {
+  await withServer(async baseUrl => {
+    const { status } = await get(baseUrl, '/api/ml/health');
+    assert.equal(status, 200);
+  });
+});
+
+test('ml: surge, demand, churn, and recommendations endpoints return predictions', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+    const adminToken = await loginAdmin(baseUrl);
+
+    const surge = await post(baseUrl, '/api/ml/surge/predict', {
+      demand: 18,
+      availableDrivers: 4,
+      weatherSeverity: 0.5,
+      specialEvent: true,
+      area: 'downtown',
+    }, rider.token);
+    assert.equal(surge.status, 200, JSON.stringify(surge.body));
+    assert.ok(surge.body.multiplier >= 1);
+    assert.ok(surge.body.confidence >= 0.55);
+
+    const apply = await post(baseUrl, '/api/ml/surge/apply', {
+      multiplier: 2.1,
+      reason: 'Concert traffic',
+    }, adminToken);
+    assert.equal(apply.status, 200);
+    assert.equal(apply.body.surgeConfig.multiplier, 2.1);
+
+    const demand = await post(baseUrl, '/api/ml/demand/predict', {
+      area: 'downtown',
+      horizonHours: 2,
+    }, rider.token);
+    assert.equal(demand.status, 200);
+    assert.ok(typeof demand.body.predictedDemand === 'number');
+    assert.ok(typeof demand.body.confidenceInterval.low === 'number');
+
+    const churn = await post(baseUrl, '/api/ml/churn/predict', {
+      userId: rider.userId,
+      windowDays: 30,
+    }, rider.token);
+    assert.equal(churn.status, 200);
+    assert.ok(typeof churn.body.churnProbability === 'number');
+
+    const recommendations = await get(baseUrl, '/api/ml/recommendations', rider.token);
+    assert.equal(recommendations.status, 200);
+    assert.ok(Array.isArray(recommendations.body.rideRecommendations));
+    assert.ok(Array.isArray(recommendations.body.restaurantRecommendations));
   });
 });
 

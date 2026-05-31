@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+data:
+  NODE_ENV: {{ .Values.config.NODE_ENV | quote }}
+  API_BASE_URL: {{ .Values.config.API_BASE_URL | quote }}
+  REDIS_URL: {{ .Values.config.REDIS_URL | quote }}
+  DATABASE_URL: {{ .Values.config.DATABASE_URL | quote }}
+  RABBITMQ_URL: {{ .Values.config.RABBITMQ_URL | quote }}
+  LOG_LEVEL: {{ .Values.config.LOG_LEVEL | quote }}
+---
+{{- if .Values.secretManagement.createSecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "drive-platform.secretName" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  JWT_SECRET: {{ required "inlineSecrets.JWT_SECRET must be set to a non-empty value when secretManagement.createSecret=true" .Values.inlineSecrets.JWT_SECRET | quote }}
+  STRIPE_WEBHOOK_SECRET: {{ required "inlineSecrets.STRIPE_WEBHOOK_SECRET must be set to a non-empty value when secretManagement.createSecret=true" .Values.inlineSecrets.STRIPE_WEBHOOK_SECRET | quote }}
+  POSTGRES_PASSWORD: {{ required "inlineSecrets.POSTGRES_PASSWORD must be set to a non-empty value when secretManagement.createSecret=true" .Values.inlineSecrets.POSTGRES_PASSWORD | quote }}
+  RABBITMQ_PASSWORD: {{ required "inlineSecrets.RABBITMQ_PASSWORD must be set to a non-empty value when secretManagement.createSecret=true" .Values.inlineSecrets.RABBITMQ_PASSWORD | quote }}
+  GRAFANA_ADMIN_PASSWORD: {{ required "inlineSecrets.GRAFANA_ADMIN_PASSWORD must be set to a non-empty value when secretManagement.createSecret=true" .Values.inlineSecrets.GRAFANA_ADMIN_PASSWORD | quote }}
+  ELASTIC_PASSWORD: {{ required "inlineSecrets.ELASTIC_PASSWORD must be set to a non-empty value when secretManagement.createSecret=true" .Values.inlineSecrets.ELASTIC_PASSWORD | quote }}
+{{- end }}

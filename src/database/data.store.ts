@@ -14,6 +14,17 @@ export type User = {
   createdAt: string;
 };
 
+export type RefreshTokenSession = {
+  userId: string;
+  sessionId: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  ipAddress?: string;
+  userAgent?: string;
+  deviceName?: string;
+};
+
 export type RideStatus = 'requested' | 'accepted' | 'started' | 'completed' | 'canceled';
 
 export type RideEvent = {
@@ -120,6 +131,9 @@ export type Payment = {
   rideId?: string;
   riderId?: string;
   driverId?: string;
+  paymentMethodId?: string;
+  paymentMethodType?: PaymentMethodType;
+  description?: string;
   provider: 'stripe_mock';
   providerIntentId: string;
   providerCheckoutSessionId: string;
@@ -129,6 +143,58 @@ export type Payment = {
   status: 'requires_capture' | 'captured' | 'refunded' | 'failed';
   capturedAt?: string;
   refundedAt?: string;
+  invoiceId?: string;
+  receiptUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PaymentMethodType = 'card' | 'apple_pay' | 'google_pay' | 'paypal' | 'bank_transfer' | 'wallet';
+
+export type PaymentMethod = {
+  id: string;
+  userId: string;
+  type: PaymentMethodType;
+  provider: 'stripe_mock';
+  brand?: string;
+  label?: string;
+  last4?: string;
+  expiryMonth?: number;
+  expiryYear?: number;
+  token?: string;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Invoice = {
+  id: string;
+  paymentId: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  amountCents: number;
+  currency: string;
+  status: 'issued' | 'refunded';
+  recipientUserId?: string;
+  payerUserId?: string;
+  paymentMethodType?: PaymentMethodType;
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RefundDestination = 'wallet' | 'original_payment_method';
+
+export type Refund = {
+  id: string;
+  paymentId: string;
+  userId?: string;
+  amountCents: number;
+  currency: string;
+  reason?: string;
+  destination: RefundDestination;
+  status: 'succeeded';
+  providerRefundId: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -219,6 +285,56 @@ export type PlatformSettings = {
   surgeMultiplier: number;
   featureFlags: PlatformFeatureFlag[];
   updatedAt: string;
+};
+
+export type AdminExportJob = {
+  id: string;
+  dataType: string;
+  format: string;
+  filename: string;
+  rowCount: number;
+  columns: string[];
+  filters?: Record<string, unknown>;
+  requestedAt: string;
+  requestedBy?: string;
+  reusedFromId?: string;
+};
+
+export type AdminImportChange = {
+  key: string;
+  action: 'created' | 'updated';
+  previousValue?: unknown;
+};
+
+export type AdminImportJob = {
+  id: string;
+  dataType: string;
+  format: string;
+  status: 'preview' | 'completed' | 'rolled_back';
+  totalRecords: number;
+  validRecords: number;
+  importedCount: number;
+  duplicateCount: number;
+  errorCount: number;
+  requestedAt: string;
+  requestedBy?: string;
+  errors: string[];
+  changes: AdminImportChange[];
+  rollbackAt?: string;
+};
+
+export type AdminBulkJob = {
+  id: string;
+  targetType: string;
+  action: string;
+  total: number;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  requestedAt: string;
+  requestedBy?: string;
+  errors: string[];
+  status: 'completed';
 };
 
 export type MerchantProduct = {
@@ -402,6 +518,58 @@ export type TotpEntry = {
   createdAt: string;
 };
 
+// ─── Chat / Messaging ─────────────────────────────────────────────────────────
+
+export type ChatConversationType = 'direct' | 'group' | 'support';
+
+export type ChatConversation = {
+  id: string;
+  type: ChatConversationType;
+  title?: string;
+  createdBy: string;
+  participantIds: string[];
+  lastMessageId?: string;
+  lastMessageAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ChatParticipant = {
+  conversationId: string;
+  userId: string;
+  joinedAt: string;
+  lastSeenAt?: string;
+  mutedUntil?: string;
+  blockedUserIds?: string[];
+};
+
+export type ChatReaction = {
+  userId: string;
+  emoji: string;
+  createdAt: string;
+};
+
+export type ChatReadReceipt = {
+  userId: string;
+  readAt: string;
+};
+
+export type ChatMessage = {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  content: string;
+  attachmentUrl?: string;
+  attachmentType?: string;
+  location?: { lat: number; lng: number; label?: string };
+  reactions: ChatReaction[];
+  readBy: ChatReadReceipt[];
+  editedAt?: string;
+  deletedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 // ─── Notification Log ────────────────────────────────────────────────────────
 
 export type NotificationChannel = 'sms' | 'email' | 'push';
@@ -418,6 +586,27 @@ export type NotificationLog = {
   createdAt: string;
 };
 
+export type NotificationPreference = {
+  userId: string;
+  emailOptIn: boolean;
+  smsOptIn: boolean;
+  pushOptIn: boolean;
+  frequency: 'instant' | 'hourly' | 'daily' | 'weekly';
+  categories: string[];
+  timezone: string;
+  updatedAt: string;
+};
+
+export type DeviceToken = {
+  id: string;
+  userId: string;
+  token: string;
+  platform: 'ios' | 'android' | 'web';
+  topics: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 const now = () => new Date().toISOString();
 
 export function makeId(prefix: string) {
@@ -432,10 +621,13 @@ function hashPassword(password: string) {
 
 type PersistedStore = {
   users: User[];
-  refreshTokens: Array<[string, { userId: string; expiresAt: string }]>;
+  refreshTokens: Array<[string, RefreshTokenSession]>;
   rides: Ride[];
   drivers: DriverProfile[];
   payments: Payment[];
+  paymentMethods: PaymentMethod[];
+  invoices: Invoice[];
+  refunds: Refund[];
   walletTx: WalletTx[];
   walletBalances: WalletBalance[];
   kycStatus: Array<[string, 'pending' | 'verified' | 'rejected']>;
@@ -451,6 +643,9 @@ type PersistedStore = {
   markets: Array<[string, MarketConfig]>;
   adminApiKeys: AdminApiKey[];
   platformSettings: Array<[string, PlatformSettings]>;
+  adminExportJobs: AdminExportJob[];
+  adminImportJobs: AdminImportJob[];
+  adminBulkJobs: AdminBulkJob[];
   scheduledRides: ScheduledRide[];
   subscriptionPlans: Array<[string, SubscriptionPlan]>;
   userSubscriptions: Array<[string, UserSubscription]>;
@@ -461,7 +656,12 @@ type PersistedStore = {
   carpoolRides: Array<[string, CarpoolRide]>;
   fraudAlerts: FraudAlert[];
   totpEntries: Array<[string, TotpEntry]>;
+  chatConversations: Array<[string, ChatConversation]>;
+  chatParticipants: ChatParticipant[];
+  chatMessages: ChatMessage[];
   notificationLogs: NotificationLog[];
+  notificationPreferences: Array<[string, NotificationPreference]>;
+  deviceTokens: DeviceToken[];
 };
 
 let isHydrating = false;
@@ -526,10 +726,13 @@ function createPersistentArray<T>() {
 
 export const store = {
   users: new PersistentMap<string, User>(),
-  refreshTokens: new PersistentMap<string, { userId: string; expiresAt: string }>(),
+  refreshTokens: new PersistentMap<string, RefreshTokenSession>(),
   rides: new PersistentMap<string, Ride>(),
   drivers: new PersistentMap<string, DriverProfile>(),
   payments: new PersistentMap<string, Payment>(),
+  paymentMethods: new PersistentMap<string, PaymentMethod>(),
+  invoices: new PersistentMap<string, Invoice>(),
+  refunds: new PersistentMap<string, Refund>(),
   walletTx: createPersistentArray<WalletTx>(),
   walletBalances: new PersistentMap<string, WalletBalance>(),
   kycStatus: new PersistentMap<string, 'pending' | 'verified' | 'rejected'>(),
@@ -545,6 +748,9 @@ export const store = {
   markets: new PersistentMap<string, MarketConfig>(),
   adminApiKeys: createPersistentArray<AdminApiKey>(),
   platformSettings: new PersistentMap<string, PlatformSettings>(),
+  adminExportJobs: createPersistentArray<AdminExportJob>(),
+  adminImportJobs: createPersistentArray<AdminImportJob>(),
+  adminBulkJobs: createPersistentArray<AdminBulkJob>(),
   scheduledRides: new PersistentMap<string, ScheduledRide>(),
   subscriptionPlans: new PersistentMap<string, SubscriptionPlan>(),
   userSubscriptions: new PersistentMap<string, UserSubscription>(),
@@ -555,7 +761,12 @@ export const store = {
   carpoolRides: new PersistentMap<string, CarpoolRide>(),
   fraudAlerts: createPersistentArray<FraudAlert>(),
   totpEntries: new PersistentMap<string, TotpEntry>(),
-  notificationLogs: createPersistentArray<NotificationLog>()
+  chatConversations: new PersistentMap<string, ChatConversation>(),
+  chatParticipants: createPersistentArray<ChatParticipant>(),
+  chatMessages: createPersistentArray<ChatMessage>(),
+  notificationLogs: createPersistentArray<NotificationLog>(),
+  notificationPreferences: new PersistentMap<string, NotificationPreference>(),
+  deviceTokens: createPersistentArray<DeviceToken>()
 };
 
 function toSerializableStore(): PersistedStore {
@@ -565,6 +776,9 @@ function toSerializableStore(): PersistedStore {
     rides: Array.from(store.rides.values()),
     drivers: Array.from(store.drivers.values()),
     payments: Array.from(store.payments.values()),
+    paymentMethods: Array.from(store.paymentMethods.values()),
+    invoices: Array.from(store.invoices.values()),
+    refunds: Array.from(store.refunds.values()),
     walletTx: [...store.walletTx],
     walletBalances: Array.from(store.walletBalances.values()),
     kycStatus: Array.from(store.kycStatus.entries()),
@@ -580,6 +794,9 @@ function toSerializableStore(): PersistedStore {
     markets: Array.from(store.markets.entries()),
     adminApiKeys: [...store.adminApiKeys],
     platformSettings: Array.from(store.platformSettings.entries()),
+    adminExportJobs: [...store.adminExportJobs],
+    adminImportJobs: [...store.adminImportJobs],
+    adminBulkJobs: [...store.adminBulkJobs],
     scheduledRides: Array.from(store.scheduledRides.values()),
     subscriptionPlans: Array.from(store.subscriptionPlans.entries()),
     userSubscriptions: Array.from(store.userSubscriptions.entries()),
@@ -590,7 +807,12 @@ function toSerializableStore(): PersistedStore {
     carpoolRides: Array.from(store.carpoolRides.entries()),
     fraudAlerts: [...store.fraudAlerts],
     totpEntries: Array.from(store.totpEntries.entries()),
-    notificationLogs: [...store.notificationLogs]
+    chatConversations: Array.from(store.chatConversations.entries()),
+    chatParticipants: [...store.chatParticipants],
+    chatMessages: [...store.chatMessages],
+    notificationLogs: [...store.notificationLogs],
+    notificationPreferences: Array.from(store.notificationPreferences.entries()),
+    deviceTokens: [...store.deviceTokens]
   };
 }
 
@@ -617,19 +839,34 @@ function hydrateStore() {
     for (const user of parsed.users || []) store.users.set(user.id, user);
     for (const [tokenHash, refreshToken] of parsed.refreshTokens || []) {
       if (typeof refreshToken === 'string') {
+        const hydratedAt = now();
         store.refreshTokens.set(tokenHash, {
           userId: refreshToken,
-          expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString()
+          sessionId: makeId('session'),
+          createdAt: hydratedAt,
+          lastUsedAt: hydratedAt,
+          expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString(),
+          deviceName: 'legacy session'
         });
         continue;
       }
       if (refreshToken?.userId && refreshToken?.expiresAt) {
-        store.refreshTokens.set(tokenHash, refreshToken);
+        const hydratedAt = now();
+        store.refreshTokens.set(tokenHash, {
+          ...refreshToken,
+          sessionId: refreshToken.sessionId || makeId('session'),
+          createdAt: refreshToken.createdAt || hydratedAt,
+          lastUsedAt: refreshToken.lastUsedAt || hydratedAt,
+          deviceName: refreshToken.deviceName || 'legacy session'
+        });
       }
     }
     for (const ride of parsed.rides || []) store.rides.set(ride.id, ride);
     for (const driver of parsed.drivers || []) store.drivers.set(driver.userId, driver);
     for (const payment of parsed.payments || []) store.payments.set(payment.id, payment);
+    for (const paymentMethod of parsed.paymentMethods || []) store.paymentMethods.set(paymentMethod.id, paymentMethod);
+    for (const invoice of parsed.invoices || []) store.invoices.set(invoice.id, invoice);
+    for (const refund of parsed.refunds || []) store.refunds.set(refund.id, refund);
     for (const tx of parsed.walletTx || []) store.walletTx.push(tx);
     for (const walletBalance of parsed.walletBalances || []) store.walletBalances.set(walletBalance.userId, walletBalance);
     for (const [userId, status] of parsed.kycStatus || []) store.kycStatus.set(userId, status);
@@ -645,6 +882,9 @@ function hydrateStore() {
     for (const [id, market] of parsed.markets || []) store.markets.set(id, market);
     for (const apiKey of parsed.adminApiKeys || []) store.adminApiKeys.push(apiKey);
     for (const [key, settings] of parsed.platformSettings || []) store.platformSettings.set(key, settings);
+    for (const exportJob of parsed.adminExportJobs || []) store.adminExportJobs.push(exportJob);
+    for (const importJob of parsed.adminImportJobs || []) store.adminImportJobs.push(importJob);
+    for (const bulkJob of parsed.adminBulkJobs || []) store.adminBulkJobs.push(bulkJob);
     for (const ride of parsed.scheduledRides || []) store.scheduledRides.set(ride.id, ride);
     for (const [id, plan] of parsed.subscriptionPlans || []) store.subscriptionPlans.set(id, plan);
     for (const [id, sub] of parsed.userSubscriptions || []) store.userSubscriptions.set(id, sub);
@@ -655,7 +895,12 @@ function hydrateStore() {
     for (const [id, carpool] of parsed.carpoolRides || []) store.carpoolRides.set(id, carpool);
     for (const alert of parsed.fraudAlerts || []) store.fraudAlerts.push(alert);
     for (const [id, totp] of parsed.totpEntries || []) store.totpEntries.set(id, totp);
+    for (const [id, conversation] of parsed.chatConversations || []) store.chatConversations.set(id, conversation);
+    for (const participant of parsed.chatParticipants || []) store.chatParticipants.push(participant);
+    for (const message of parsed.chatMessages || []) store.chatMessages.push(message);
     for (const log of parsed.notificationLogs || []) store.notificationLogs.push(log);
+    for (const [userId, preference] of parsed.notificationPreferences || []) store.notificationPreferences.set(userId, preference);
+    for (const deviceToken of parsed.deviceTokens || []) store.deviceTokens.push(deviceToken);
   } finally {
     isHydrating = false;
   }

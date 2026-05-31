@@ -96,6 +96,49 @@ export type PaymentSummary = {
   refundedAt?: string;
 };
 
+export type AdminExportJob = {
+  id: string;
+  dataType: string;
+  format: string;
+  filename: string;
+  rowCount: number;
+  columns: string[];
+  filters?: Record<string, unknown>;
+  requestedAt: string;
+  requestedBy?: string;
+  reusedFromId?: string;
+};
+
+export type AdminImportJob = {
+  id: string;
+  dataType: string;
+  format: string;
+  status: 'preview' | 'completed' | 'rolled_back';
+  totalRecords: number;
+  validRecords: number;
+  importedCount: number;
+  duplicateCount: number;
+  errorCount: number;
+  requestedAt: string;
+  requestedBy?: string;
+  errors: string[];
+  rollbackAt?: string;
+};
+
+export type AdminBulkJob = {
+  id: string;
+  targetType: string;
+  action: string;
+  total: number;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  requestedAt: string;
+  requestedBy?: string;
+  errors: string[];
+  status: 'completed';
+};
+
 export type AdminOverview = {
   stats: {
     totalUsers: number;
@@ -140,6 +183,12 @@ export type AdminOverview = {
   referralEvents: Array<Record<string, unknown>>;
   apiKeys: Array<{ id: string; name: string; keyPreview: string; createdAt: string; revokedAt?: string }>;
   auditLogs: Array<Record<string, unknown>>;
+  restaurants: Array<Record<string, unknown>>;
+  orders: Array<Record<string, unknown>>;
+  reviews: Array<Record<string, unknown>>;
+  exportJobs: AdminExportJob[];
+  importJobs: AdminImportJob[];
+  bulkJobs: AdminBulkJob[];
   analytics: {
     revenueByDay: Array<{ label: string; value: number }>;
     revenueByWeek: Array<{ label: string; value: number }>;
@@ -222,6 +271,18 @@ export const adminApi = {
   updateSettings: (token: string, payload: Record<string, unknown>) => request('/api/admin/update-settings', { method: 'POST', body: JSON.stringify(payload) }, token),
   upsertPromo: (token: string, payload: Record<string, unknown>) => request('/api/admin/upsert-promo', { method: 'POST', body: JSON.stringify(payload) }, token),
   upsertMarket: (token: string, payload: Record<string, unknown>) => request('/api/admin/upsert-market', { method: 'POST', body: JSON.stringify(payload) }, token),
+  exportData: (
+    token: string,
+    payload: Record<string, unknown>
+  ) => request<{ export: AdminExportJob & { content: string; contentType: string } }>('/api/admin/export-data', { method: 'POST', body: JSON.stringify(payload) }, token),
+  importData: (
+    token: string,
+    payload: Record<string, unknown>
+  ) => request<{ preview?: AdminImportJob; importJob?: AdminImportJob }>('/api/admin/import-data', { method: 'POST', body: JSON.stringify(payload) }, token),
+  bulkOperation: (
+    token: string,
+    payload: Record<string, unknown>
+  ) => request<{ job: AdminBulkJob }>('/api/admin/bulk-operation', { method: 'POST', body: JSON.stringify(payload) }, token),
   createApiKey: (token: string, name: string) => request<{ plainTextKey: string }>('/api/admin/create-api-key', { method: 'POST', body: JSON.stringify({ name }) }, token),
   revokeApiKey: (token: string, apiKeyId: string) => request('/api/admin/revoke-api-key', { method: 'POST', body: JSON.stringify({ apiKeyId }) }, token)
 };

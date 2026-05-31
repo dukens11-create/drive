@@ -1,11 +1,15 @@
 import { Router } from 'express';
 import * as controller from '../controllers/auth.controller';
 import { validateBody } from '../utils/validate';
-import { authSchema, refreshSchema } from '../schemas/auth.schemas';
+import { loginSchema, refreshSchema, revokeSessionSchema, signupSchema } from '../schemas/auth.schemas';
+import { requireAuth } from '../middleware/auth.middleware';
 const router = Router();
 router.get('/health', controller.health);
-router.post('/signup', validateBody(authSchema), controller.signup);
-router.post('/login', validateBody(authSchema), controller.login);
+router.post('/signup', validateBody(signupSchema), controller.signup);
+router.post('/login', validateBody(loginSchema), controller.login);
 router.post('/refresh', validateBody(refreshSchema), controller.refresh);
 router.post('/logout', validateBody(refreshSchema), controller.logout);
+router.get('/sessions', requireAuth, controller.sessions);
+router.get('/login-history', requireAuth, controller.login_history);
+router.post('/revoke-session', requireAuth, validateBody(revokeSessionSchema), controller.revoke_session);
 export default router;

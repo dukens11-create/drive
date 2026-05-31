@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { test } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
@@ -41,13 +42,50 @@ async function getJson(baseUrl: string, path: string, token?: string) {
 async function signup(baseUrl: string, role: 'rider' | 'driver' | 'merchant' = 'rider') {
   const response = await postJson(baseUrl, '/api/auth/signup', {
     email: `${role}-${randomUUID()}@example.com`,
-    password: 'password123',
+    password: 'Password123!',
     role
   });
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.ok, true);
   return body as { user: { id: string }; accessToken: string; refreshToken: string };
+}
+
+const BASE32_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function base32Decode(str: string): Buffer {
+  const clean = str.toUpperCase().replace(/[^A-Z2-7]/g, '');
+  const bytes: number[] = [];
+  let bits = 0;
+  let value = 0;
+
+  for (const char of clean) {
+    const index = BASE32_CHARS.indexOf(char);
+    value = (value << 5) | index;
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((value >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+
+  return Buffer.from(bytes);
+}
+
+function generateTotp(secret: string, window = 0) {
+  const key = base32Decode(secret);
+  const counter = Math.floor(Date.now() / 1000 / 30) + window;
+  const counterBuf = Buffer.alloc(8);
+  counterBuf.writeBigUInt64BE(BigInt(counter));
+  const hmac = createHmac('sha1', key).update(counterBuf).digest();
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const code = (
+    ((hmac[offset] & 0x7f) << 24) |
+    ((hmac[offset + 1] & 0xff) << 16) |
+    ((hmac[offset + 2] & 0xff) << 8) |
+    (hmac[offset + 3] & 0xff)
+  ) % 1000000;
+  return code.toString().padStart(6, '0');
 }
 
 test('GET /health returns service status payload', async () => {
@@ -74,7 +112,7 @@ test('POST /api/auth/signup creates user and returns tokens', async () => {
   await withServer(async baseUrl => {
     const response = await postJson(baseUrl, '/api/auth/signup', {
       email: `user-${randomUUID()}@example.com`,
-      password: 'password123',
+      password: 'Password123!',
       role: 'rider'
     });
     assert.equal(response.status, 200);
@@ -87,6 +125,22 @@ test('POST /api/auth/signup creates user and returns tokens', async () => {
     assert.equal(body.user?.password, undefined);
     assert.equal(typeof body.accessToken, 'string');
     assert.equal(typeof body.refreshToken, 'string');
+  });
+});
+
+test('POST /api/auth/signup rejects weak passwords', async () => {
+  await withServer(async baseUrl => {
+    const response = await postJson(baseUrl, '/api/auth/signup', {
+      email: `weak-${randomUUID()}@example.com`,
+      password: 'password123',
+      role: 'rider'
+    });
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.equal(Array.isArray(body.error?.fieldErrors?.password), true);
+    assert.equal(body.error.fieldErrors.password.some((message: string) => message.includes('12 characters')), true);
+    assert.equal(body.error.fieldErrors.password.some((message: string) => message.includes('uppercase')), true);
+    assert.equal(body.error.fieldErrors.password.some((message: string) => message.includes('symbol')), true);
   });
 });
 
@@ -112,6 +166,67 @@ test('POST /api/auth/refresh rotates refresh token and logout revokes it', async
     assert.equal(logoutBody.revoked, true);
 
     const revokedRefreshResponse = await postJson(baseUrl, '/api/auth/refresh', { refreshToken: refreshBody.refreshToken });
+    const revokedRefreshBody = await revokedRefreshResponse.json();
+    assert.equal(revokedRefreshBody.error, 'invalid refresh token');
+  });
+});
+
+test('2FA login requires otp and exposes session/login history management', async () => {
+  await withServer(async baseUrl => {
+    const email = `secure-${randomUUID()}@example.com`;
+    const password = 'Password123!';
+
+    const signupResponse = await postJson(baseUrl, '/api/auth/signup', {
+      email,
+      password,
+      role: 'rider'
+    });
+    const signupBody = await signupResponse.json();
+    const accessToken = signupBody.accessToken as string;
+
+    const setupResponse = await postJson(baseUrl, '/api/2fa/setup', {}, accessToken);
+    assert.equal(setupResponse.status, 200);
+    const setupBody = await setupResponse.json();
+    const otpToken = generateTotp(setupBody.secret);
+
+    const verifyResponse = await postJson(baseUrl, '/api/2fa/verify', { token: otpToken }, accessToken);
+    assert.equal(verifyResponse.status, 200);
+
+    const missingOtpLoginResponse = await postJson(baseUrl, '/api/auth/login', { email, password });
+    const missingOtpLoginBody = await missingOtpLoginResponse.json();
+    assert.equal(missingOtpLoginBody.error, '2FA token required');
+
+    const loginResponse = await postJson(baseUrl, '/api/auth/login', { email, password, otpToken });
+    assert.equal(loginResponse.status, 200);
+    const loginBody = await loginResponse.json();
+    assert.equal(loginBody.ok, true);
+    assert.equal(typeof loginBody.refreshToken, 'string');
+
+    const sessionsResponse = await getJson(baseUrl, '/api/auth/sessions', loginBody.accessToken);
+    assert.equal(sessionsResponse.status, 200);
+    const sessionsBody = await sessionsResponse.json();
+    assert.equal(sessionsBody.ok, true);
+    assert.equal(Array.isArray(sessionsBody.sessions), true);
+    assert.equal(sessionsBody.sessions.length >= 2, true);
+    assert.equal(typeof sessionsBody.sessions[0].sessionId, 'string');
+    assert.equal(typeof sessionsBody.sessions[0].deviceName, 'string');
+
+    const historyResponse = await getJson(baseUrl, '/api/auth/login-history', loginBody.accessToken);
+    assert.equal(historyResponse.status, 200);
+    const historyBody = await historyResponse.json();
+    assert.equal(historyBody.ok, true);
+    assert.equal(historyBody.entries.some((entry: { action: string }) => entry.action === 'auth_login_succeeded'), true);
+    assert.equal(historyBody.entries.some((entry: { action: string }) => entry.action === 'auth_2fa_enabled'), true);
+
+    const targetSession = sessionsBody.sessions.find((session: { sessionId: string }) => session.sessionId !== sessionsBody.sessions[0].sessionId);
+    assert.equal(typeof targetSession?.sessionId, 'string');
+
+    const revokeResponse = await postJson(baseUrl, '/api/auth/revoke-session', { sessionId: targetSession.sessionId }, loginBody.accessToken);
+    assert.equal(revokeResponse.status, 200);
+    const revokeBody = await revokeResponse.json();
+    assert.equal(revokeBody.revoked, true);
+
+    const revokedRefreshResponse = await postJson(baseUrl, '/api/auth/refresh', { refreshToken: signupBody.refreshToken });
     const revokedRefreshBody = await revokedRefreshResponse.json();
     assert.equal(revokedRefreshBody.error, 'invalid refresh token');
   });

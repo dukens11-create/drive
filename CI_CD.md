@@ -13,6 +13,8 @@ The workflows in `.github/workflows/` are set up to validate those applications 
   - Runs backend install/build/test/audit checks
   - Runs mobile install/typecheck/Jest coverage/export/audit checks
   - Runs dependency review on pull requests
+  - Lints and templates the `helm/drive-platform` chart
+  - Runs `terraform fmt -check -recursive terraform`, `terraform init -backend=false`, and `terraform validate`
   - Auto-builds optional admin/passenger app workspaces when their `package.json` files exist
 - `codeql.yml`
   - Runs CodeQL on pull requests, protected branches, and weekly on a schedule
@@ -20,9 +22,26 @@ The workflows in `.github/workflows/` are set up to validate those applications 
   - Uses Release Please for semantic versioning and changelog generation for the backend and mobile app
 - `deploy.yml`
   - Publishes an environment-tagged backend image to GHCR after a successful smoke test
+  - Renders environment-specific Helm manifests from `helm/drive-platform`
   - `main` pushes target `development`
   - `release/**` pushes target `staging`
   - `workflow_dispatch` supports manual `production` promotion through GitHub Environments approvals
+
+## Helm and Terraform
+
+- `helm/drive-platform` packages application workloads, PostgreSQL, Redis, RabbitMQ, ingress, RBAC, Prometheus, Grafana, Alertmanager, Elasticsearch, Logstash, Kibana, and Filebeat into a single deployable chart.
+- `terraform/` provisions AWS primitives for the platform: VPC, subnets, NAT gateways, EKS, ECR, PostgreSQL, ElastiCache, MSK, S3, CloudFront, Route53, CloudWatch, SNS, Secrets Manager, and IAM.
+- Use environment-specific tfvars from `terraform/environments/` for development, staging, and production plans.
+
+Example infrastructure validation commands:
+
+```bash
+helm lint ./helm/drive-platform
+helm template drive-platform ./helm/drive-platform --namespace drive-development >/tmp/rendered-helm.yaml
+cd terraform && terraform init -backend=false && terraform validate
+```
+
+Do not commit runtime secrets to `values.yaml` or `.tfvars`. Provide Terraform secrets via `TF_VAR_db_password`, `TF_VAR_jwt_secret`, and `TF_VAR_stripe_webhook_secret`, and bind Kubernetes runtime secrets through an existing secret named `drive-platform-secrets` (or override `secretManagement.secretName`).
 
 ## Mobile build and release
 

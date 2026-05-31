@@ -1,0 +1,235 @@
+global:
+  nameOverride: ""
+  fullnameOverride: ""
+  namespace: drive-development
+  environment: development
+  domain: dev.drive.local
+  imageRegistry: ghcr.io/dukens11-create
+  storageClass: ""
+
+namespaces:
+  create: true
+  items:
+    - drive-development
+    - drive-staging
+    - drive-production
+
+serviceAccount:
+  create: true
+  name: ""
+
+rbac:
+  create: true
+
+serviceMesh:
+  enabled: false
+  namespaceLabelKey: istio-injection
+  namespaceLabelValue: enabled
+
+config:
+  NODE_ENV: development
+  API_BASE_URL: https://api.dev.drive.local
+  REDIS_URL: redis://drive-platform-redis:6379
+  DATABASE_URL: "postgresql://drive@drive-platform-postgresql:5432/drive"
+  RABBITMQ_URL: "amqp://drive@drive-platform-rabbitmq:5672"
+  LOG_LEVEL: info
+
+secretManagement:
+  secretName: drive-platform-secrets
+  createSecret: false
+
+# These are intentionally blank. They must be overridden with non-empty values
+# only when secretManagement.createSecret=true. The default path is to bind an
+# existing secret via secretManagement.secretName.
+inlineSecrets:
+  JWT_SECRET: ""
+  STRIPE_WEBHOOK_SECRET: ""
+  POSTGRES_PASSWORD: ""
+  RABBITMQ_PASSWORD: ""
+  GRAFANA_ADMIN_PASSWORD: ""
+  ELASTIC_PASSWORD: ""
+
+backend:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: drive-api
+    tag: development
+    pullPolicy: IfNotPresent
+  service:
+    port: 80
+    targetPort: 8080
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  readinessProbe:
+    path: /readyz
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  livenessProbe:
+    path: /health
+    initialDelaySeconds: 20
+    periodSeconds: 20
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+admin:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: drive-admin
+    tag: development
+    pullPolicy: IfNotPresent
+  service:
+    port: 80
+    targetPort: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+passengerWeb:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: drive-passenger-web
+    tag: development
+    pullPolicy: IfNotPresent
+  service:
+    port: 80
+    targetPort: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+restaurantAdmin:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: drive-restaurant-dashboard
+    tag: development
+    pullPolicy: IfNotPresent
+  service:
+    port: 80
+    targetPort: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+postgresql:
+  enabled: true
+  image: postgres:16-alpine
+  size: 20Gi
+  database: drive
+  username: drive
+  service:
+    port: 5432
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 750m
+      memory: 1Gi
+
+redis:
+  enabled: true
+  image: redis:7-alpine
+  size: 5Gi
+  service:
+    port: 6379
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
+
+rabbitmq:
+  enabled: true
+  image: rabbitmq:3.13-management-alpine
+  size: 8Gi
+  username: drive
+  service:
+    amqpPort: 5672
+    managementPort: 15672
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 750m
+      memory: 1Gi
+
+monitoring:
+  enabled: true
+  prometheus:
+    image: prom/prometheus:v2.53.1
+    retention: 15d
+    size: 20Gi
+    service:
+      port: 9090
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    service:
+      port: 9093
+  grafana:
+    image: grafana/grafana:11.1.0
+    adminUser: admin
+    service:
+      port: 3000
+
+logging:
+  enabled: true
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    size: 50Gi
+    service:
+      port: 9200
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.15.0
+    service:
+      port: 5044
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.0
+    service:
+      port: 5601
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.15.0
+
+ingress:
+  enabled: true
+  className: nginx
+  clusterIssuer: letsencrypt
+  tlsSecretName: drive-platform-tls
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 10m
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-rpm: "1200"
+  hosts:
+    api: api.dev.drive.local
+    admin: admin.dev.drive.local
+    web: web.dev.drive.local
+
+networkPolicy:
+  enabled: true

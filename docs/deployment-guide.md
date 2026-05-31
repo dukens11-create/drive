@@ -2,6 +2,7 @@
 
 ## Prerequisites
 - Docker, Node 20+, GitHub repository access, GHCR permissions.
+- Helm 3 and Terraform 1.6+ for infrastructure planning and release rendering.
 - Staging/production secrets configured in GitHub Environments.
 
 ## Local development deployment
@@ -13,14 +14,19 @@ Health check: `GET /health` on `http://localhost:8080`.
 
 ## Staging deployment
 - Trigger push on `release/**` or manual `workflow_dispatch` selecting `staging`.
-- Deploy workflow builds/smoke-tests/pushes tagged image.
+- Deploy workflow builds/smoke-tests/pushes tagged image and renders staging Helm manifests from `helm/drive-platform`.
 - Run staging verification: health, auth login, ride request lifecycle, payment webhook replay.
 
 ## Production deployment
 - Run `Deploy` workflow with `environment=production`.
 - Ensure required reviewers approve production environment.
-- Verify health endpoint and deployment metadata artifact.
+- Verify health endpoint, deployment metadata artifact, and rendered Helm release artifact.
 - Execute post-deployment verification for core endpoints and realtime sockets.
+
+## Infrastructure provisioning
+- Review AWS plans with `cd terraform && terraform init -backend=false && terraform plan -var-file=environments/<env>.tfvars`.
+- Install or upgrade workloads with `helm upgrade --install drive-platform ./helm/drive-platform --namespace drive-<env> --create-namespace`.
+- Override image tags, TLS, and secret values with environment-specific values files or CI `--set` flags.
 
 ## Rollback
 - Redeploy previous known-good image tag from GHCR.

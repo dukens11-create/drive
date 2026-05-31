@@ -65,6 +65,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
       - name: Build backend container
         run: docker build -t "$IMAGE_NAME:$IMAGE_TAG" .
 
@@ -109,8 +112,26 @@ jobs:
           }
           EOF
 
+      - name: Render Helm release manifests
+        run: |
+          helm template drive-platform ./helm/drive-platform \
+            --namespace "drive-$DEPLOY_ENV" \
+            --set global.namespace="drive-$DEPLOY_ENV" \
+            --set global.environment="$DEPLOY_ENV" \
+            --set backend.image.tag="$IMAGE_TAG" \
+            --set admin.image.tag="$IMAGE_TAG" \
+            --set passengerWeb.image.tag="$IMAGE_TAG" \
+            --set restaurantAdmin.image.tag="$IMAGE_TAG" \
+            > rendered-helm-manifests.yaml
+
       - name: Upload deployment metadata
         uses: actions/upload-artifact@v4
         with:
           name: deployment-${{ env.DEPLOY_ENV }}
           path: deploy-metadata.json
+
+      - name: Upload rendered manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-manifests-${{ env.DEPLOY_ENV }}
+          path: rendered-helm-manifests.yaml

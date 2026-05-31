@@ -1,0 +1,212 @@
+{{- if .Values.postgresql.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-postgresql
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+    app.kubernetes.io/component: postgresql
+  ports:
+    - name: postgres
+      port: {{ .Values.postgresql.service.port }}
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-postgresql
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  serviceName: {{ include "drive-platform.fullname" . }}-postgresql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+      app.kubernetes.io/component: postgresql
+  template:
+    metadata:
+      labels:
+        {{- include "drive-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: postgresql
+    spec:
+      containers:
+        - name: postgresql
+          image: {{ .Values.postgresql.image }}
+          ports:
+            - name: postgres
+              containerPort: {{ .Values.postgresql.service.port }}
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.postgresql.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgresql.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "drive-platform.secretName" . }}
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            {{- toYaml .Values.postgresql.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.global.storageClass }}
+        storageClassName: {{ .Values.global.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.size }}
+{{- end }}
+{{- if .Values.redis.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-redis
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+    app.kubernetes.io/component: redis
+  ports:
+    - name: redis
+      port: {{ .Values.redis.service.port }}
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-redis
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  serviceName: {{ include "drive-platform.fullname" . }}-redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+      app.kubernetes.io/component: redis
+  template:
+    metadata:
+      labels:
+        {{- include "drive-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: redis
+    spec:
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image }}
+          args: ["redis-server", "--appendonly", "yes"]
+          ports:
+            - name: redis
+              containerPort: {{ .Values.redis.service.port }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.global.storageClass }}
+        storageClassName: {{ .Values.global.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.redis.size }}
+{{- end }}
+{{- if .Values.rabbitmq.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-rabbitmq
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rabbitmq
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+    app.kubernetes.io/component: rabbitmq
+  ports:
+    - name: amqp
+      port: {{ .Values.rabbitmq.service.amqpPort }}
+      targetPort: amqp
+    - name: management
+      port: {{ .Values.rabbitmq.service.managementPort }}
+      targetPort: management
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-rabbitmq
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rabbitmq
+spec:
+  serviceName: {{ include "drive-platform.fullname" . }}-rabbitmq
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+      app.kubernetes.io/component: rabbitmq
+  template:
+    metadata:
+      labels:
+        {{- include "drive-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: rabbitmq
+    spec:
+      containers:
+        - name: rabbitmq
+          image: {{ .Values.rabbitmq.image }}
+          ports:
+            - name: amqp
+              containerPort: {{ .Values.rabbitmq.service.amqpPort }}
+            - name: management
+              containerPort: {{ .Values.rabbitmq.service.managementPort }}
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              value: {{ .Values.rabbitmq.username | quote }}
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "drive-platform.secretName" . }}
+                  key: RABBITMQ_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rabbitmq
+          resources:
+            {{- toYaml .Values.rabbitmq.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.global.storageClass }}
+        storageClassName: {{ .Values.global.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.rabbitmq.size }}
+{{- end }}

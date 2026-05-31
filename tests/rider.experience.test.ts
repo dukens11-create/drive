@@ -34,7 +34,7 @@ async function postJson(baseUrl: string, path: string, body: Record<string, unkn
 async function signup(baseUrl: string, role: 'rider' | 'driver') {
   const response = await postJson(baseUrl, '/api/auth/signup', {
     email: `${role}-${randomUUID()}@example.com`,
-    password: 'password123',
+    password: 'Password123!',
     role
   });
   assert.equal(response.status, 200);

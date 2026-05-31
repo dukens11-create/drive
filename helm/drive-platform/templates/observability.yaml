@@ -1,0 +1,570 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-prometheus
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.monitoring.prometheus.size }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-prometheus
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+    rule_files:
+      - /etc/prometheus/alerts/alerts.yml
+    scrape_configs:
+      - job_name: backend
+        static_configs:
+          - targets: ['{{ include "drive-platform.fullname" . }}-backend:{{ .Values.backend.service.port }}']
+  alerts.yml: |
+    groups:
+      - name: drive-platform
+        rules:
+          - alert: HighApiErrorRate
+            expr: sum(rate(http_requests_total{status=~"5.."}[5m])) > 1
+            for: 10m
+            labels:
+              severity: critical
+            annotations:
+              summary: API error rate is elevated
+          - alert: HighBackendLatency
+            expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: P95 backend latency exceeded one second
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-prometheus
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+      app.kubernetes.io/component: prometheus
+  template:
+    metadata:
+      labels:
+        {{- include "drive-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: {{ .Values.monitoring.prometheus.image }}
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time={{ .Values.monitoring.prometheus.retention }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.monitoring.prometheus.service.port }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: storage
+              mountPath: /prometheus
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "drive-platform.fullname" . }}-prometheus
+        - name: storage
+          persistentVolumeClaim:
+            claimName: {{ include "drive-platform.fullname" . }}-prometheus
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-prometheus
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+    app.kubernetes.io/component: prometheus
+  ports:
+    - name: http
+      port: {{ .Values.monitoring.prometheus.service.port }}
+      targetPort: http
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-alertmanager
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alertmanager
+data:
+  alertmanager.yml: |
+    route:
+      receiver: default
+      group_by: ['alertname', 'severity']
+    receivers:
+      - name: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-alertmanager
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alertmanager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+      app.kubernetes.io/component: alertmanager
+  template:
+    metadata:
+      labels:
+        {{- include "drive-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: alertmanager
+    spec:
+      containers:
+        - name: alertmanager
+          image: {{ .Values.monitoring.alertmanager.image }}
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+          ports:
+            - name: http
+              containerPort: {{ .Values.monitoring.alertmanager.service.port }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "drive-platform.fullname" . }}-alertmanager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-alertmanager
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alertmanager
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+    app.kubernetes.io/component: alertmanager
+  ports:
+    - name: http
+      port: {{ .Values.monitoring.alertmanager.service.port }}
+      targetPort: http
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-grafana
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+data:
+  datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://{{ include "drive-platform.fullname" . }}-prometheus:{{ .Values.monitoring.prometheus.service.port }}
+        isDefault: true
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: Drive Platform
+        orgId: 1
+        folder: Drive
+        type: file
+        options:
+          path: /var/lib/grafana/dashboards
+  platform-overview.json: |
+    {
+      "title": "Drive Platform Overview",
+      "schemaVersion": 39,
+      "version": 1,
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "API Request Rate",
+          "targets": [{"expr": "sum(rate(http_requests_total[5m]))"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "API Error Rate",
+          "targets": [{"expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m]))"}]
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-grafana
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+      app.kubernetes.io/component: grafana
+  template:
+    metadata:
+      labels:
+        {{- include "drive-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: {{ .Values.monitoring.grafana.image }}
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: {{ .Values.monitoring.grafana.adminUser | quote }}
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "drive-platform.secretName" . }}
+                  key: GRAFANA_ADMIN_PASSWORD
+            - name: GF_PATHS_PROVISIONING
+              value: /etc/grafana/provisioning
+          ports:
+            - name: http
+              containerPort: {{ .Values.monitoring.grafana.service.port }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/grafana/provisioning/datasources/datasource.yaml
+              subPath: datasource.yaml
+            - name: config
+              mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml
+              subPath: dashboards.yaml
+            - name: config
+              mountPath: /var/lib/grafana/dashboards/platform-overview.json
+              subPath: platform-overview.json
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "drive-platform.fullname" . }}-grafana
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-grafana
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+    app.kubernetes.io/component: grafana
+  ports:
+    - name: http
+      port: {{ .Values.monitoring.grafana.service.port }}
+      targetPort: http
+{{- end }}
+{{- if .Values.logging.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-elasticsearch
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: elasticsearch
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+    app.kubernetes.io/component: elasticsearch
+  ports:
+    - name: http
+      port: {{ .Values.logging.elasticsearch.service.port }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-elasticsearch
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: elasticsearch
+spec:
+  serviceName: {{ include "drive-platform.fullname" . }}-elasticsearch
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+      app.kubernetes.io/component: elasticsearch
+  template:
+    metadata:
+      labels:
+        {{- include "drive-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: elasticsearch
+    spec:
+      containers:
+        - name: elasticsearch
+          image: {{ .Values.logging.elasticsearch.image }}
+          env:
+            - name: discovery.type
+              value: single-node
+            - name: xpack.security.enabled
+              value: "true"
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "drive-platform.secretName" . }}
+                  key: ELASTIC_PASSWORD
+            - name: ES_JAVA_OPTS
+              value: -Xms512m -Xmx512m
+          ports:
+            - name: http
+              containerPort: {{ .Values.logging.elasticsearch.service.port }}
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/elasticsearch/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.global.storageClass }}
+        storageClassName: {{ .Values.global.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.logging.elasticsearch.size }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-logstash
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logstash
+data:
+  logstash.conf: |
+    input {
+      beats {
+        port => 5044
+      }
+    }
+    filter {
+      if [kubernetes][namespace] {
+        mutate { add_field => { "namespace" => "%{[kubernetes][namespace]}" } }
+      }
+    }
+    output {
+      elasticsearch {
+        hosts => ["http://{{ include "drive-platform.fullname" . }}-elasticsearch:{{ .Values.logging.elasticsearch.service.port }}"]
+        user => "${ELASTICSEARCH_USERNAME}"
+        password => "${ELASTICSEARCH_PASSWORD}"
+        index => "drive-logs-%{+YYYY.MM.dd}"
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-logstash
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logstash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+      app.kubernetes.io/component: logstash
+  template:
+    metadata:
+      labels:
+        {{- include "drive-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: logstash
+    spec:
+      containers:
+        - name: logstash
+          image: {{ .Values.logging.logstash.image }}
+          env:
+            - name: ELASTICSEARCH_USERNAME
+              value: elastic
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "drive-platform.secretName" . }}
+                  key: ELASTIC_PASSWORD
+          ports:
+            - name: beats
+              containerPort: {{ .Values.logging.logstash.service.port }}
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/logstash/pipeline/logstash.conf
+              subPath: logstash.conf
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "drive-platform.fullname" . }}-logstash
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-logstash
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logstash
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+    app.kubernetes.io/component: logstash
+  ports:
+    - name: beats
+      port: {{ .Values.logging.logstash.service.port }}
+      targetPort: beats
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-kibana
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kibana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+      app.kubernetes.io/component: kibana
+  template:
+    metadata:
+      labels:
+        {{- include "drive-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: kibana
+    spec:
+      containers:
+        - name: kibana
+          image: {{ .Values.logging.kibana.image }}
+          env:
+            - name: ELASTICSEARCH_HOSTS
+              value: http://{{ include "drive-platform.fullname" . }}-elasticsearch:{{ .Values.logging.elasticsearch.service.port }}
+            - name: ELASTICSEARCH_USERNAME
+              value: elastic
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "drive-platform.secretName" . }}
+                  key: ELASTIC_PASSWORD
+          ports:
+            - name: http
+              containerPort: {{ .Values.logging.kibana.service.port }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-kibana
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kibana
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+    app.kubernetes.io/component: kibana
+  ports:
+    - name: http
+      port: {{ .Values.logging.kibana.service.port }}
+      targetPort: http
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-filebeat
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: filebeat
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+      - type: filestream
+        id: container-logs
+        paths:
+          - /var/log/containers/*.log
+    output.logstash:
+      hosts: ["{{ include "drive-platform.fullname" . }}-logstash:{{ .Values.logging.logstash.service.port }}"]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "drive-platform.fullname" . }}-filebeat
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: filebeat
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "drive-platform.name" . }}
+      app.kubernetes.io/component: filebeat
+  template:
+    metadata:
+      labels:
+        {{- include "drive-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: filebeat
+    spec:
+      serviceAccountName: {{ include "drive-platform.serviceAccountName" . }}
+      containers:
+        - name: filebeat
+          image: {{ .Values.logging.filebeat.image }}
+          args: ["-c", "/usr/share/filebeat/filebeat.yml", "-e"]
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/filebeat/filebeat.yml
+              subPath: filebeat.yml
+            - name: container-logs
+              mountPath: /var/log/containers
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "drive-platform.fullname" . }}-filebeat
+        - name: container-logs
+          hostPath:
+            path: /var/log/containers
+{{- end }}

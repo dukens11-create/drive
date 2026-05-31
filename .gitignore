@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 .data/
+terraform/.terraform/
 
 # Expo mobile app artifacts
 mobile/node_modules/

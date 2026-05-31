@@ -23,6 +23,9 @@ router.post('/upsert-promo', validateBody(genericSchema), controller.upsert_prom
 router.post('/upsert-market', validateBody(genericSchema), controller.upsert_market);
 router.post('/create-api-key', validateBody(genericSchema), controller.create_api_key);
 router.post('/revoke-api-key', validateBody(genericSchema), controller.revoke_api_key);
+router.post('/export-data', validateBody(genericSchema), controller.export_data);
+router.post('/import-data', validateBody(genericSchema), controller.import_data);
+router.post('/bulk-operation', validateBody(genericSchema), controller.bulk_operation);
 router.get('/audit-log', controller.audit_log);
 
 export default router;

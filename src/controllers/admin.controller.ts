@@ -17,3 +17,6 @@ export async function upsert_promo(req: any, res: any) { res.json(await service.
 export async function upsert_market(req: any, res: any) { res.json(await service.upsert_market({ ...req.body, __actor: req.user }, req.params, req.query)); }
 export async function create_api_key(req: any, res: any) { res.json(await service.create_api_key({ ...req.body, __actor: req.user }, req.params, req.query)); }
 export async function revoke_api_key(req: any, res: any) { res.json(await service.revoke_api_key({ ...req.body, __actor: req.user }, req.params, req.query)); }
+export async function export_data(req: any, res: any) { res.json(await service.export_data({ ...req.body, __actor: req.user }, req.params, req.query)); }
+export async function import_data(req: any, res: any) { res.json(await service.import_data({ ...req.body, __actor: req.user }, req.params, req.query)); }
+export async function bulk_operation(req: any, res: any) { res.json(await service.bulk_operation({ ...req.body, __actor: req.user }, req.params, req.query)); }

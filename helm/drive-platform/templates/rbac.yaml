@@ -1,0 +1,42 @@
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "drive-platform.serviceAccountName" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+{{- end }}
+{{- if .Values.rbac.create }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "drive-platform.fullname" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "drive-platform.fullname" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "drive-platform.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "drive-platform.serviceAccountName" . }}
+    namespace: {{ .Values.global.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "drive-platform.fullname" . }}
+{{- end }}

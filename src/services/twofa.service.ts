@@ -4,7 +4,7 @@
  * Compatible with Google Authenticator, Authy, etc.
  */
 import { createHmac, randomBytes, randomInt } from 'crypto';
-import { makeId, markStoreDirty, store, timestamp, type TotpEntry } from '../database/data.store';
+import { appendAuditLog, makeId, markStoreDirty, store, timestamp, type TotpEntry } from '../database/data.store';
 import { sendSmsOtp } from './notifications.service';
 
 // ─── Base32 encoding (RFC 4648) ───────────────────────────────────────────────
@@ -107,6 +107,7 @@ export async function setupTotp(body: any) {
 
   store.totpEntries.set(userId, entry);
   markStoreDirty();
+  appendAuditLog(userId, body?.actor?.role || user.role, 'auth_2fa_setup_started', userId, 'user');
 
   const issuer = 'Drive';
   const account = user.email || user.phone || userId;
@@ -143,6 +144,7 @@ export async function verifyAndEnableTotp(body: any) {
   entry.verifiedAt = timestamp();
   store.totpEntries.set(userId, entry);
   markStoreDirty();
+  appendAuditLog(userId, body?.actor?.role || store.users.get(userId)?.role || 'rider', 'auth_2fa_enabled', userId, 'user');
 
   return { module: '2fa', action: 'verify', ok: true, message: '2FA enabled successfully', backupCodes: entry.backupCodes };
 }
@@ -166,6 +168,7 @@ export async function disableTotp(body: any) {
 
   store.totpEntries.delete(userId);
   markStoreDirty();
+  appendAuditLog(userId, body?.actor?.role || store.users.get(userId)?.role || 'rider', 'auth_2fa_disabled', userId, 'user');
 
   return { module: '2fa', action: 'disable', ok: true, message: '2FA disabled' };
 }
@@ -184,6 +187,9 @@ export async function validateTotpToken(body: any) {
 
   const validTotp = verifyTotp(entry.secret, token);
   if (validTotp) {
+    appendAuditLog(userId, body?.actor?.role || store.users.get(userId)?.role || 'rider', 'auth_2fa_validated', userId, 'user', {
+      method: 'totp'
+    });
     return { module: '2fa', action: 'validate', ok: true, required: true };
   }
 
@@ -193,6 +199,9 @@ export async function validateTotpToken(body: any) {
     entry.backupCodes.splice(backupIdx, 1); // one-time use
     store.totpEntries.set(userId, entry);
     markStoreDirty();
+    appendAuditLog(userId, body?.actor?.role || store.users.get(userId)?.role || 'rider', 'auth_2fa_validated', userId, 'user', {
+      method: 'backup_code'
+    });
     return { module: '2fa', action: 'validate', ok: true, required: true, usedBackupCode: true };
   }
 
