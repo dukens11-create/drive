@@ -5,6 +5,7 @@ Drive is now a TypeScript codebase with:
 - Backend API under `src/` with controllers, services, routes, schemas, and shared infrastructure modules
 - Mobile driver app at `mobile/` (React Native + Expo Router + NativeWind)
 - Admin dashboard at `admin/` (Next.js + TypeScript + Tailwind CSS)
+- Restaurant admin dashboard at `restaurant-admin/` (Next.js + TypeScript + Tailwind CSS)
 - Passenger web app at `web/` (Next.js + TypeScript + Tailwind CSS)
 
 ## Mobile app: Drive Home
@@ -112,6 +113,26 @@ The admin app includes:
 - CSV export and print/PDF-friendly reporting views
 - Dockerfile for standalone admin container builds
 
+## Restaurant admin dashboard
+
+```bash
+cd restaurant-admin
+cp .env.example .env.local
+npm ci
+npm run lint
+npm run typecheck
+npm run build
+npm run dev
+```
+
+Set `NEXT_PUBLIC_RESTAURANT_API_BASE_URL` and optional `NEXT_PUBLIC_RESTAURANT_SOCKET_URL` for live data updates.
+The restaurant admin app includes:
+
+- Authentication flows (login, email verification, password reset, remember me, logout/session handling)
+- Restaurant dashboard sections for orders, menu, analytics, profile, earnings, staff, reviews, promotions, support, delivery, and account settings
+- Redux Toolkit state management, React Query data loading, dark mode with `next-themes`, and Socket.IO real-time order updates
+- Responsive mobile/tablet/desktop layout with quick actions and analytics widgets
+
 ## Android builds (APK / AAB)
 
 See **[PRODUCTION_BUILD.md](./PRODUCTION_BUILD.md)** for a full step-by-step guide on generating APK and AAB files for testing and Play Store submission using Expo EAS (recommended) or React Native CLI.
@@ -139,7 +160,7 @@ Codemagic Android builds use EAS non-interactive auth and require a secure `EXPO
 
 ## CI
 
-- GitHub Actions (`.github/workflows/ci.yml`) runs backend build/test/audit checks, admin lint/build validation, mobile typecheck/Jest coverage/Expo export checks, web typecheck/build checks, dependency review on PRs, and auto-builds optional passenger app workspaces when they are added to the repository.
+- GitHub Actions (`.github/workflows/ci.yml`) runs backend build/test/audit checks, admin lint/build validation, mobile typecheck/Jest coverage/Expo export checks, web typecheck/build checks, dependency review on PRs, and auto-builds optional passenger/restaurant app workspaces when they are added to the repository.
 - GitHub Actions (`.github/workflows/codeql.yml`) runs scheduled and PR CodeQL analysis for repository security scanning.
 - GitHub Actions (`.github/workflows/release.yml`) uses Release Please for semantic versioning and changelog generation.
 - GitHub Actions (`.github/workflows/deploy.yml`) publishes smoke-tested backend container images to GHCR for development, staging, and production promotion via GitHub Environments.
