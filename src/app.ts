@@ -4,8 +4,9 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import path from 'path';
 import { errorHandler } from './middleware';
-import { authRoutes, ridesRoutes, driversRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, restaurantsRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes } from './routes';
+import { authRoutes, ridesRoutes, driversRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes, restaurantsRoutes } from './routes';
 import { registerTrackingSocket, registerChatSocket } from './websocket';
 
 export function createApp() {
@@ -17,6 +18,9 @@ export function createApp() {
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));
   app.use(rateLimit({ windowMs: 60_000, limit: 300 }));
+
+  // Serve static files from public directory
+  app.use(express.static(path.join(__dirname, '../public')));
 
   app.get('/health', (_, res) => res.json({ ok: true, service: 'flupflap-ride-v7' }));
   app.get('/livez', (_, res) => res.json({ ok: true }));
@@ -46,6 +50,11 @@ export function createApp() {
   app.use('/api/ml', mlRoutes);
   app.use('/api/i18n', i18nRoutes);
   app.use('/api', restaurantsRoutes);
+
+  // Serve index.html for root path
+  app.get('/', (_, res) => {
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+  });
 
   registerTrackingSocket(io);
   registerChatSocket(io);
