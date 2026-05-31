@@ -92,7 +92,7 @@ function readImportFile(file: File, format: string) {
       reader.onload = () => {
         const result = reader.result;
         if (!(result instanceof ArrayBuffer)) {
-          reject(new Error('Failed to read file as binary data. Please ensure the file is a valid Excel spreadsheet.'));
+          reject(new Error('File read operation did not return binary data.'));
           return;
         }
         const bytes = new Uint8Array(result);
@@ -928,9 +928,10 @@ export function AdminSectionPage({ section }: { section: SectionKey }) {
                 <label className="text-sm font-medium">Import type<select className="mt-2" value={importForm.dataType} onChange={event => setImportForm(current => ({ ...current, dataType: event.target.value }))}><option value="users">Users</option><option value="promos">Promo codes</option><option value="markets">Markets</option><option value="settings">Configuration</option></select></label>
                 <label className="text-sm font-medium">Format<select className="mt-2" value={importForm.format} onChange={event => setImportForm(current => ({ ...current, format: event.target.value }))}><option value="json">JSON</option><option value="csv">CSV</option><option value="xlsx">Excel</option><option value="api">API payload</option></select></label>
               </div>
-              <label className="text-sm font-medium">Upload file<input className="mt-2" accept=".json,.csv,.xlsx" onChange={event => { void handleImportFileChange(event); }} type="file" /></label>
+              <label className="text-sm font-medium" htmlFor="admin-import-file">Upload file</label>
+              <input className="rounded-2xl border border-[var(--border)] px-4 py-3 text-sm" id="admin-import-file" accept=".json,.csv,.xlsx" onChange={event => { void handleImportFileChange(event); }} type="file" />
               {importFileName ? <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--muted)]">{importFileName}</div> : null}
-              <label className="text-sm font-medium">Payload<textarea className="mt-2 min-h-32" placeholder='[{"email":"ops@example.com","role":"driver"}]' value={importForm.content} onChange={event => setImportForm(current => ({ ...current, content: event.target.value }))} /></label>
+              <label className="text-sm font-medium">Payload<textarea className="mt-2 min-h-32" placeholder='[{"email":"ops@example.com","password":"TempPass123!","role":"driver"}]' value={importForm.content} onChange={event => setImportForm(current => ({ ...current, content: event.target.value }))} /></label>
               <div className="flex flex-wrap gap-3">
                 <button className="rounded-2xl border border-[var(--border)] px-4 py-3" type="submit">Preview import</button>
                 <button className="rounded-2xl bg-[var(--accent)] px-4 py-3 font-semibold text-[var(--accent-foreground)]" onClick={() => { void importData({ ...importForm, confirm: true, previewOnly: false }); }} type="button">Confirm import</button>

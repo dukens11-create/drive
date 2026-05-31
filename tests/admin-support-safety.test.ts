@@ -277,8 +277,8 @@ test('POST /api/admin/import-data previews, imports, and rolls back imported use
   await withServer(async baseUrl => {
     const adminToken = await loginAdmin(baseUrl);
     const records = [
-      { email: `imported-a-${randomUUID()}@example.com`, role: 'rider' },
-      { email: `imported-b-${randomUUID()}@example.com`, role: 'driver' }
+      { email: `imported-a-${randomUUID()}@example.com`, password: 'ImportPass123!', role: 'rider' },
+      { email: `imported-b-${randomUUID()}@example.com`, password: 'ImportPass123!', role: 'driver' }
     ];
 
     const previewRes = await fetch(`${baseUrl}/api/admin/import-data`, {

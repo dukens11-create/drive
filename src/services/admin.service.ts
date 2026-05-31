@@ -174,6 +174,7 @@ function rowsToXml(dataType: string, rows: Array<Record<string, unknown>>) {
 function rowsToSpreadsheetBase64(rows: Array<Record<string, unknown>>) {
   if (!rows.length) return Buffer.from('', 'utf8').toString('base64');
   const headers = Object.keys(rows[0]);
+  if (!headers.length) return Buffer.from('', 'utf8').toString('base64');
   const content = [headers.join('\t'), ...rows.map(row => headers.map(header => String(row[header] ?? '')).join('\t'))].join('\n');
   return Buffer.from(content, 'utf8').toString('base64');
 }
@@ -187,6 +188,7 @@ function normalizeCell(value: unknown) {
 function parseCsv(content: string) {
   if (!content.trim()) return [] as Array<Record<string, unknown>>;
   const lines = content.trim().split(/\r?\n/);
+  if (!lines.length) return [] as Array<Record<string, unknown>>;
   const parseLine = (line: string, delimiter: string) => {
     const values: string[] = [];
     let current = '';
@@ -414,8 +416,13 @@ function previewImport(dataType: string, format: string, records: Array<Record<s
     records.forEach((record, index) => {
       const email = String(record.email || '').trim().toLowerCase();
       const phone = String(record.phone || '').trim();
+      const password = String(record.password || '').trim();
       if (!email && !phone) {
         errors.push(`Row ${index + 1}: email or phone is required`);
+        return;
+      }
+      if (!password) {
+        errors.push(`Row ${index + 1}: password is required for imported users`);
         return;
       }
       validRecords += 1;
@@ -480,10 +487,14 @@ async function applyImport(dataType: string, format: string, records: Array<Reco
     for (const [index, record] of records.entries()) {
       const email = String(record.email || '').trim().toLowerCase();
       const phone = String(record.phone || '').trim();
-      const password = String(record.password || '').trim() || randomBytes(12).toString('hex');
+      const password = String(record.password || '').trim();
       const role = ['driver', 'merchant', 'rider'].includes(String(record.role || '').trim()) ? String(record.role).trim() : 'rider';
       if (!email && !phone) {
         errors.push(`Row ${index + 1}: email or phone is required`);
+        continue;
+      }
+      if (!password) {
+        errors.push(`Row ${index + 1}: password is required for imported users`);
         continue;
       }
       validRecords += 1;
