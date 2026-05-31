@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drive-admin-dashboard
+  namespace: drive-development
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: drive-admin-dashboard
+  template:
+    metadata:
+      labels:
+        app: drive-admin-dashboard
+    spec:
+      containers:
+        - name: admin
+          image: ghcr.io/dukens11-create/drive-admin:development
+          ports:
+            - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drive-admin-dashboard
+  namespace: drive-development
+spec:
+  selector:
+    app: drive-admin-dashboard
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drive-passenger-web
+  namespace: drive-development
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: drive-passenger-web
+  template:
+    metadata:
+      labels:
+        app: drive-passenger-web
+    spec:
+      containers:
+        - name: passenger-web
+          image: ghcr.io/dukens11-create/drive-passenger-web:development
+          ports:
+            - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drive-passenger-web
+  namespace: drive-development
+spec:
+  selector:
+    app: drive-passenger-web
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drive-restaurant-web-dashboard
+  namespace: drive-development
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: drive-restaurant-web-dashboard
+  template:
+    metadata:
+      labels:
+        app: drive-restaurant-web-dashboard
+    spec:
+      containers:
+        - name: restaurant-web-dashboard
+          image: ghcr.io/dukens11-create/drive-restaurant-dashboard:development
+          ports:
+            - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drive-restaurant-web-dashboard
+  namespace: drive-development
+spec:
+  selector:
+    app: drive-restaurant-web-dashboard
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000

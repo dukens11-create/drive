@@ -310,3 +310,54 @@ export const marketplaceApi = {
     });
   },
 };
+
+export const foodApi = {
+  listRestaurants(params?: { cuisine?: string; minRating?: number; maxDeliveryMins?: number }) {
+    return request<ApiEnvelope<{ restaurants: import('./types').Restaurant[] }>>('/api/food/restaurants', {
+      method: 'POST',
+      body: params ?? {},
+      auth: true,
+    });
+  },
+  getRestaurant(restaurantId: string) {
+    return request<ApiEnvelope<{ restaurant: import('./types').Restaurant; menu: import('./types').MenuCategory[] }>>('/api/food/restaurant', {
+      method: 'POST',
+      body: { restaurantId },
+      auth: true,
+    });
+  },
+  placeOrder(payload: {
+    restaurantId: string;
+    items: import('./types').CartItem[];
+    deliveryAddressId: string;
+    deliveryInstructions?: string;
+    promoCode?: string;
+  }) {
+    return request<ApiEnvelope<{ order: import('./types').FoodOrder }>>('/api/food/order/place', {
+      method: 'POST',
+      body: payload,
+      auth: true,
+    });
+  },
+  getOrder(orderId: string) {
+    return request<ApiEnvelope<{ order: import('./types').FoodOrder }>>('/api/food/order', {
+      method: 'POST',
+      body: { orderId },
+      auth: true,
+    });
+  },
+  listOrders() {
+    return request<ApiEnvelope<{ orders: import('./types').FoodOrder[] }>>('/api/food/orders', {
+      method: 'POST',
+      body: {},
+      auth: true,
+    });
+  },
+  rateOrder(orderId: string, rating: number, review?: string) {
+    return request<ApiEnvelope<{ orderId: string; rating: number }>>('/api/food/order/rate', {
+      method: 'POST',
+      body: { orderId, rating, review },
+      auth: true,
+    });
+  },
+};

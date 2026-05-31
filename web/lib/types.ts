@@ -2,7 +2,7 @@ export type UserRole = 'rider' | 'driver' | 'merchant' | 'admin';
 export type ThemeMode = 'dark' | 'light';
 export type TextScale = 'sm' | 'md' | 'lg';
 export type LocaleCode = 'en' | 'es' | 'fr';
-export type PortalSection = 'home' | 'auth' | 'book' | 'liveRide' | 'history' | 'rideDetail' | 'wallet' | 'promotions' | 'support' | 'account' | 'scheduled';
+export type PortalSection = 'home' | 'auth' | 'book' | 'liveRide' | 'history' | 'rideDetail' | 'wallet' | 'promotions' | 'support' | 'account' | 'scheduled' | 'food' | 'foodCart' | 'foodOrderLive' | 'foodOrders';
 
 export type AuthUser = {
   id: string;
@@ -140,4 +140,93 @@ export type AddressSuggestion = {
   subtitle: string;
   lat?: number;
   lng?: number;
+};
+
+export type Restaurant = {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  cuisine: string[];
+  rating: number;
+  reviewCount: number;
+  deliveryTimeMins: number;
+  deliveryFeeCents: number;
+  minimumOrderCents: number;
+  open: boolean;
+  distanceMiles: number;
+  priceRange: 1 | 2 | 3;
+  description?: string;
+};
+
+export type MenuCategory = {
+  id: string;
+  name: string;
+  description?: string;
+  items: MenuItem[];
+};
+
+export type MenuItem = {
+  id: string;
+  restaurantId: string;
+  categoryId: string;
+  name: string;
+  description: string;
+  priceCents: number;
+  imageUrl?: string;
+  available: boolean;
+  popular?: boolean;
+  allergens?: string[];
+  calories?: number;
+  customizations?: MenuItemCustomization[];
+};
+
+export type MenuItemCustomization = {
+  id: string;
+  label: string;
+  required: boolean;
+  multiSelect: boolean;
+  options: Array<{ id: string; label: string; priceCents: number }>;
+};
+
+export type CartItem = {
+  menuItemId: string;
+  restaurantId: string;
+  name: string;
+  priceCents: number;
+  quantity: number;
+  selectedOptions?: Array<{ customizationId: string; optionId: string; label: string; priceCents: number }>;
+  specialInstructions?: string;
+};
+
+export type FoodOrderStatus =
+  | 'placed'
+  | 'restaurant_confirmed'
+  | 'preparing'
+  | 'ready_for_pickup'
+  | 'driver_picked_up'
+  | 'on_the_way'
+  | 'delivered'
+  | 'cancelled';
+
+export type FoodOrder = {
+  id: string;
+  restaurantId: string;
+  restaurantName: string;
+  riderId: string;
+  driverId?: string;
+  status: FoodOrderStatus;
+  items: CartItem[];
+  subtotalCents: number;
+  deliveryFeeCents: number;
+  taxCents: number;
+  discountCents: number;
+  totalCents: number;
+  deliveryAddressId: string;
+  deliveryAddress: string;
+  deliveryInstructions?: string;
+  estimatedDeliveryMins: number;
+  createdAt: string;
+  updatedAt: string;
+  rating?: number;
+  review?: string;
 };

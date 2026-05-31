@@ -1,0 +1,25 @@
+{
+  "title": "Drive Platform Overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "API Request Rate",
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[5m]))"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "API Error Rate",
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m]))"
+        }
+      ]
+    }
+  ]
+}

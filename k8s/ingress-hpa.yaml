@@ -1,0 +1,68 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: drive-platform-ingress
+  namespace: drive-development
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 10m
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.dev.drive.local
+        - admin.dev.drive.local
+        - web.dev.drive.local
+      secretName: drive-platform-tls
+  rules:
+    - host: api.dev.drive.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: drive-backend
+                port:
+                  number: 80
+    - host: admin.dev.drive.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: drive-admin-dashboard
+                port:
+                  number: 80
+    - host: web.dev.drive.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: drive-passenger-web
+                port:
+                  number: 80
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: drive-backend-hpa
+  namespace: drive-development
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: drive-backend
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

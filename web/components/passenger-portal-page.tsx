@@ -8,10 +8,10 @@ import { Button, Card, Input, Metric, Pill, SectionTitle, Select, Textarea } fro
 import { useAppState, useTranslation } from './providers';
 import { apiReady, apiBaseUrl } from '../lib/config';
 import { autocompleteAddresses } from '../lib/places';
-import { authApi, marketplaceApi, ridesApi, supportApi, walletApi } from '../lib/api';
-import { addressSuggestions, demoReceipt, demoRides, emergencyContacts, faqItems, notifications as demoNotifications, paymentMethods, promos as demoPromos, referralSummary, savedAddresses, savedTrips, scheduledRides, supportTickets as demoTickets, walletEntries as demoWalletEntries, rideTypes } from '../lib/demo-data';
+import { authApi, foodApi, marketplaceApi, ridesApi, supportApi, walletApi } from '../lib/api';
+import { addressSuggestions, demoCart, demoFoodOrders, demoMenuCategories, demoReceipt, demoRestaurants, demoRides, emergencyContacts, faqItems, notifications as demoNotifications, paymentMethods, promos as demoPromos, referralSummary, savedAddresses, savedTrips, scheduledRides, supportTickets as demoTickets, walletEntries as demoWalletEntries, rideTypes } from '../lib/demo-data';
 import { downloadReceiptPdf, downloadWalletCsv } from '../lib/download';
-import type { AddressSuggestion, PortalSection, RideEvent, RideReceipt, RideSummary, SupportTicket, WalletEntry } from '../lib/types';
+import type { AddressSuggestion, CartItem, FoodOrder, MenuCategory, PortalSection, Restaurant, RideEvent, RideReceipt, RideSummary, SupportTicket, WalletEntry } from '../lib/types';
 
 const navItems: Array<{ href: string; label: string; section: PortalSection }> = [
   { href: '/', label: 'Home', section: 'home' },
@@ -20,6 +20,10 @@ const navItems: Array<{ href: string; label: string; section: PortalSection }> =
   { href: '/ride/live', label: 'Live Ride', section: 'liveRide' },
   { href: '/history', label: 'History', section: 'history' },
   { href: '/scheduled', label: 'Scheduled', section: 'scheduled' },
+  { href: '/food', label: 'Food', section: 'food' },
+  { href: '/food/cart', label: 'Cart', section: 'foodCart' },
+  { href: '/food/order/live', label: 'Order Live', section: 'foodOrderLive' },
+  { href: '/food/orders', label: 'Food Orders', section: 'foodOrders' },
   { href: '/wallet', label: 'Wallet', section: 'wallet' },
   { href: '/promotions', label: 'Promotions', section: 'promotions' },
   { href: '/support', label: 'Support', section: 'support' },
@@ -62,6 +66,20 @@ export function PassengerPortalPage({ section, rideId }: { section: PortalSectio
   const [contactForm, setContactForm] = useState({ email: session?.user.email || 'rider@example.com', phone: session?.user.phone || '+1 (415) 555-0110', fullName: 'Drive Passenger' });
   const [authForm, setAuthForm] = useState({ email: session?.user.email || 'rider@example.com', phone: '', password: 'password123' });
 
+  // Food delivery state
+  const [restaurants, setRestaurants] = useState<Restaurant[]>(demoRestaurants);
+  const [cuisineFilter, setCuisineFilter] = useState('');
+  const [restaurantSearch, setRestaurantSearch] = useState('');
+  const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant>(demoRestaurants[0]);
+  const [menuCategories, setMenuCategories] = useState<MenuCategory[]>(demoMenuCategories);
+  const [cart, setCart] = useState<CartItem[]>(demoCart);
+  const [foodOrders, setFoodOrders] = useState<FoodOrder[]>(demoFoodOrders);
+  const [activeOrder, setActiveOrder] = useState<FoodOrder>(demoFoodOrders[0]);
+  const [foodOrderRating, setFoodOrderRating] = useState(5);
+  const [foodOrderReview, setFoodOrderReview] = useState('');
+  const [foodPromoCode, setFoodPromoCode] = useState('');
+  const [deliveryInstructions, setDeliveryInstructions] = useState('Ring bell at unit 9B');
+
   useEffect(() => {
     if (!session || !apiReady) {
       return;
@@ -81,6 +99,11 @@ export function PassengerPortalPage({ section, rideId }: { section: PortalSectio
       marketplaceApi.referralCode().then((response) => setReferralCode(response.referralCode)),
       marketplaceApi.referrals().then((response) => setReferralBonus(response.totalBonusCents)),
       marketplaceApi.surge().then((response) => setSurgeMultiplier(response.multiplier)),
+      foodApi.listRestaurants().then((response) => setRestaurants(response.restaurants)),
+      foodApi.listOrders().then((response) => {
+        setFoodOrders(response.orders);
+        if (response.orders[0]) setActiveOrder(response.orders[0]);
+      }),
     ]).catch(() => undefined);
   }, [session]);
 
@@ -216,6 +239,116 @@ export function PassengerPortalPage({ section, rideId }: { section: PortalSectio
 
   const handleSignUp = async () => {
     await signUp(authForm.phone ? { phone: authForm.phone, password: authForm.password } : { email: authForm.email, password: authForm.password });
+  };
+
+  // Food delivery helpers
+  const cartSubtotal = cart.reduce((sum, item) => sum + (item.priceCents + (item.selectedOptions?.reduce((s, o) => s + o.priceCents, 0) ?? 0)) * item.quantity, 0);
+  const cartDeliveryFee = cart.length > 0 ? selectedRestaurant.deliveryFeeCents : 0;
+  const cartTax = Math.round(cartSubtotal * 0.085);
+  const cartTotal = cartSubtotal + cartDeliveryFee + cartTax;
+
+  const addToCart = (item: MenuCategory['items'][number]) => {
+    setCart((current) => {
+      const existing = current.find((c) => c.menuItemId === item.id);
+      if (existing) {
+        return current.map((c) => c.menuItemId === item.id ? { ...c, quantity: c.quantity + 1 } : c);
+      }
+      return [...current, { menuItemId: item.id, restaurantId: item.restaurantId, name: item.name, priceCents: item.priceCents, quantity: 1 }];
+    });
+    setBanner(`Added ${item.name} to cart.`);
+  };
+
+  const removeFromCart = (menuItemId: string) => {
+    setCart((current) => current.filter((c) => c.menuItemId !== menuItemId));
+  };
+
+  const updateCartQty = (menuItemId: string, delta: number) => {
+    setCart((current) =>
+      current.flatMap((c) => {
+        if (c.menuItemId !== menuItemId) return [c];
+        const next = c.quantity + delta;
+        return next > 0 ? [{ ...c, quantity: next }] : [];
+      })
+    );
+  };
+
+  const placeFoodOrder = async () => {
+    if (cart.length === 0) {
+      setBanner('Your cart is empty.');
+      return;
+    }
+    try {
+      if (!session || !apiReady) {
+        const newOrder: FoodOrder = {
+          id: `order-${Date.now()}`,
+          restaurantId: selectedRestaurant.id,
+          restaurantName: selectedRestaurant.name,
+          riderId: 'demo-rider',
+          status: 'placed',
+          items: cart,
+          subtotalCents: cartSubtotal,
+          deliveryFeeCents: cartDeliveryFee,
+          taxCents: cartTax,
+          discountCents: 0,
+          totalCents: cartTotal,
+          deliveryAddressId: savedAddresses[0].id,
+          deliveryAddress: savedAddresses[0].address,
+          deliveryInstructions,
+          estimatedDeliveryMins: selectedRestaurant.deliveryTimeMins,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        setFoodOrders((current) => [newOrder, ...current]);
+        setActiveOrder(newOrder);
+        setCart([]);
+        setBanner(`Order ${newOrder.id} placed! Estimated delivery: ${selectedRestaurant.deliveryTimeMins} min.`);
+      } else {
+        const response = await foodApi.placeOrder({
+          restaurantId: selectedRestaurant.id,
+          items: cart,
+          deliveryAddressId: savedAddresses[0].id,
+          deliveryInstructions,
+          promoCode: foodPromoCode || undefined,
+        });
+        setFoodOrders((current) => [response.order, ...current]);
+        setActiveOrder(response.order);
+        setCart([]);
+        setBanner(`Order ${response.order.id} placed!`);
+      }
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'Unable to place order.');
+    }
+  };
+
+  const submitFoodRating = async () => {
+    try {
+      if (session && apiReady) {
+        await foodApi.rateOrder(activeOrder.id, foodOrderRating, foodOrderReview || undefined);
+      }
+      setBanner(`Submitted ${foodOrderRating}-star rating for your food order.`);
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'Unable to rate order.');
+    }
+  };
+
+  const filteredRestaurants = useMemo(
+    () => restaurants.filter((r) => {
+      const matchSearch = `${r.name} ${r.cuisine.join(' ')}`.toLowerCase().includes(restaurantSearch.toLowerCase());
+      const matchCuisine = !cuisineFilter || r.cuisine.some((c) => c.toLowerCase().includes(cuisineFilter.toLowerCase()));
+      return matchSearch && matchCuisine;
+    }),
+    [restaurants, restaurantSearch, cuisineFilter],
+  );
+
+  const foodOrderStatusLabel: Record<FoodOrder['status'], string> = {
+    placed: 'Order placed',
+    restaurant_confirmed: 'Restaurant confirmed',
+    preparing: 'Preparing',
+    ready_for_pickup: 'Ready for pickup',
+    driver_picked_up: 'Driver picked up',
+    on_the_way: 'On the way',
+    delivered: 'Delivered',
+    cancelled: 'Cancelled',
   };
 
   const pageContent = {
@@ -549,6 +682,217 @@ export function PassengerPortalPage({ section, rideId }: { section: PortalSectio
           {savedTrips.map((trip) => <div key={trip.id} className="rounded-2xl border border-white/10 bg-slate-950/40 p-4"><p className="font-semibold text-white">{trip.label}</p><p className="text-sm text-slate-300">{trip.from} → {trip.to}</p></div>)}
           <Button onClick={() => setBanner('Favorite destination pinned to your home screen.')}>Pin favorite</Button>
         </Card>
+      </div>
+    ),
+    food: (
+      <div className="space-y-6">
+        <SectionTitle eyebrow="Food delivery" title="Restaurants, menus, and ordering" description="Browse nearby restaurants, filter by cuisine and delivery time, view menus, and add items to your cart in one seamless flow." />
+        <div className="grid gap-3 md:grid-cols-[1fr,auto,auto]">
+          <Input value={restaurantSearch} onChange={(event) => setRestaurantSearch(event.target.value)} placeholder="Search restaurants or cuisines" />
+          <Input value={cuisineFilter} onChange={(event) => setCuisineFilter(event.target.value)} placeholder="Cuisine filter" />
+          <Button tone="ghost" onClick={() => { setRestaurantSearch(''); setCuisineFilter(''); }}>Clear</Button>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {filteredRestaurants.map((restaurant) => (
+            <button
+              key={restaurant.id}
+              type="button"
+              onClick={() => {
+                setSelectedRestaurant(restaurant);
+                if (session && apiReady) {
+                  void foodApi.getRestaurant(restaurant.id).then((r) => setMenuCategories(r.menu)).catch(() => undefined);
+                }
+                setBanner(`Viewing menu for ${restaurant.name}.`);
+              }}
+              className="w-full rounded-3xl border border-white/10 bg-white/6 p-5 text-left shadow-lg shadow-slate-950/20 backdrop-blur transition hover:bg-white/10"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-white">{restaurant.name}</p>
+                  <p className="mt-1 text-xs text-slate-400">{restaurant.cuisine.join(' · ')}</p>
+                </div>
+                <Pill>{restaurant.open ? 'Open' : 'Closed'}</Pill>
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-slate-300">
+                <span>⭐ {restaurant.rating} ({restaurant.reviewCount})</span>
+                <span>🕐 {restaurant.deliveryTimeMins} min</span>
+                <span>📍 {restaurant.distanceMiles} mi</span>
+              </div>
+              <p className="mt-2 text-xs text-slate-400">Delivery {currency(restaurant.deliveryFeeCents / 100)} · Min {currency(restaurant.minimumOrderCents / 100)}</p>
+            </button>
+          ))}
+        </div>
+        <Card className="space-y-4">
+          <SectionTitle eyebrow={selectedRestaurant.cuisine.join(' · ')} title={selectedRestaurant.name} description={selectedRestaurant.description || 'Browse menu and add items to your cart.'} />
+          {menuCategories.map((category) => (
+            <div key={category.id} className="space-y-3">
+              <p className="font-semibold text-sky-300">{category.name}</p>
+              <div className="grid gap-3 md:grid-cols-2">
+                {category.items.map((item) => (
+                  <div key={item.id} className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-white">{item.name}{item.popular ? ' 🔥' : ''}</p>
+                        <p className="mt-1 text-sm text-slate-300 line-clamp-2">{item.description}</p>
+                        {item.allergens?.length ? <p className="mt-1 text-xs text-slate-400">Allergens: {item.allergens.join(', ')}</p> : null}
+                        {item.calories ? <p className="mt-1 text-xs text-slate-400">{item.calories} kcal</p> : null}
+                      </div>
+                      <p className="shrink-0 font-semibold text-white">{currency(item.priceCents / 100)}</p>
+                    </div>
+                    <Button
+                      tone="secondary"
+                      className="mt-3 w-full"
+                      disabled={!item.available}
+                      onClick={() => addToCart(item)}
+                    >
+                      {item.available ? 'Add to cart' : 'Unavailable'}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </Card>
+      </div>
+    ),
+    foodCart: (
+      <div className="space-y-6">
+        <SectionTitle eyebrow="Cart" title="Review order and checkout" description="Adjust quantities, enter delivery address and instructions, apply a promo code, and place your food order." />
+        {cart.length === 0 ? (
+          <Card className="py-10 text-center text-slate-300">Your cart is empty. Browse restaurants to add items.</Card>
+        ) : (
+          <div className="grid gap-4 xl:grid-cols-[1.1fr,0.9fr]">
+            <Card className="space-y-4">
+              <SectionTitle eyebrow={selectedRestaurant.name} title="Cart items" description="Review each item, update quantities, or remove items before checkout." />
+              {cart.map((item) => (
+                <div key={item.menuItemId} className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-semibold text-white">{item.name}</p>
+                      {item.selectedOptions?.map((opt) => <p key={opt.optionId} className="text-xs text-slate-400">{opt.label} +{currency(opt.priceCents / 100)}</p>)}
+                    </div>
+                    <p className="shrink-0 font-semibold text-white">{currency(item.priceCents / 100)}</p>
+                  </div>
+                  <div className="mt-3 flex items-center gap-3">
+                    <Button tone="ghost" onClick={() => updateCartQty(item.menuItemId, -1)}>−</Button>
+                    <span className="font-semibold text-white">{item.quantity}</span>
+                    <Button tone="ghost" onClick={() => updateCartQty(item.menuItemId, 1)}>+</Button>
+                    <Button tone="ghost" className="ml-auto text-red-400" onClick={() => removeFromCart(item.menuItemId)}>Remove</Button>
+                  </div>
+                </div>
+              ))}
+            </Card>
+            <Card className="space-y-4">
+              <SectionTitle eyebrow="Checkout" title="Order summary" description="Confirm delivery details and place your order." />
+              <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4 text-sm text-slate-200 space-y-1">
+                <div className="flex justify-between"><span>Subtotal</span><span>{currency(cartSubtotal / 100)}</span></div>
+                <div className="flex justify-between"><span>Delivery fee</span><span>{currency(cartDeliveryFee / 100)}</span></div>
+                <div className="flex justify-between"><span>Tax (8.5%)</span><span>{currency(cartTax / 100)}</span></div>
+                <div className="flex justify-between font-semibold text-white"><span>Total</span><span>{currency(cartTotal / 100)}</span></div>
+              </div>
+              <Input value={deliveryInstructions} onChange={(event) => setDeliveryInstructions(event.target.value)} placeholder="Delivery instructions (optional)" />
+              <div className="grid gap-3 md:grid-cols-[1fr,auto]">
+                <Input value={foodPromoCode} onChange={(event) => setFoodPromoCode(event.target.value)} placeholder="Promo code" />
+                <Button tone="secondary" onClick={() => setBanner(`Promo ${foodPromoCode.toUpperCase()} applied.`)}>Apply</Button>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4 text-sm">
+                <p className="font-semibold text-white">Deliver to</p>
+                <p className="mt-1 text-slate-300">{savedAddresses[0].address}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4 text-sm">
+                <p className="font-semibold text-white">Payment</p>
+                <p className="mt-1 text-slate-300">{paymentMethods[0].label}</p>
+              </div>
+              <Button className="w-full" onClick={() => void placeFoodOrder()}>Place order</Button>
+            </Card>
+          </div>
+        )}
+      </div>
+    ),
+    foodOrderLive: (
+      <div className="grid gap-4 xl:grid-cols-[1.2fr,0.8fr]">
+        <Card className="space-y-4">
+          <SectionTitle eyebrow="Live tracking" title="Your order is on its way" description="Follow your delivery driver on the map, check estimated arrival, and contact the restaurant or driver from one place." />
+          <div className="rounded-3xl border border-dashed border-amber-400/40 bg-amber-400/10 p-8 text-sm text-slate-100">
+            Map canvas: delivery driver approaching your location · ETA {activeOrder.estimatedDeliveryMins} min
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <Metric label="Restaurant" value={activeOrder.restaurantName} hint="Order acknowledged and being prepared." />
+            <Metric label="ETA" value={activeOrder.estimatedDeliveryMins > 0 ? `${activeOrder.estimatedDeliveryMins} min` : 'Delivered'} hint="Live traffic adjusted." />
+            <Metric label="Status" value={foodOrderStatusLabel[activeOrder.status]} hint="Updated in real time." />
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300 space-y-1">
+            <p className="font-semibold text-white">Order timeline</p>
+            {(['placed', 'restaurant_confirmed', 'preparing', 'ready_for_pickup', 'driver_picked_up', 'on_the_way', 'delivered'] as const).map((step) => {
+              const steps: FoodOrder['status'][] = ['placed', 'restaurant_confirmed', 'preparing', 'ready_for_pickup', 'driver_picked_up', 'on_the_way', 'delivered'];
+              const done = steps.indexOf(activeOrder.status) >= steps.indexOf(step);
+              return (
+                <p key={step} className={done ? 'text-white' : 'text-slate-500'}>
+                  {done ? '✓' : '○'} {foodOrderStatusLabel[step]}
+                </p>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Button tone="secondary" onClick={() => setBanner('Calling driver via preferred contact method.')}>Call driver</Button>
+            <Button tone="secondary" onClick={() => setBanner('Chat opened with restaurant.')}>Chat restaurant</Button>
+            <Button tone="ghost" onClick={() => setBanner('Order link copied to clipboard.')}>Share order</Button>
+          </div>
+        </Card>
+        <Card className="space-y-4">
+          <SectionTitle eyebrow="Order details" title={activeOrder.id} description="Review what you ordered and leave a rating after delivery." />
+          {activeOrder.items.map((item) => (
+            <div key={item.menuItemId} className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+              <div className="flex justify-between">
+                <p className="font-semibold text-white">{item.name}</p>
+                <p className="text-sm text-slate-300">×{item.quantity}</p>
+              </div>
+              <p className="text-sm text-slate-300">{currency((item.priceCents * item.quantity) / 100)}</p>
+            </div>
+          ))}
+          {activeOrder.status === 'delivered' ? (
+            <>
+              <Select value={String(foodOrderRating)} onChange={(event) => setFoodOrderRating(Number(event.target.value))}>
+                {[5, 4, 3, 2, 1].map((value) => <option key={value} value={value}>{value} stars</option>)}
+              </Select>
+              <Textarea value={foodOrderReview} onChange={(event) => setFoodOrderReview(event.target.value)} placeholder="How was your order?" />
+              <Button onClick={() => void submitFoodRating()}>Submit rating</Button>
+            </>
+          ) : null}
+        </Card>
+      </div>
+    ),
+    foodOrders: (
+      <div className="space-y-6">
+        <SectionTitle eyebrow="Order history" title="Past food orders" description="Review your delivery history, reorder favorites, and download receipts from previous orders." />
+        <div className="grid gap-4">
+          {foodOrders.map((order) => (
+            <button
+              key={order.id}
+              type="button"
+              onClick={() => setActiveOrder(order)}
+              className="w-full rounded-3xl border border-white/10 bg-white/6 p-5 text-left shadow-lg shadow-slate-950/20 backdrop-blur transition hover:bg-white/10"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="font-semibold text-white">{order.restaurantName}</p>
+                  <p className="mt-1 text-sm text-slate-300">{order.items.map((i) => `${i.name} ×${i.quantity}`).join(', ')}</p>
+                </div>
+                <div className="text-right">
+                  <Pill>{foodOrderStatusLabel[order.status]}</Pill>
+                  <p className="mt-2 font-semibold text-white">{currency(order.totalCents / 100)}</p>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-400">
+                <span>{formatDate(order.createdAt)}</span>
+                {order.rating ? <span>⭐ {order.rating}/5{order.review ? ` · "${order.review}"` : ''}</span> : null}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button tone="secondary" onClick={(event) => { event.stopPropagation(); setCart(order.items.map((i) => ({ ...i }))); setBanner('Order items added to cart.'); }}>Reorder</Button>
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
     ),
   } as const;

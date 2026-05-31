@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: drive-redis-pv
+  annotations:
+    drive.dev/scope: development-single-node
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /mnt/data/drive-redis-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: drive-redis-pvc
+  namespace: drive-development
+  annotations:
+    drive.dev/scope: development-single-node
+spec:
+  volumeName: drive-redis-pv
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: drive-redis
+  namespace: drive-development
+spec:
+  serviceName: drive-redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: drive-redis
+  template:
+    metadata:
+      labels:
+        app: drive-redis
+    spec:
+      volumes:
+        - name: redis-storage
+          persistentVolumeClaim:
+            claimName: drive-redis-pvc
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: redis-storage
+              mountPath: /data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drive-redis
+  namespace: drive-development
+spec:
+  selector:
+    app: drive-redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: drive-node-exporter
+  namespace: drive-development
+spec:
+  selector:
+    matchLabels:
+      app: drive-node-exporter
+  template:
+    metadata:
+      labels:
+        app: drive-node-exporter
+    spec:
+      containers:
+        - name: node-exporter
+          image: prom/node-exporter:v1.8.2
+          ports:
+            - containerPort: 9100
