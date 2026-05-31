@@ -132,7 +132,7 @@ test('GET / serves the professional dashboard login page', async () => {
       const body = await response.text();
       assert.match(body, /<script src="\/driver-dashboard\.js"><\/script>/);
       assert.doesNotMatch(body, /\s(onclick|onsubmit)=/);
-      assert.doesNotMatch(body.toLowerCase(), /<script>([\s\S]*?)<\/script>/);
+      assert.doesNotMatch(body, /<script>([\s\S]*?)<\/script>/i);
     });
   });
 });
