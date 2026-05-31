@@ -1,6 +1,14 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import jwt from 'jsonwebtoken';
-import { appendAuditLog, makeId, store, timestamp, type RefreshTokenSession, type Role } from '../database/data.store';
+import {
+  appendAuditLog,
+  makeId,
+  store,
+  timestamp,
+  type DriverProfile,
+  type RefreshTokenSession,
+  type Role
+} from '../database/data.store';
 import { env } from '../config/env';
 import { validateTotpToken } from './twofa.service';
 
@@ -75,6 +83,21 @@ function normalizeRole(role: any): Role {
   return role === 'driver' || role === 'merchant' ? role : 'rider';
 }
 
+function createDefaultDriverProfile(userId: string): DriverProfile {
+  return {
+    userId,
+    status: 'pending',
+    verificationState: 'documents_pending',
+    availabilityStatus: 'offline',
+    available: false,
+    rating: 5,
+    acceptanceRate: 1,
+    cancellationRate: 0,
+    earningsCents: 0,
+    documents: []
+  };
+}
+
 export async function signup(body: any, _params?: any, _query?: any) {
   const email = body?.email?.toLowerCase?.();
   const phone = body?.phone;
@@ -90,6 +113,9 @@ export async function signup(body: any, _params?: any, _query?: any) {
 
   const user = { id: makeId('user'), email, phone, password: hashPassword(password), role, createdAt: timestamp() };
   store.users.set(user.id, user);
+  if (role === 'driver') {
+    store.drivers.set(user.id, createDefaultDriverProfile(user.id));
+  }
 
   const accessToken = signAccessToken(user);
   const { refreshToken, session } = issueRefreshToken(user.id, {

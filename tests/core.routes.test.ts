@@ -144,6 +144,34 @@ test('POST /api/auth/signup creates user and returns tokens', async () => {
   });
 });
 
+test('POST /api/auth/signup for driver auto-initializes driver profile and dashboard data endpoints', async () => {
+  await withServer(async baseUrl => {
+    const driver = await signup(baseUrl, 'driver');
+
+    const profileResponse = await getJson(baseUrl, '/api/drivers/me', driver.accessToken);
+    assert.equal(profileResponse.status, 200);
+    const profileBody = await profileResponse.json();
+    assert.equal(profileBody.ok, true);
+    assert.equal(profileBody.profile.userId, driver.user.id);
+    assert.equal(profileBody.profile.availabilityStatus, 'offline');
+    assert.equal(profileBody.profile.rating, 5);
+    assert.deepEqual(profileBody.profile.documents, []);
+
+    const ridesResponse = await getJson(baseUrl, '/api/rides/history', driver.accessToken);
+    assert.equal(ridesResponse.status, 200);
+    const ridesBody = await ridesResponse.json();
+    assert.equal(ridesBody.ok, true);
+    assert.deepEqual(ridesBody.rides, []);
+
+    const earningsResponse = await postJson(baseUrl, '/api/drivers/earnings', {}, driver.accessToken);
+    assert.equal(earningsResponse.status, 200);
+    const earningsBody = await earningsResponse.json();
+    assert.equal(earningsBody.ok, true);
+    assert.equal(earningsBody.earningsCents, 0);
+    assert.equal(earningsBody.rideCount, 0);
+  });
+});
+
 test('POST /api/auth/signup rejects weak passwords', async () => {
   await withServer(async baseUrl => {
     const response = await postJson(baseUrl, '/api/auth/signup', {
