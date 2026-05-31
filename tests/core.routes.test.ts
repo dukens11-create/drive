@@ -122,6 +122,19 @@ test('GET / serves the professional dashboard login page', async () => {
       assert.match(body, new RegExp(metricLabel));
     });
   });
+
+  test('GET /driver-dashboard.html is compatible with the default CSP', async () => {
+    await withServer(async baseUrl => {
+      const response = await fetch(`${baseUrl}/driver-dashboard.html`);
+      assert.equal(response.status, 200);
+      assert.match(response.headers.get('content-security-policy') ?? '', /script-src 'self'/);
+
+      const body = await response.text();
+      assert.match(body, /<script src="\/driver-dashboard\.js"><\/script>/);
+      assert.doesNotMatch(body, /\s(onclick|onsubmit)=/);
+      assert.doesNotMatch(body, /<script>([\s\S]*?)<\/script>/i);
+    });
+  });
 });
 
 test('POST /api/auth/signup creates user and returns tokens', async () => {
