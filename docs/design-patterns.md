@@ -1,7 +1,7 @@
 # Design Patterns
 
 ## Authentication patterns
-- ****** in `Authorization` header.
+- JWT credential in `Authorization` header.
 - Role guard via `requireRole(...)` middleware.
 
 ## Caching patterns
