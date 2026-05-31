@@ -92,7 +92,7 @@ function readImportFile(file: File, format: string) {
       reader.onload = () => {
         const result = reader.result;
         if (!(result instanceof ArrayBuffer)) {
-          reject(new Error('Expected binary spreadsheet payload'));
+          reject(new Error('Failed to read file as binary data. Please ensure the file is a valid Excel spreadsheet.'));
           return;
         }
         const bytes = new Uint8Array(result);

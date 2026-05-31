@@ -171,7 +171,7 @@ function rowsToXml(dataType: string, rows: Array<Record<string, unknown>>) {
   return `<export type="${escapeXml(dataType)}">${rows.map(row => `<${singular}>${Object.entries(row).map(([key, value]) => `<${key}>${escapeXml(value)}</${key}>`).join('')}</${singular}>`).join('')}</export>`;
 }
 
-function rowsToXlsxBase64(dataType: string, rows: Array<Record<string, unknown>>) {
+function rowsToSpreadsheetBase64(rows: Array<Record<string, unknown>>) {
   if (!rows.length) return Buffer.from('', 'utf8').toString('base64');
   const headers = Object.keys(rows[0]);
   const content = [headers.join('\t'), ...rows.map(row => headers.map(header => String(row[header] ?? '')).join('\t'))].join('\n');
@@ -382,7 +382,7 @@ async function createExportJob(body: any, actor?: AdminActor) {
     : format === 'xml'
       ? rowsToXml(dataType, filtered)
       : format === 'xlsx'
-        ? rowsToXlsxBase64(dataType, filtered)
+        ? rowsToSpreadsheetBase64(filtered)
         : rowsToCsv(filtered);
   return {
     module: 'admin',
