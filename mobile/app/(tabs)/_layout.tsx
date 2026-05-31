@@ -12,8 +12,10 @@ const iconByRoute: Record<string, keyof typeof Ionicons.glyphMap> = {
   trips: 'car',
   earnings: 'cash',
   inbox: 'mail',
+  'food-deliveries': 'restaurant',
   profile: 'person',
 };
+
 export default function TabLayout() {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
@@ -46,13 +48,14 @@ export default function TabLayout() {
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
         tabBarLabelPosition: 'below-icon',
         tabBarItemStyle: { paddingBottom: 2 },
-        tabBarIcon: ({ color, size }) => <Ionicons name={iconByRoute[route.name]} size={size} color={color} />,
+        tabBarIcon: ({ color, size }) => <Ionicons name={iconByRoute[route.name] ?? 'ellipse'} size={size} color={color} />,
       })}
     >
       <Tabs.Screen name="index" options={{ title: t('common.home'), tabBarAccessibilityLabel: `${t('common.home')} tab` }} />
       <Tabs.Screen name="trips" options={{ title: t('common.trips'), tabBarAccessibilityLabel: `${t('common.trips')} tab` }} />
       <Tabs.Screen name="earnings" options={{ title: t('common.earnings'), tabBarAccessibilityLabel: `${t('common.earnings')} tab` }} />
       <Tabs.Screen name="inbox" options={{ title: t('common.inbox'), tabBarAccessibilityLabel: `${t('common.inbox')} tab` }} />
+      <Tabs.Screen name="food-deliveries" options={{ title: 'Food', tabBarAccessibilityLabel: 'Food deliveries tab' }} />
       <Tabs.Screen name="profile" options={{ title: t('common.profile'), tabBarAccessibilityLabel: `${t('common.profile')} tab` }} />
     </Tabs>
   );

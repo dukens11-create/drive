@@ -79,3 +79,33 @@ export type RideHistoryItem = {
   miles: number;
   date: string;
 };
+
+export type FoodDeliveryStatus =
+  | 'going_to_restaurant'
+  | 'at_restaurant'
+  | 'delivering'
+  | 'completed';
+
+export type FoodDeliveryRequest = {
+  id: string;
+  restaurantName: string;
+  restaurantAddress: string;
+  restaurantPosition: LatLng;
+  customerName: string;
+  customerAddress: string;
+  customerPosition: LatLng;
+  items: Array<{ name: string; quantity: number }>;
+  estimatedPickupDistanceKm: number;
+  estimatedDeliveryDistanceKm: number;
+  estimatedEarnings: number;
+  estimatedTimeMinutes: number;
+  deliveryInstructions?: string;
+  expiresAt: number;
+};
+
+export type ActiveFoodDelivery = Omit<FoodDeliveryRequest, 'expiresAt'> & {
+  status: FoodDeliveryStatus;
+  deliveryId: string;
+};
+
+export type DriverMode = 'rides' | 'food' | 'both';

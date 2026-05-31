@@ -1,135 +1,193 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { FlatList, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
-import { PassengerScreen } from '../../../src/components/ui/PassengerScreen';
+import { useFoodStore } from '../../../src/store/foodStore';
+import type { Restaurant } from '../../../src/types/food';
 
-type Cuisine = 'All' | 'Pizza' | 'Burgers' | 'Sushi' | 'Chinese' | 'Mexican' | 'Indian' | 'Salads';
+const CUISINES = ['All', 'Indian', 'Chinese', 'Italian', 'Mexican', 'Japanese', 'American', 'Thai'];
 
-type Restaurant = {
-  id: string;
-  name: string;
-  cuisine: string;
-  rating: number;
-  deliveryMinutes: number;
-  deliveryFee: number;
-  minOrder: number;
-  priceRange: 1 | 2 | 3;
-  promoted?: boolean;
-};
-
-const SAMPLE_RESTAURANTS: Restaurant[] = [
-  { id: 'r1', name: 'Pizza Palace', cuisine: 'Pizza', rating: 4.7, deliveryMinutes: 25, deliveryFee: 1.99, minOrder: 10, priceRange: 2, promoted: true },
-  { id: 'r2', name: 'Burger Barn', cuisine: 'Burgers', rating: 4.5, deliveryMinutes: 20, deliveryFee: 0, minOrder: 8, priceRange: 1 },
-  { id: 'r3', name: 'Tokyo Sushi', cuisine: 'Sushi', rating: 4.9, deliveryMinutes: 35, deliveryFee: 2.49, minOrder: 15, priceRange: 3 },
-  { id: 'r4', name: 'Dragon Wok', cuisine: 'Chinese', rating: 4.3, deliveryMinutes: 30, deliveryFee: 1.49, minOrder: 12, priceRange: 2 },
-  { id: 'r5', name: 'Taco Fiesta', cuisine: 'Mexican', rating: 4.6, deliveryMinutes: 22, deliveryFee: 0.99, minOrder: 9, priceRange: 1 },
-  { id: 'r6', name: 'Spice Garden', cuisine: 'Indian', rating: 4.8, deliveryMinutes: 40, deliveryFee: 1.99, minOrder: 14, priceRange: 2 },
-  { id: 'r7', name: 'Green Bowl', cuisine: 'Salads', rating: 4.4, deliveryMinutes: 18, deliveryFee: 0, minOrder: 10, priceRange: 2 },
+const MOCK_RESTAURANTS: Restaurant[] = [
+  {
+    id: 'rest-1',
+    name: 'Spice Garden',
+    cuisineTypes: ['Indian'],
+    rating: 4.7,
+    reviewCount: 320,
+    deliveryTimeMinutes: 30,
+    deliveryFee: 2.99,
+    minimumOrder: 15,
+    isOpen: true,
+    address: '123 Main St',
+    distanceKm: 1.2,
+    isFeatured: true,
+    promotionBadge: '20% OFF',
+  },
+  {
+    id: 'rest-2',
+    name: 'Dragon Palace',
+    cuisineTypes: ['Chinese'],
+    rating: 4.5,
+    reviewCount: 210,
+    deliveryTimeMinutes: 25,
+    deliveryFee: 1.99,
+    minimumOrder: 12,
+    isOpen: true,
+    address: '456 Oak Ave',
+    distanceKm: 0.8,
+  },
+  {
+    id: 'rest-3',
+    name: 'La Bella Italia',
+    cuisineTypes: ['Italian'],
+    rating: 4.8,
+    reviewCount: 450,
+    deliveryTimeMinutes: 35,
+    deliveryFee: 3.49,
+    minimumOrder: 20,
+    isOpen: true,
+    address: '789 Pine Rd',
+    distanceKm: 2.1,
+    isFeatured: true,
+  },
+  {
+    id: 'rest-4',
+    name: 'Taco Fiesta',
+    cuisineTypes: ['Mexican'],
+    rating: 4.3,
+    reviewCount: 180,
+    deliveryTimeMinutes: 20,
+    deliveryFee: 0.99,
+    minimumOrder: 10,
+    isOpen: true,
+    address: '321 Elm St',
+    distanceKm: 0.5,
+  },
 ];
 
-const CUISINES: Cuisine[] = ['All', 'Pizza', 'Burgers', 'Sushi', 'Chinese', 'Mexican', 'Indian', 'Salads'];
-const PRICE_LABELS: Record<1 | 2 | 3, string> = { 1: '$', 2: '$$', 3: '$$$' };
+const cuisineEmoji: Record<string, string> = {
+  Indian: '🍛',
+  Chinese: '🥢',
+  Italian: '🍕',
+  Mexican: '🌮',
+};
 
-export default function FoodScreen() {
+export default function FoodDiscoveryScreen() {
   const router = useRouter();
-  const [search, setSearch] = useState('');
-  const [selectedCuisine, setSelectedCuisine] = useState<Cuisine>('All');
-  const [sortBy, setSortBy] = useState<'rating' | 'time' | 'fee'>('rating');
+  const { setActiveRestaurant, cartItemCount } = useFoodStore();
+  const [query, setQuery] = useState('');
+  const [selectedCuisine, setSelectedCuisine] = useState('All');
 
-  const filtered = SAMPLE_RESTAURANTS.filter((r) => {
-    const matchesSearch = r.name.toLowerCase().includes(search.toLowerCase()) || r.cuisine.toLowerCase().includes(search.toLowerCase());
-    const matchesCuisine = selectedCuisine === 'All' || r.cuisine === selectedCuisine;
-    return matchesSearch && matchesCuisine;
-  }).sort((a, b) => {
-    if (sortBy === 'rating') return b.rating - a.rating;
-    if (sortBy === 'time') return a.deliveryMinutes - b.deliveryMinutes;
-    return a.deliveryFee - b.deliveryFee;
+  const filteredRestaurants = MOCK_RESTAURANTS.filter((restaurant) => {
+    const matchesQuery = !query || restaurant.name.toLowerCase().includes(query.toLowerCase());
+    const matchesCuisine = selectedCuisine === 'All' || restaurant.cuisineTypes.includes(selectedCuisine);
+    return matchesQuery && matchesCuisine;
   });
 
+  const cartCount = cartItemCount();
+
   return (
-    <PassengerScreen title="Food Delivery" subtitle="Order from restaurants near you.">
-      {/* Search */}
-      <TextInput
-        className="mb-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-white"
-        placeholder="Search restaurants or cuisines…"
-        placeholderTextColor="#71717a"
-        value={search}
-        onChangeText={setSearch}
-        accessibilityLabel="Search restaurants"
-      />
+    <View className="flex-1 bg-zinc-950">
+      <View className="px-5 pb-2 pt-14">
+        <View className="flex-row items-center justify-between">
+          <Text className="text-2xl font-bold text-white">Food Delivery</Text>
+          {cartCount > 0 ? (
+            <Pressable
+              className="rounded-full bg-emerald-600 px-3 py-1.5"
+              onPress={() => router.push('/(drawer)/food-cart')}
+              accessibilityRole="button"
+              accessibilityLabel={`View cart with ${cartCount} items`}
+            >
+              <Text className="text-xs font-bold text-white">Cart ({cartCount})</Text>
+            </Pressable>
+          ) : null}
+        </View>
 
-      {/* Cuisine filter */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-3 -mx-1">
-        {CUISINES.map((c) => (
-          <Pressable
-            key={c}
-            onPress={() => setSelectedCuisine(c)}
-            accessibilityRole="button"
-            accessibilityLabel={`Filter by ${c}`}
-            className={`mr-2 rounded-full px-4 py-2 ${selectedCuisine === c ? 'bg-emerald-600' : 'bg-zinc-800 border border-zinc-700'}`}
-          >
-            <Text className={`text-sm font-semibold ${selectedCuisine === c ? 'text-white' : 'text-zinc-300'}`}>{c}</Text>
-          </Pressable>
-        ))}
-      </ScrollView>
+        <View className="mt-3 rounded-xl bg-zinc-800 px-4 py-2">
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search restaurants..."
+            placeholderTextColor="#71717A"
+            className="text-sm text-white"
+            accessibilityLabel="Search restaurants"
+          />
+        </View>
 
-      {/* Sort options */}
-      <View className="mb-4 flex-row gap-2">
-        {(['rating', 'time', 'fee'] as const).map((s) => (
-          <Pressable
-            key={s}
-            onPress={() => setSortBy(s)}
-            accessibilityRole="button"
-            accessibilityLabel={`Sort by ${s}`}
-            className={`flex-1 rounded-lg py-2 items-center ${sortBy === s ? 'bg-emerald-700' : 'bg-zinc-800'}`}
-          >
-            <Text className={`text-xs font-semibold ${sortBy === s ? 'text-white' : 'text-zinc-400'}`}>
-              {s === 'rating' ? '⭐ Rating' : s === 'time' ? '⏱ Fastest' : '💸 Lowest fee'}
-            </Text>
-          </Pressable>
-        ))}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-3 -mx-1">
+          <View className="flex-row gap-2 px-1 pb-1">
+            {CUISINES.map((cuisine) => (
+              <Pressable
+                key={cuisine}
+                className={`rounded-full px-3 py-1.5 ${selectedCuisine === cuisine ? 'bg-emerald-600' : 'bg-zinc-800'}`}
+                onPress={() => setSelectedCuisine(cuisine)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: selectedCuisine === cuisine }}
+                accessibilityLabel={`Filter by ${cuisine}`}
+              >
+                <Text className={`text-xs font-semibold ${selectedCuisine === cuisine ? 'text-white' : 'text-zinc-300'}`}>{cuisine}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </ScrollView>
       </View>
 
-      {/* Restaurant list */}
-      {filtered.length === 0 ? (
-        <View className="items-center py-8">
-          <Text className="text-zinc-400">No restaurants match your search.</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={filtered}
-          keyExtractor={(r) => r.id}
-          scrollEnabled={false}
-          renderItem={({ item: r }) => (
-            <Pressable
-              onPress={() => router.push({ pathname: '/(drawer)/food-restaurant-detail', params: { id: r.id, name: r.name } })}
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${r.name}`}
-              className="mb-3 rounded-2xl border border-zinc-700 bg-zinc-900 p-4"
-            >
-              {r.promoted && (
-                <View className="mb-2 self-start rounded-full bg-amber-600 px-2 py-0.5">
-                  <Text className="text-xs font-bold text-white">Promoted</Text>
-                </View>
-              )}
-              <View className="flex-row items-center justify-between">
-                <Text className="text-base font-bold text-white">{r.name}</Text>
-                <Text className="text-sm text-zinc-400">{PRICE_LABELS[r.priceRange]}</Text>
-              </View>
-              <Text className="mt-0.5 text-sm text-zinc-400">{r.cuisine}</Text>
-              <View className="mt-2 flex-row items-center gap-3">
-                <Text className="text-xs text-zinc-300">⭐ {r.rating.toFixed(1)}</Text>
-                <Text className="text-xs text-zinc-300">⏱ {r.deliveryMinutes} min</Text>
-                <Text className="text-xs text-zinc-300">
-                  {r.deliveryFee === 0 ? '🆓 Free delivery' : `🚚 $${r.deliveryFee.toFixed(2)} delivery`}
-                </Text>
-              </View>
-              <Text className="mt-1 text-xs text-zinc-500">Min. order: ${r.minOrder}</Text>
-            </Pressable>
-          )}
-        />
-      )}
-    </PassengerScreen>
+      <ScrollView className="flex-1" contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 32 }}>
+        {filteredRestaurants.length === 0 ? (
+          <View className="mt-8 items-center">
+            <Text className="text-base font-semibold text-zinc-400">No restaurants found</Text>
+            <Text className="mt-1 text-sm text-zinc-500">Try a different search or filter</Text>
+          </View>
+        ) : (
+          <>
+            <Text className="mb-3 mt-2 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+              {filteredRestaurants.length} restaurant{filteredRestaurants.length !== 1 ? 's' : ''}
+            </Text>
+            <View className="gap-3">
+              {filteredRestaurants.map((restaurant) => (
+                <Pressable
+                  key={restaurant.id}
+                  className="overflow-hidden rounded-2xl bg-zinc-900"
+                  onPress={() => {
+                    setActiveRestaurant(restaurant);
+                    router.push({ pathname: '/(drawer)/restaurant-detail', params: { id: restaurant.id } });
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${restaurant.name}, ${restaurant.cuisineTypes.join(', ')}, rating ${restaurant.rating}`}
+                >
+                  <View className="h-36 w-full items-center justify-center bg-zinc-800">
+                    <Text className="text-3xl">{cuisineEmoji[restaurant.cuisineTypes[0]] ?? '🍽️'}</Text>
+                  </View>
+                  {restaurant.promotionBadge ? (
+                    <View className="absolute right-3 top-3 rounded-lg bg-emerald-600 px-2 py-1">
+                      <Text className="text-xs font-bold text-white">{restaurant.promotionBadge}</Text>
+                    </View>
+                  ) : null}
+                  <View className="p-4">
+                    <View className="flex-row items-center justify-between">
+                      <Text className="text-base font-bold text-white">{restaurant.name}</Text>
+                      {restaurant.isFeatured ? (
+                        <View className="rounded bg-amber-500/20 px-2 py-0.5">
+                          <Text className="text-[10px] font-semibold text-amber-400">Featured</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text className="mt-0.5 text-xs text-zinc-400">{restaurant.cuisineTypes.join(' · ')}</Text>
+                    <View className="mt-2 flex-row items-center gap-3">
+                      <Text className="text-xs text-zinc-300">⭐ {restaurant.rating} ({restaurant.reviewCount})</Text>
+                      <Text className="text-xs text-zinc-400">·</Text>
+                      <Text className="text-xs text-zinc-300">🕐 {restaurant.deliveryTimeMinutes} min</Text>
+                      <Text className="text-xs text-zinc-400">·</Text>
+                      <Text className="text-xs text-zinc-300">${restaurant.deliveryFee.toFixed(2)} delivery</Text>
+                    </View>
+                    <Text className="mt-1 text-xs text-zinc-500">Min. order ${restaurant.minimumOrder} · {restaurant.distanceKm} km away</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        )}
+      </ScrollView>
+    </View>
   );
 }
