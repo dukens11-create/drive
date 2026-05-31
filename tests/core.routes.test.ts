@@ -131,9 +131,27 @@ test('GET / serves the professional dashboard login page', async () => {
 
       const body = await response.text();
       assert.match(body, /<script src="\/driver-dashboard\.js"><\/script>/);
+      ['toggle-availability-button', 'Ride History', 'Real-time Map', 'Performance Stats', 'Support \/ Help'].forEach(label => {
+        assert.match(body, new RegExp(label));
+      });
       assert.doesNotMatch(body, /\s(onclick|onsubmit)=/);
       assert.doesNotMatch(body, /<script>([\s\S]*?)<\/script>/i);
     });
+  });
+});
+
+test('GET /driver-settings.html serves driver settings page', async () => {
+  await withServer(async baseUrl => {
+    const response = await fetch(`${baseUrl}/driver-settings.html`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /text\/html/);
+
+    const body = await response.text();
+    assert.match(body, /Driver Settings/);
+    assert.match(body, /Emergency Contact/);
+    assert.match(body, /<script src="\/driver-settings\.js"><\/script>/);
+    assert.doesNotMatch(body, /\s(onclick|onsubmit)=/);
+    assert.doesNotMatch(body, /<script>([\s\S]*?)<\/script>/i);
   });
 });
 
