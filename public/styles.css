@@ -6,3 +6,126 @@
   min-height: 100vh;
   background: linear-gradient(180deg, rgba(13, 110, 253, 0.08), transparent 35%);
 }
+
+/* ── Dashboard two-column layout ── */
+.dashboard-layout {
+  min-height: 100vh;
+  background: #f0f4ff;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 100vh;
+}
+
+@media (max-width: 768px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Left panel */
+.dashboard-left {
+  background: linear-gradient(160deg, #1a56db 0%, #0d3a8a 100%);
+  padding: 3rem 2.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  color: #fff;
+}
+
+.dashboard-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.dashboard-logo {
+  font-size: 1.5rem;
+  color: #93c5fd;
+}
+
+.dashboard-brand-name {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.dashboard-tagline {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.9rem;
+  margin-bottom: 2rem;
+}
+
+.dashboard-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+}
+
+.dash-card {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  padding: 1.25rem 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  backdrop-filter: blur(6px);
+  transition: background 0.2s;
+}
+
+.dash-card:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.dash-card-icon {
+  font-size: 1.6rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.dash-card-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 0.3rem;
+}
+
+.dash-card-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1;
+}
+
+/* Right panel: login form */
+.login-panel {
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 2rem;
+}
+
+.login-box {
+  width: 100%;
+  max-width: 380px;
+}
+
+.login-title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #0d3a8a;
+  margin-bottom: 0.25rem;
+}
+
+.login-subtitle {
+  color: #6b7280;
+  font-size: 0.88rem;
+  margin-bottom: 1.5rem;
+}
+
