@@ -3,9 +3,39 @@
  * In production set the environment variables to enable real providers;
  * without them every send is logged as a stub call.
  */
-import { makeId, store, timestamp, type NotificationChannel } from '../database/data.store';
+import {
+  makeId,
+  store,
+  timestamp,
+  type DeviceToken,
+  type NotificationChannel,
+  type NotificationPreference
+} from '../database/data.store';
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
+
+const DEFAULT_CATEGORIES = ['rides', 'orders', 'promotions', 'system'];
+
+function getActorId(body: any) {
+  return body?.actor?.id || body?.userId;
+}
+
+function getNotificationPreferencesForUser(userId: string): NotificationPreference {
+  const existing = store.notificationPreferences.get(userId);
+  if (existing) return existing;
+  const created: NotificationPreference = {
+    userId,
+    emailOptIn: true,
+    smsOptIn: true,
+    pushOptIn: true,
+    frequency: 'instant',
+    categories: DEFAULT_CATEGORIES,
+    timezone: 'UTC',
+    updatedAt: timestamp()
+  };
+  store.notificationPreferences.set(userId, created);
+  return created;
+}
 
 // ─── Provider stubs ──────────────────────────────────────────────────────────
 
@@ -156,4 +186,120 @@ export async function listNotificationLogs(body: any) {
   logs = logs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
 
   return { module: 'notifications', ok: true, total: logs.length, logs };
+}
+
+export async function getNotificationPreferences(body: any) {
+  const userId = getActorId(body);
+  if (!userId) return { module: 'notifications', action: 'preferences', error: 'userId required' };
+  return { module: 'notifications', ok: true, preferences: getNotificationPreferencesForUser(userId) };
+}
+
+export async function upsertNotificationPreferences(body: any) {
+  const userId = getActorId(body);
+  if (!userId) return { module: 'notifications', action: 'preferences', error: 'userId required' };
+
+  const current = getNotificationPreferencesForUser(userId);
+  const preferences: NotificationPreference = {
+    ...current,
+    emailOptIn: body?.emailOptIn ?? current.emailOptIn,
+    smsOptIn: body?.smsOptIn ?? current.smsOptIn,
+    pushOptIn: body?.pushOptIn ?? current.pushOptIn,
+    frequency: body?.frequency || current.frequency,
+    categories: Array.isArray(body?.categories) && body.categories.length > 0 ? Array.from(new Set(body.categories)) : current.categories,
+    timezone: body?.timezone || current.timezone,
+    updatedAt: timestamp()
+  };
+  store.notificationPreferences.set(userId, preferences);
+  return { module: 'notifications', action: 'preferences', ok: true, preferences };
+}
+
+export async function registerDeviceToken(body: any) {
+  const userId = getActorId(body);
+  const token = String(body?.token || '').trim();
+  if (!userId) return { module: 'notifications', action: 'register-device-token', error: 'userId required' };
+  if (!token) return { module: 'notifications', action: 'register-device-token', error: 'token required' };
+
+  let deviceToken = store.deviceTokens.find(entry => entry.userId === userId && entry.token === token);
+  if (!deviceToken) {
+    deviceToken = {
+      id: makeId('devtok'),
+      userId,
+      token,
+      platform: body?.platform === 'ios' || body?.platform === 'android' ? body.platform : 'web',
+      topics: Array.isArray(body?.topics) ? Array.from(new Set(body.topics)) : [],
+      createdAt: timestamp(),
+      updatedAt: timestamp()
+    } satisfies DeviceToken;
+    store.deviceTokens.push(deviceToken);
+  } else {
+    deviceToken.platform = body?.platform || deviceToken.platform;
+    deviceToken.topics = Array.isArray(body?.topics) ? Array.from(new Set(body.topics)) : deviceToken.topics;
+    deviceToken.updatedAt = timestamp();
+  }
+
+  return { module: 'notifications', action: 'register-device-token', ok: true, deviceToken };
+}
+
+export async function sendPush(body: any) {
+  const title = String(body?.title || '').trim();
+  const messageBody = String(body?.body || '').trim();
+  const actorId = body?.actor?.id;
+  const targetUserId = body?.userId || actorId;
+  if (!title || !messageBody) return { module: 'notifications', action: 'push', error: 'title and body are required' };
+  if (body?.userId && body?.actor?.role !== 'admin' && body.userId !== actorId) {
+    return { module: 'notifications', action: 'push', error: 'forbidden' };
+  }
+  if (body?.topic && body?.actor?.role !== 'admin') {
+    return { module: 'notifications', action: 'push', error: 'forbidden' };
+  }
+
+  let targets = [] as DeviceToken[];
+  if (body?.deviceToken) {
+    targets = [{ id: makeId('devtok'), userId: targetUserId, token: body.deviceToken, platform: 'web', topics: [], createdAt: timestamp(), updatedAt: timestamp() }];
+  } else if (body?.topic) {
+    targets = store.deviceTokens.filter(entry => entry.topics.includes(body.topic));
+  } else if (targetUserId) {
+    const preferences = getNotificationPreferencesForUser(targetUserId);
+    if (!preferences.pushOptIn) return { module: 'notifications', action: 'push', error: 'push disabled for user' };
+    targets = store.deviceTokens.filter(entry => entry.userId === targetUserId);
+  }
+
+  if (targets.length === 0) {
+    return { module: 'notifications', action: 'push', error: 'no target devices found' };
+  }
+
+  const uniqueTargets = Array.from(new Map(targets.map(target => [target.token, target])).values());
+  for (const target of uniqueTargets) {
+    await sendPushNotification(target.token, title, messageBody, target.userId);
+  }
+
+  return { module: 'notifications', action: 'push', ok: true, delivered: uniqueTargets.length };
+}
+
+export async function sendEmailNotification(body: any) {
+  const userId = body?.userId || body?.actor?.id;
+  if (userId && body?.actor?.role !== 'admin' && userId !== body?.actor?.id) {
+    return { module: 'notifications', action: 'email', error: 'forbidden' };
+  }
+  const email = body?.email || (userId ? store.users.get(userId)?.email : undefined);
+  if (!email) return { module: 'notifications', action: 'email', error: 'email required' };
+  if (userId && !getNotificationPreferencesForUser(userId).emailOptIn) {
+    return { module: 'notifications', action: 'email', error: 'email disabled for user' };
+  }
+  await sendEmail(email, body?.template || 'custom', body?.subject, body?.html, userId);
+  return { module: 'notifications', action: 'email', ok: true, recipient: email };
+}
+
+export async function sendSmsNotification(body: any) {
+  const userId = body?.userId || body?.actor?.id;
+  if (userId && body?.actor?.role !== 'admin' && userId !== body?.actor?.id) {
+    return { module: 'notifications', action: 'sms', error: 'forbidden' };
+  }
+  const phone = body?.phone || (userId ? store.users.get(userId)?.phone : undefined);
+  if (!phone) return { module: 'notifications', action: 'sms', error: 'phone required' };
+  if (userId && !getNotificationPreferencesForUser(userId).smsOptIn) {
+    return { module: 'notifications', action: 'sms', error: 'sms disabled for user' };
+  }
+  await sendSms(phone, body?.template || 'custom', body?.message, userId);
+  return { module: 'notifications', action: 'sms', ok: true, recipient: phone };
 }

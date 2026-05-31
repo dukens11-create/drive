@@ -402,6 +402,58 @@ export type TotpEntry = {
   createdAt: string;
 };
 
+// ─── Chat / Messaging ─────────────────────────────────────────────────────────
+
+export type ChatConversationType = 'direct' | 'group' | 'support';
+
+export type ChatConversation = {
+  id: string;
+  type: ChatConversationType;
+  title?: string;
+  createdBy: string;
+  participantIds: string[];
+  lastMessageId?: string;
+  lastMessageAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ChatParticipant = {
+  conversationId: string;
+  userId: string;
+  joinedAt: string;
+  lastSeenAt?: string;
+  mutedUntil?: string;
+  blockedUserIds?: string[];
+};
+
+export type ChatReaction = {
+  userId: string;
+  emoji: string;
+  createdAt: string;
+};
+
+export type ChatReadReceipt = {
+  userId: string;
+  readAt: string;
+};
+
+export type ChatMessage = {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  content: string;
+  attachmentUrl?: string;
+  attachmentType?: string;
+  location?: { lat: number; lng: number; label?: string };
+  reactions: ChatReaction[];
+  readBy: ChatReadReceipt[];
+  editedAt?: string;
+  deletedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 // ─── Notification Log ────────────────────────────────────────────────────────
 
 export type NotificationChannel = 'sms' | 'email' | 'push';
@@ -416,6 +468,27 @@ export type NotificationLog = {
   provider: string;
   errorMessage?: string;
   createdAt: string;
+};
+
+export type NotificationPreference = {
+  userId: string;
+  emailOptIn: boolean;
+  smsOptIn: boolean;
+  pushOptIn: boolean;
+  frequency: 'instant' | 'hourly' | 'daily' | 'weekly';
+  categories: string[];
+  timezone: string;
+  updatedAt: string;
+};
+
+export type DeviceToken = {
+  id: string;
+  userId: string;
+  token: string;
+  platform: 'ios' | 'android' | 'web';
+  topics: string[];
+  createdAt: string;
+  updatedAt: string;
 };
 
 const now = () => new Date().toISOString();
@@ -461,7 +534,12 @@ type PersistedStore = {
   carpoolRides: Array<[string, CarpoolRide]>;
   fraudAlerts: FraudAlert[];
   totpEntries: Array<[string, TotpEntry]>;
+  chatConversations: Array<[string, ChatConversation]>;
+  chatParticipants: ChatParticipant[];
+  chatMessages: ChatMessage[];
   notificationLogs: NotificationLog[];
+  notificationPreferences: Array<[string, NotificationPreference]>;
+  deviceTokens: DeviceToken[];
 };
 
 let isHydrating = false;
@@ -555,7 +633,12 @@ export const store = {
   carpoolRides: new PersistentMap<string, CarpoolRide>(),
   fraudAlerts: createPersistentArray<FraudAlert>(),
   totpEntries: new PersistentMap<string, TotpEntry>(),
-  notificationLogs: createPersistentArray<NotificationLog>()
+  chatConversations: new PersistentMap<string, ChatConversation>(),
+  chatParticipants: createPersistentArray<ChatParticipant>(),
+  chatMessages: createPersistentArray<ChatMessage>(),
+  notificationLogs: createPersistentArray<NotificationLog>(),
+  notificationPreferences: new PersistentMap<string, NotificationPreference>(),
+  deviceTokens: createPersistentArray<DeviceToken>()
 };
 
 function toSerializableStore(): PersistedStore {
@@ -590,7 +673,12 @@ function toSerializableStore(): PersistedStore {
     carpoolRides: Array.from(store.carpoolRides.entries()),
     fraudAlerts: [...store.fraudAlerts],
     totpEntries: Array.from(store.totpEntries.entries()),
-    notificationLogs: [...store.notificationLogs]
+    chatConversations: Array.from(store.chatConversations.entries()),
+    chatParticipants: [...store.chatParticipants],
+    chatMessages: [...store.chatMessages],
+    notificationLogs: [...store.notificationLogs],
+    notificationPreferences: Array.from(store.notificationPreferences.entries()),
+    deviceTokens: [...store.deviceTokens]
   };
 }
 
@@ -655,7 +743,12 @@ function hydrateStore() {
     for (const [id, carpool] of parsed.carpoolRides || []) store.carpoolRides.set(id, carpool);
     for (const alert of parsed.fraudAlerts || []) store.fraudAlerts.push(alert);
     for (const [id, totp] of parsed.totpEntries || []) store.totpEntries.set(id, totp);
+    for (const [id, conversation] of parsed.chatConversations || []) store.chatConversations.set(id, conversation);
+    for (const participant of parsed.chatParticipants || []) store.chatParticipants.push(participant);
+    for (const message of parsed.chatMessages || []) store.chatMessages.push(message);
     for (const log of parsed.notificationLogs || []) store.notificationLogs.push(log);
+    for (const [userId, preference] of parsed.notificationPreferences || []) store.notificationPreferences.set(userId, preference);
+    for (const deviceToken of parsed.deviceTokens || []) store.deviceTokens.push(deviceToken);
   } finally {
     isHydrating = false;
   }
