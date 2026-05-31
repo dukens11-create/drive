@@ -1,0 +1,15 @@
+{{- if .Values.namespaces.create }}
+{{- range $index, $namespace := .Values.namespaces.items }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $namespace }}
+  labels:
+    app.kubernetes.io/part-of: {{ include "drive-platform.name" $ }}
+    environment: {{ $namespace | replace "drive-" "" }}
+    {{- if and $.Values.serviceMesh.enabled (eq $namespace $.Values.global.namespace) }}
+    {{ $.Values.serviceMesh.namespaceLabelKey }}: {{ $.Values.serviceMesh.namespaceLabelValue | quote }}
+    {{- end }}
+{{- end }}
+{{- end }}

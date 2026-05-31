@@ -1,0 +1,17 @@
+groups:
+  - name: drive-platform
+    rules:
+      - alert: HighApiErrorRate
+        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) > 1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Drive API error rate is elevated
+      - alert: HighBackendLatency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Drive backend p95 latency exceeded one second

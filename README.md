@@ -163,6 +163,8 @@ Codemagic Android builds use EAS non-interactive auth and require a secure `EXPO
 ## Infrastructure assets
 
 - Kubernetes manifests for namespaces, deployments, services, ingress, stateful workloads, daemonsets, and HPA are in `k8s/`.
+- Helm chart packaging for the full application, data services, ingress, RBAC, monitoring, and logging stack is in `helm/drive-platform/`.
+- Terraform infrastructure-as-code for AWS networking, EKS, data services, registries, storage, DNS, alerts, and IAM is in `terraform/`.
 - Monitoring stack templates (Prometheus/Grafana/ELK) are in `monitoring/`.
 - Database bootstrap, migration, backup, and restore templates are in `database/` and `scripts/database/`.
 - Multi-service local stack is defined in `docker-compose.yml` (API, worker, Redis, admin, passenger web, restaurant web dashboard).
@@ -170,9 +172,10 @@ Codemagic Android builds use EAS non-interactive auth and require a secure `EXPO
 ## CI
 
 - GitHub Actions (`.github/workflows/ci.yml`) runs backend build/test/audit checks, admin lint/build validation, mobile typecheck/Jest coverage/Expo export checks, web typecheck/build checks, dependency review on PRs, and auto-builds optional passenger/restaurant app workspaces when they are added to the repository.
+- GitHub Actions (`.github/workflows/ci.yml`) also lints/templates the Helm chart and runs `terraform fmt` + `terraform validate` for infrastructure changes.
 - GitHub Actions (`.github/workflows/codeql.yml`) runs scheduled and PR CodeQL analysis for repository security scanning.
 - GitHub Actions (`.github/workflows/release.yml`) uses Release Please for semantic versioning and changelog generation.
-- GitHub Actions (`.github/workflows/deploy.yml`) publishes smoke-tested backend container images to GHCR for development, staging, and production promotion via GitHub Environments.
+- GitHub Actions (`.github/workflows/deploy.yml`) publishes smoke-tested backend container images to GHCR and renders environment-specific Helm manifests for development, staging, and production promotion via GitHub Environments.
 - Codemagic (`codemagic.yaml`) runs Expo mobile install/typecheck and EAS local Android APK build from `mobile/` (requires secure `EXPO_TOKEN`).
 
 See **[CI_CD.md](./CI_CD.md)** for the full CI/CD, deployment, environment, and rollback workflow.
