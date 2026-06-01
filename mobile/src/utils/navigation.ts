@@ -125,13 +125,13 @@ const buildLegWaypoints = (start: LatLng, end: LatLng): LatLng[] => {
   const viaPoint =
     Math.abs(lngDelta) >= Math.abs(latDelta)
       ? {
-          // Use a small offset from the current path so the generated route gains a readable intermediate turn
-          // without creating an unrealistic detour away from the pickup/dropoff corridor.
+          // Use a small offset from the current path so the generated route gains a readable intermediate turn.
+          // The 0.18 ratio keeps the via point close enough to feel realistic while still producing a visible turn.
           latitude: start.latitude + latDelta * VIA_POINT_OFFSET_RATIO,
           longitude: end.longitude,
         }
       : {
-          // Mirror the same offset when changing latitude first so both route shapes stay similarly compact.
+          // Mirror the same 0.18 offset when changing latitude first so both route shapes stay similarly compact.
           latitude: end.latitude,
           longitude: start.longitude + lngDelta * VIA_POINT_OFFSET_RATIO,
         };
@@ -180,7 +180,7 @@ export const buildNavigationRoute = (origin: LatLng, trip: ActiveTrip | null): N
       const bearing = bearingBetween(from, point);
       const heading = headingToDirection(bearing);
       const isFirstSegment = pointIndex === 0;
-      // Add 540 (180 + 360) before the modulo so the normalized delta remains in the [-180, 180] range
+      // Add BEARING_NORMALIZATION_OFFSET before the modulo so the normalized delta remains in the [-180, 180] range
       // even when the turn crosses the 0/360 bearing wraparound.
       const turnDelta = previousBearing === null ? 0 : ((bearing - previousBearing + BEARING_NORMALIZATION_OFFSET) % 360) - 180;
       const maneuver =
