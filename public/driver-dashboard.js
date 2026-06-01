@@ -37,6 +37,7 @@ const SWIPE_ACCEPT_TRACK_PADDING = 14;
 const SWIPE_VERTICAL_THRESHOLD = 80;
 const SWIPE_HORIZONTAL_THRESHOLD = 60;
 const SHEET_DRAG_THRESHOLD = 18;
+const SHEET_EXPANSION_THRESHOLD = 12;
 const RIDE_REQUEST_HISTORY_LIMIT = 60;
 const RIDE_REQUEST_ANALYTICS_LIMIT = 120;
 const RIDE_POPUP_TERMINAL_STATE_MS = 1500;
@@ -3828,20 +3829,22 @@ function setupBottomSheetControls() {
   const handle = document.querySelector('.sheet-handle');
   const backdrop = document.getElementById('sheet-backdrop');
   const toggleButton = document.getElementById('sheet-toggle-button');
+  const toggleLabel = toggleButton?.querySelector('span');
   if (!body || !handle) return;
 
   const syncToggleState = expanded => {
     if (!toggleButton) return;
     toggleButton.setAttribute('aria-expanded', expanded ? 'true' : 'false');
     toggleButton.setAttribute('aria-label', expanded ? 'Minimize dashboard' : 'Expand dashboard');
-    const label = toggleButton.querySelector('span');
-    if (label) {
-      label.textContent = expanded ? 'Minimize' : 'Expand';
+    if (toggleLabel) {
+      toggleLabel.textContent = expanded ? 'Minimize' : 'Expand';
     }
   };
 
+  const isSheetExpanded = () => sheetState.currentHeight > sheetState.minHeight + SHEET_EXPANSION_THRESHOLD;
+
   const updateSheetUiState = () => {
-    const isExpanded = sheetState.currentHeight > sheetState.minHeight + 12;
+    const isExpanded = isSheetExpanded();
     backdrop?.classList.toggle('is-visible', isExpanded);
     syncToggleState(isExpanded);
   };
@@ -3913,8 +3916,8 @@ function setupBottomSheetControls() {
   });
   handle.addEventListener('pointerdown', onPointerDown);
   handle.addEventListener('dblclick', () => {
-    const [collapsed, , expanded] = sheetState.snapPoints;
-    sheetState.currentHeight = Math.abs(sheetState.currentHeight - collapsed) <= Math.abs(sheetState.currentHeight - expanded) ? expanded : collapsed;
+    const [minSnapPoint, , maxSnapPoint] = sheetState.snapPoints;
+    sheetState.currentHeight = Math.abs(sheetState.currentHeight - minSnapPoint) <= Math.abs(sheetState.currentHeight - maxSnapPoint) ? maxSnapPoint : minSnapPoint;
     root.style.setProperty('--sheet-height', `${sheetState.currentHeight}px`);
     updateSheetUiState();
     triggerHapticFeedback(20);
@@ -3925,9 +3928,9 @@ function setupBottomSheetControls() {
     updateSheetUiState();
   });
   toggleButton?.addEventListener('click', () => {
-    const [collapsed, , expanded] = sheetState.snapPoints;
-    const isExpanded = sheetState.currentHeight > sheetState.minHeight + 12;
-    sheetState.currentHeight = isExpanded ? collapsed : expanded;
+    const [minSnapPoint, , maxSnapPoint] = sheetState.snapPoints;
+    const isExpanded = isSheetExpanded();
+    sheetState.currentHeight = isExpanded ? minSnapPoint : maxSnapPoint;
     root.style.setProperty('--sheet-height', `${sheetState.currentHeight}px`);
     updateSheetUiState();
     triggerHapticFeedback(20);
