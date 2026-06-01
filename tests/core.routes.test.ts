@@ -134,7 +134,7 @@ test('GET / serves the professional dashboard login page', async () => {
 
       const body = await response.text();
       assert.match(body, /<script src="\/driver-dashboard\.js"><\/script>/);
-      ['toggle-availability-button', 'Ride History', 'Real-time Map', 'Performance Stats', 'Support \/ Help'].forEach(label => {
+      ['toggle-availability-button', 'Ride History', 'Real-time Map', 'Performance Stats', 'Support \/ Help', 'Follow Driver: ON', 'Simulate GPS', 'ETA Pickup'].forEach(label => {
         assert.match(body, new RegExp(label));
       });
       assert.doesNotMatch(body, /\s(onclick|onsubmit)=/);

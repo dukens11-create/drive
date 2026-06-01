@@ -18,11 +18,22 @@
         .metric-card { border: 1px solid #e9ecef; border-radius: 10px; padding: 12px; background: #fff; }
         .metric-label { color: #6c757d; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; }
         .metric-value { font-size: 24px; font-weight: 700; margin-top: 4px; }
-        .map-shell { border: 1px solid #dfe3e8; border-radius: 10px; background: #f8fbff; min-height: 280px; position: relative; overflow: hidden; }
+        .map-shell { border: 1px solid #dfe3e8; border-radius: 10px; background: linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%); min-height: 320px; position: relative; overflow: hidden; }
+        .map-shell.satellite-view { background: radial-gradient(circle at top left, #34495e, #1f2a36 68%); }
         .map-grid { position: absolute; inset: 0; background-image: linear-gradient(to right, rgba(0, 0, 0, 0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(0, 0, 0, 0.05) 1px, transparent 1px); background-size: 40px 40px; }
-        .map-point { width: 12px; height: 12px; border-radius: 50%; position: absolute; transform: translate(-50%, -50%); }
-        .point-driver { background: #0d6efd; box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.2); }
-        .point-ride { background: #198754; }
+        .map-shell.satellite-view .map-grid { background-image: linear-gradient(to right, rgba(255, 255, 255, 0.08) 1px, transparent 1px), linear-gradient(to bottom, rgba(255, 255, 255, 0.08) 1px, transparent 1px); }
+        .map-accuracy { position: absolute; border: 2px solid rgba(13, 110, 253, 0.45); background: rgba(13, 110, 253, 0.12); border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+        .map-point { width: 14px; height: 14px; border-radius: 50%; position: absolute; transform: translate(-50%, -50%); z-index: 3; }
+        .point-driver { background: #0d6efd; box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.2); transform-origin: 50% 50%; }
+        .point-driver::after { content: ''; position: absolute; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 8px solid #0d6efd; top: -7px; left: 2px; opacity: 0.8; }
+        .point-pickup { background: #ff5c8d; box-shadow: 0 0 0 3px rgba(255, 92, 141, 0.22); }
+        .point-dropoff { background: #198754; box-shadow: 0 0 0 3px rgba(25, 135, 84, 0.2); }
+        .point-ride { width: 11px; height: 11px; background: #dc3545; }
+        .map-route-layer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+        .route-pickup { stroke: #0d6efd; stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+        .route-dropoff { stroke: #198754; stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+        .compass-indicator { width: 32px; height: 32px; border-radius: 50%; border: 2px solid #dee2e6; display: inline-flex; align-items: center; justify-content: center; background: #fff; font-size: 12px; font-weight: 700; }
+        .debug-box { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; background: #111827; color: #e5e7eb; border-radius: 8px; padding: 8px 10px; }
         .support-log { max-height: 180px; overflow-y: auto; border: 1px solid #e9ecef; border-radius: 8px; padding: 10px; background: #fff; }
         .modal-lite { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: none; align-items: center; justify-content: center; z-index: 1040; }
         .modal-lite.show { display: flex; }
@@ -62,10 +73,50 @@
         <div class="card">
             <div class="card-header"><i class="bi bi-map"></i> Real-time Map</div>
             <div class="card-body">
+                <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+                    <button id="follow-mode-button" class="btn btn-outline-primary btn-sm" type="button"><i class="bi bi-crosshair"></i> Follow Driver: ON</button>
+                    <button id="map-style-button" class="btn btn-outline-secondary btn-sm" type="button"><i class="bi bi-globe"></i> View: Map</button>
+                    <button id="zoom-in-button" class="btn btn-outline-dark btn-sm" type="button"><i class="bi bi-zoom-in"></i></button>
+                    <button id="zoom-out-button" class="btn btn-outline-dark btn-sm" type="button"><i class="bi bi-zoom-out"></i></button>
+                    <button id="pan-left-button" class="btn btn-outline-dark btn-sm" type="button"><i class="bi bi-arrow-left"></i></button>
+                    <button id="pan-right-button" class="btn btn-outline-dark btn-sm" type="button"><i class="bi bi-arrow-right"></i></button>
+                    <button id="pan-up-button" class="btn btn-outline-dark btn-sm" type="button"><i class="bi bi-arrow-up"></i></button>
+                    <button id="pan-down-button" class="btn btn-outline-dark btn-sm" type="button"><i class="bi bi-arrow-down"></i></button>
+                </div>
                 <div id="map-shell" class="map-shell">
                     <div class="map-grid"></div>
+                    <svg id="map-route-layer" class="map-route-layer" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
                 </div>
                 <div class="mt-2 text-muted small" id="map-caption">Loading location and nearby ride requests...</div>
+                <div class="row g-2 mt-1 small">
+                    <div class="col-md-3"><strong>Speed:</strong> <span id="current-speed">0 km/h</span></div>
+                    <div class="col-md-3"><strong>Accuracy:</strong> <span id="location-accuracy">Unknown</span></div>
+                    <div class="col-md-3"><strong>GPS Signal:</strong> <span id="gps-signal">Unknown</span></div>
+                    <div class="col-md-3"><strong>Updated:</strong> <span id="last-update">--</span></div>
+                    <div class="col-md-3"><strong>ETA Pickup:</strong> <span id="eta-pickup">--</span></div>
+                    <div class="col-md-3"><strong>ETA Dropoff:</strong> <span id="eta-dropoff">--</span></div>
+                    <div class="col-md-3"><strong>Distance Pickup:</strong> <span id="distance-pickup">--</span></div>
+                    <div class="col-md-3"><strong>Trip Distance:</strong> <span id="distance-dropoff">--</span></div>
+                </div>
+                <div class="d-flex flex-wrap align-items-center gap-3 mt-3 small">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="compass-indicator" id="compass-indicator">N</span>
+                        <span id="heading-readout">Heading: --</span>
+                    </div>
+                    <label class="form-check-label d-flex align-items-center gap-2" for="debug-mode-toggle">
+                        <input id="debug-mode-toggle" class="form-check-input mt-0" type="checkbox"> Debug mode
+                    </label>
+                    <label class="d-flex align-items-center gap-2" for="location-frequency-select">
+                        Update every
+                        <select id="location-frequency-select" class="form-select form-select-sm" style="width: auto;">
+                            <option value="2000">2s</option>
+                            <option value="3000" selected>3s</option>
+                            <option value="5000">5s</option>
+                        </select>
+                    </label>
+                    <button id="simulate-gps-button" class="btn btn-outline-info btn-sm" type="button"><i class="bi bi-cpu"></i> Simulate GPS</button>
+                </div>
+                <div id="debug-coordinates" class="debug-box mt-2 d-none">Debug coordinates unavailable.</div>
             </div>
         </div>
 
