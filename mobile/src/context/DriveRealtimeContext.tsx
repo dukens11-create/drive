@@ -159,6 +159,8 @@ const mapRideToActiveTrip = (ride: RideSummary): ActiveTrip => {
   return {
     rideId: ride.id,
     id: ride.id,
+    riderId: ride.riderId,
+    riderPhone: ride.riderPhone,
     riderName: riderNameFrom(ride.riderId),
     rideType: 'standard',
     pickupAddress: `Pickup · ${formatCoordinate(ride.pickupLat, ride.pickupLng)}`,
