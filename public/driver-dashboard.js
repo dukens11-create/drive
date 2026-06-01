@@ -791,15 +791,15 @@ function roundCoord(value) {
   return Math.round(Number(value) * 1e5) / 1e5;
 }
 
-function createAccuracyCircle(lat, lng, radiusMeters, points = 40) {
+function createAccuracyCircle(lat, lng, radiusMeters, circleSegments = 40) {
   const earthRadius = 6371000;
   const latRad = lat * Math.PI / 180;
   const lngRad = lng * Math.PI / 180;
   const angularDistance = radiusMeters / earthRadius;
   const coordinates = [];
 
-  for (let index = 0; index <= points; index += 1) {
-    const bearing = (index / points) * Math.PI * 2;
+  for (let segmentIndex = 0; segmentIndex <= circleSegments; segmentIndex += 1) {
+    const bearing = (segmentIndex / circleSegments) * Math.PI * 2;
     const pointLat = Math.asin(
       Math.sin(latRad) * Math.cos(angularDistance) +
       Math.cos(latRad) * Math.sin(angularDistance) * Math.cos(bearing)
