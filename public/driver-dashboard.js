@@ -573,7 +573,7 @@ function normalizeRide(ride, index) {
     dropoffLat: Number.isFinite(dropoffLat) ? dropoffLat : DEFAULT_FALLBACK_LAT + 0.01,
     dropoffLng: Number.isFinite(dropoffLng) ? dropoffLng : DEFAULT_FALLBACK_LNG + 0.01,
     fareEstimate: Number(ride.fareEstimate || 0),
-    estimatedEarnings: Number(ride.driverEarningsEstimate ?? ride.earningsEstimate ?? ride.fareEstimate || 0),
+    estimatedEarnings: Number((ride.driverEarningsEstimate ?? ride.earningsEstimate ?? ride.fareEstimate) || 0),
     minutes: Number(ride.minutes || 18),
     passengerRating: Number(ride.passengerRating || 4.8),
     passengerName: ride.passengerName || `Passenger ${index + 1}`,
