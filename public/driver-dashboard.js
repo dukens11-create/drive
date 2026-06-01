@@ -472,6 +472,7 @@ function applyRealtimeRides(payload) {
   const rides = normalizeRealtimeRidePayload(payload).map(normalizeRide);
   nearbyRideRequests = rides.filter(ride => ['requested', 'accepted', 'arrived_at_pickup', 'started'].includes(ride.status));
   completedRideHistory = rides.filter(ride => ride.status === 'completed');
+  refreshRideRequestFeedState(nearbyRideRequests);
   cacheRealtimeSection('activeRides', nearbyRideRequests);
   cacheRealtimeSection('completedRides', completedRideHistory);
   renderAvailableRideRequests();
@@ -1300,6 +1301,32 @@ function pruneRideRequestState(rides) {
     if (!activeIds.has(rideId)) rideRequestExpirations.delete(rideId);
   });
   knownRideRequestIds = new Set(Array.from(knownRideRequestIds).filter(rideId => activeIds.has(rideId)));
+}
+
+function refreshRideRequestFeedState(rides) {
+  const rejected = new Set(getRejectedRideIds());
+  // Track only open incoming requests so accepted/in-progress rides do not retrigger "incoming" alerts.
+  const trackedRequests = rides.filter(ride => ride.status === 'requested' && !rejected.has(ride.id));
+  const nextRideIds = new Set(trackedRequests.map(ride => ride.id));
+  const newRideRequests = trackedRequests.filter(ride => !knownRideRequestIds.has(ride.id));
+
+  if (rideRequestFeedInitialized && newRideRequests.length) {
+    newRideRequests.forEach(ride => {
+      emitRideRequestAction('requesting', ride, {
+        remainingMs: RIDE_REQUEST_ALERT_WINDOW_MS
+      });
+    });
+    playIncomingRideAlert().catch(() => {});
+    showAlert(
+      'info',
+      newRideRequests.length === 1
+        ? `Incoming ride request from ${newRideRequests[0].passengerName || 'Passenger'}.`
+        : `${newRideRequests.length} incoming ride requests are waiting.`
+    );
+  }
+
+  knownRideRequestIds = nextRideIds;
+  rideRequestFeedInitialized = true;
 }
 
 async function primeIncomingRideAudio() {
@@ -3245,22 +3272,7 @@ async function loadAvailableRideRequests() {
       nearbyRideRequests = data.rides
         .filter(ride => ['requested', 'accepted', 'arrived_at_pickup', 'started'].includes(ride.status))
         .map(normalizeRide);
-      const nextRideIds = new Set(nearbyRideRequests.map(ride => ride.id));
-      const newRideRequests = nearbyRideRequests.filter(ride => !knownRideRequestIds.has(ride.id));
-      if (rideRequestFeedInitialized && newRideRequests.length) {
-        newRideRequests.forEach(ride => {
-          emitRideRequestAction('requesting', ride, { remainingMs: RIDE_REQUEST_ALERT_WINDOW_MS });
-        });
-        playIncomingRideAlert().catch(() => {});
-        showAlert(
-          'info',
-          newRideRequests.length === 1
-            ? `Incoming ride request from ${newRideRequests[0].passengerName || 'Passenger'}.`
-            : `${newRideRequests.length} incoming ride requests are waiting.`
-        );
-      }
-      knownRideRequestIds = nextRideIds;
-      rideRequestFeedInitialized = true;
+      refreshRideRequestFeedState(nearbyRideRequests);
       cacheRealtimeSection('activeRides', nearbyRideRequests);
       publishRealtimeSnapshot('rides', data.rides).catch(() => {});
     } else {
