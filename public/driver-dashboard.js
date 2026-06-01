@@ -15,6 +15,8 @@ const REJECTED_RIDES_KEY = 'driverRejectedRideIds';
 const RIDE_REQUEST_HISTORY_KEY = 'driverRideRequestHistory';
 const RIDE_REQUEST_ANALYTICS_KEY = 'driverRideRequestAnalytics';
 const RIDE_ALERT_MUTE_UNTIL_KEY = 'driverRideAlertMuteUntil';
+const SHARED_RIDE_STORAGE_KEY = 'drive.sharedRideRequests.v1';
+const SHARED_RIDE_STORAGE_VERSION = 1;
 const DRIVER_DOCS_KEY = 'driverDashboardDocs';
 const DRIVER_SUPPORT_KEY = 'driverDashboardSupportLog';
 const DRIVER_REALTIME_CONFIG_KEY = 'driverRealtimeConfig';
@@ -484,6 +486,7 @@ function applyRealtimeRides(payload) {
   const rides = normalizeRealtimeRidePayload(payload).map(normalizeRide);
   nearbyRideRequests = rides.filter(ride => ['requested', 'accepted', 'arrived_at_pickup', 'started'].includes(ride.status));
   completedRideHistory = rides.filter(ride => ride.status === 'completed');
+  setSharedRides(mergeRidesById([...nearbyRideRequests, ...completedRideHistory], getSharedRides()));
   refreshRideRequestFeedState(nearbyRideRequests);
   cacheRealtimeSection('activeRides', nearbyRideRequests);
   cacheRealtimeSection('completedRides', completedRideHistory);
@@ -656,6 +659,26 @@ async function syncDriverLocationToBackends(location, { allowQueue = true } = {}
   currentProfile = { ...(currentProfile || {}), lat: payload.lat, lng: payload.lng };
   cacheRealtimeSection('location', payload);
   renderMap();
+  // Intentionally excludes "requested": driver location becomes relevant only after assignment.
+  // These states represent active driver involvement: assigned/en-route, arrived at pickup, and trip started.
+  const activeDriverStatuses = new Set(['accepted', 'arrived_at_pickup', 'started']);
+  const sharedRides = getSharedRides();
+  let hasSharedUpdates = false;
+  const ridesWithDriverLocation = sharedRides.map(ride => {
+    if (!activeDriverStatuses.has(ride.status)) return ride;
+    if (ride.driverId && currentUser?.id && ride.driverId !== currentUser.id) return ride;
+    hasSharedUpdates = true;
+    return normalizeRide({
+      ...ride,
+      driverId: ride.driverId || currentUser?.id || null,
+      driverName: ride.driverName || getDriverDisplayName(currentUser?.email),
+      driverLocation: { lat: payload.lat, lng: payload.lng, updatedAt: payload.updatedAt },
+      etaMinutes: Number.isFinite(routeCache.pickupEta) ? Number(routeCache.pickupEta) : Number(ride.etaMinutes || ride.minutes || 0)
+    });
+  });
+  if (hasSharedUpdates) {
+    setSharedRides(ridesWithDriverLocation);
+  }
 
   let ok = true;
   try {
@@ -718,6 +741,53 @@ function getStoredList(storageKey) {
 
 function setStoredList(storageKey, value) {
   localStorage.setItem(storageKey, JSON.stringify(value));
+}
+
+function getSharedRideStore() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SHARED_RIDE_STORAGE_KEY) || 'null');
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch (_error) {
+    // ignore malformed shared ride payloads
+  }
+  return { version: SHARED_RIDE_STORAGE_VERSION, rides: [], updatedAt: new Date().toISOString() };
+}
+
+function getSharedRides() {
+  const store = getSharedRideStore();
+  const rides = Array.isArray(store.rides) ? store.rides : [];
+  return rides.map(normalizeRide);
+}
+
+function setSharedRides(rides) {
+  const nextRides = Array.isArray(rides) ? rides.map(ride => normalizeRide(ride)) : [];
+  localStorage.setItem(SHARED_RIDE_STORAGE_KEY, JSON.stringify({
+    version: SHARED_RIDE_STORAGE_VERSION,
+    rides: nextRides,
+    updatedAt: new Date().toISOString()
+  }));
+}
+
+function upsertSharedRide(rideLike) {
+  if (!rideLike?.id) return;
+  const byId = new Map(getSharedRides().map(ride => [ride.id, ride]));
+  const previous = byId.get(rideLike.id) || {};
+  byId.set(rideLike.id, normalizeRide({ ...previous, ...rideLike, updatedAt: new Date().toISOString() }));
+  setSharedRides(Array.from(byId.values()));
+}
+
+function mergeRidesById(primaryRides, fallbackRides) {
+  const merged = new Map();
+  (Array.isArray(fallbackRides) ? fallbackRides : []).forEach(ride => {
+    const normalized = normalizeRide(ride);
+    merged.set(normalized.id, normalized);
+  });
+  (Array.isArray(primaryRides) ? primaryRides : []).forEach(ride => {
+    const normalized = normalizeRide(ride);
+    const previous = merged.get(normalized.id) || {};
+    merged.set(normalized.id, normalizeRide({ ...previous, ...normalized }));
+  });
+  return Array.from(merged.values()).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
 }
 
 function getRideAlertMuteUntil() {
@@ -1062,6 +1132,17 @@ function normalizeRide(ride, index) {
     passengerReview: ride.passengerReview || '',
     passengerName: ride.passengerName || `Passenger ${index + 1}`,
     passengerPhotoUrl: ride.passengerPhotoUrl || ride.passengerAvatarUrl || ride.avatarUrl || ride.photoUrl || '',
+    riderId: ride.riderId || ride.userId || null,
+    riderName: ride.riderName || ride.passengerName || '',
+    riderEmail: ride.riderEmail || '',
+    driverId: ride.driverId || null,
+    driverName: ride.driverName || '',
+    driverLocation: ride.driverLocation || null,
+    riderLocation: ride.riderLocation || null,
+    pickupLabel: ride.pickupLabel || '',
+    destinationLabel: ride.destinationLabel || '',
+    rideType: ride.rideType || 'ECONOMY',
+    etaMinutes: Number(ride.etaMinutes || ride.minutes || 0),
     arrivedAt: ride.arrivedAt || null,
     waitingSince: ride.waitingSince || null,
     waitTimeoutAt: ride.waitTimeoutAt || null,
@@ -3417,6 +3498,11 @@ async function loadAvailableRideRequests() {
     const cache = getRealtimeCache();
     nearbyRideRequests = Array.isArray(cache.activeRides) ? cache.activeRides.map(normalizeRide) : [];
   }
+  nearbyRideRequests = mergeRidesById(
+    nearbyRideRequests,
+    getSharedRides().filter(ride => ['requested', 'accepted', 'arrived_at_pickup', 'started'].includes(ride.status))
+  );
+  setSharedRides(mergeRidesById(nearbyRideRequests, getSharedRides()));
 
   renderAvailableRideRequests();
   scheduleRouteRefresh();
@@ -3488,6 +3574,11 @@ async function loadRideHistory() {
     const cache = getRealtimeCache();
     completedRideHistory = Array.isArray(cache.completedRides) ? cache.completedRides.map(normalizeRide) : [];
   }
+  completedRideHistory = mergeRidesById(
+    completedRideHistory,
+    getSharedRides().filter(ride => ride.status === 'completed')
+  );
+  setSharedRides(mergeRidesById(completedRideHistory, getSharedRides()));
   renderRideHistory();
   renderPerformanceStats();
 }
@@ -3699,6 +3790,12 @@ async function performRideFlowAction(actionPath, successMessage, payload = {}) {
       closeRideDetailsModal();
       return;
     }
+    upsertSharedRide({
+      ...refreshedRide,
+      driverId: refreshedRide.driverId || currentUser?.id || null,
+      driverName: refreshedRide.driverName || getDriverDisplayName(currentUser?.email),
+      etaMinutes: Number.isFinite(routeCache.pickupEta) ? Number(routeCache.pickupEta) : Number(refreshedRide.etaMinutes || refreshedRide.minutes || 0)
+    });
     renderRideDetailsModal(refreshedRide);
     showAlert('success', successMessage);
   } catch (_error) {
@@ -3817,6 +3914,14 @@ async function acceptRideById(rawRideId, options = {}) {
     }
     showAlert('success', `Ride ${rideId} accepted.`);
     const acceptedRide = getRideById(rideId) || normalizeRide({ id: rideId, status: 'accepted' }, 0);
+    upsertSharedRide({
+      ...acceptedRide,
+      status: 'accepted',
+      lifecycleState: acceptedRide.lifecycleState || 'arriving',
+      driverId: currentUser?.id || acceptedRide.driverId || null,
+      driverName: acceptedRide.driverName || getDriverDisplayName(currentUser?.email),
+      etaMinutes: Number.isFinite(routeCache.pickupEta) ? Number(routeCache.pickupEta) : Number(acceptedRide.minutes || 0)
+    });
     emitRideRequestAction('accepted', acceptedRide, { source: options.source || 'manual' });
     // [REALTIME] Replace publishSharedRideStatus with a Firebase/Supabase write so
     // the rider dashboard sees "Driver assigned" in real time.
@@ -4523,7 +4628,7 @@ window.addEventListener('load', async () => {
 
   if (!currentUser?.id || currentUser.role !== 'driver') {
     console.error('Invalid driver session role payload', { user: currentUser });
-    window.location.replace('/dashboard.html');
+    window.location.replace('/rider-dashboard.html');
     return;
   }
 
@@ -4626,6 +4731,11 @@ window.addEventListener('load', async () => {
   });
   window.addEventListener('offline', () => {
     setRealtimeStatus('Offline mode: showing cached dashboard data.', 'warning');
+  });
+  window.addEventListener('storage', event => {
+    if (event.key !== SHARED_RIDE_STORAGE_KEY) return;
+    loadAvailableRideRequests().catch(() => {});
+    loadRideHistory().catch(() => {});
   });
   window.addEventListener('beforeunload', () => {
     clearRealtimeConnections();

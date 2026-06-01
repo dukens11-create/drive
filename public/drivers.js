@@ -59,7 +59,7 @@ function normalizeRole(role) {
 }
 
 function getRedirectPath(role) {
-  return normalizeRole(role) === DRIVER_ROLE ? '/driver-dashboard.html' : '/dashboard.html';
+  return normalizeRole(role) === DRIVER_ROLE ? '/driver-dashboard.html' : '/rider-dashboard.html';
 }
 
 async function submitAuth(path, body, button) {
