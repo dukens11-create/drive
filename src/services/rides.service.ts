@@ -1039,11 +1039,12 @@ export async function message(body: any, _params?: any, _query?: any) {
   if (!message) return { module: 'rides', action: 'message', error: 'message is required' };
   const actor = body?.actor;
   const event = appendRideEvent(ride, 'chat_message', 'Trip chat', message, actor?.role, actor?.id);
-  const counterpartyId = actor?.id === ride.driverId
-    ? ride.riderId
-    : actor?.id === ride.riderId
-      ? ride.driverId
-      : undefined;
+  let counterpartyId: string | undefined;
+  if (actor?.id === ride.driverId) {
+    counterpartyId = ride.riderId;
+  } else if (actor?.id === ride.riderId) {
+    counterpartyId = ride.driverId;
+  }
   if (counterpartyId) {
     const senderLabel = actor?.role === 'driver' ? 'Driver' : 'Rider';
     await pushRideNotification(counterpartyId, 'trip_updates', `New trip message from ${senderLabel}`, message, 'trip_message');

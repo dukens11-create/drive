@@ -68,7 +68,7 @@ export default function InboxScreen() {
       try {
         const templates = await chatApi.quickReplies();
         if (isMounted && templates.length > 0) {
-          setQuickReplies(templates.map((template) => ({ id: template.id, label: template.label, content: template.content })));
+          setQuickReplies(templates);
         }
       } catch {
         // Keep defaults if templates are unavailable.
@@ -97,11 +97,11 @@ export default function InboxScreen() {
     }
   };
 
-  const callPassenger = () => {
+  const callPassenger = async () => {
     logEvent('call_passenger_tapped');
     const phone = typedActiveTrip?.riderPhone;
     if (phone) {
-      Linking.openURL(`tel:${phone}`).catch(() => {
+      await Linking.openURL(`tel:${phone}`).catch(() => {
         setSupportStatus('Unable to initiate call.');
       });
       return;
@@ -112,13 +112,12 @@ export default function InboxScreen() {
       setSupportStatus('Passenger contact details are not available.');
       return;
     }
-    chatApi.initiateCall(riderId, typedActiveTrip.rideId)
-      .then(() => {
-        setSupportStatus('Calling passenger...');
-      })
-      .catch((error) => {
-        setSupportStatus(error instanceof Error ? error.message : 'Unable to initiate call.');
-      });
+    try {
+      await chatApi.initiateCall(riderId, typedActiveTrip.rideId);
+      setSupportStatus('Connecting passenger call...');
+    } catch (error) {
+      setSupportStatus(error instanceof Error ? error.message : 'Unable to initiate call.');
+    }
   };
 
   const sendSupportMessage = async () => {
