@@ -161,7 +161,7 @@ describe('RideRequestCard integration', () => {
     });
 
     const screen = render(<RideRequestCard />);
-    fireEvent.press(screen.getByText('Complete Trip'));
+    fireEvent.press(screen.getByText('End Trip'));
     expect(advanceTrip).toHaveBeenCalledTimes(1);
   });
 
@@ -264,6 +264,76 @@ describe('RideRequestCard integration', () => {
     await waitFor(() => expect(mockRatePassenger).toHaveBeenCalledWith('trip-1', 5, ''));
   });
 
+  test('shows fare summary and trip receipt details for completed ride', () => {
+    mockUseDriveRealtime.mockReturnValue({
+      activeRequest: null,
+      activeTrip: {
+        id: 'trip-1',
+        rideId: 'trip-1',
+        riderName: 'Daniel',
+        rideType: 'standard',
+        pickupAddress: 'Pickup',
+        dropoffAddress: 'Dropoff',
+        pickupPosition: { latitude: 1, longitude: 1 },
+        dropoffPosition: { latitude: 2, longitude: 2 },
+        pickupDistanceKm: 1,
+        tripDistanceKm: 4,
+        estimatedFare: 18.25,
+        surgeMultiplier: 1,
+        pickupEtaMinutes: 2,
+        riderRating: 4.9,
+        directionTag: 'toward_downtown',
+        status: 'completed',
+        timeline: [{ id: 'event-1', title: 'Trip complete', message: 'Dropoff reached', createdAt: new Date().toISOString() }],
+        fareSummary: {
+          subtotal: 16,
+          discounts: 1,
+          taxes: 1.5,
+          tolls: 0.5,
+          tips: 2,
+          total: 19,
+          driverEarnings: 15.2,
+          currency: 'USD',
+        },
+        receipt: {
+          receiptType: 'ride_receipt',
+          invoiceNumber: 'INV-TRIP-1',
+          issuedAt: new Date().toISOString(),
+          paymentStatus: 'settled_internal',
+          totalCents: 1900,
+          currency: 'USD',
+        },
+      },
+      requestTimeLeft: 0,
+      acceptRequest: jest.fn(),
+      declineRequest: jest.fn(),
+      advanceTrip: jest.fn(),
+      profile: {} as never,
+      metrics: {} as never,
+      location: { latitude: 0, longitude: 0 },
+      nearbyRequests: [],
+      rideHistory: [],
+      notifications: [],
+      isLoading: false,
+      error: null,
+      onboardingRequired: false,
+      isOfflineMode: false,
+      setOnline: jest.fn(),
+      updatePreferences: jest.fn(),
+      refreshData: jest.fn(),
+      waitingSeconds: 0,
+      arriveAtPickup: jest.fn(),
+      reportNoShow: jest.fn(),
+      cancelTrip: jest.fn(),
+    });
+
+    const screen = render(<RideRequestCard />);
+    expect(screen.getByText('Fare summary')).toBeTruthy();
+    fireEvent.press(screen.getByText('View Trip Receipt'));
+    expect(screen.getByText('Invoice: INV-TRIP-1')).toBeTruthy();
+    expect(screen.getByText('Charged: $19.00')).toBeTruthy();
+  });
+
   test('shows passenger rating error when submission fails', async () => {
     mockRatePassenger.mockRejectedValueOnce(new Error('Unable to connect'));
     mockUseDriveRealtime.mockReturnValue({
@@ -317,5 +387,108 @@ describe('RideRequestCard integration', () => {
 
     await waitFor(() => expect(screen.getByText('Unable to connect')).toBeTruthy());
     expect(mockRatePassenger).toHaveBeenCalledWith('trip-1', 3, 'Unsafe behavior');
+  });
+
+  test('shows no-show action at pickup after wait threshold', () => {
+    const reportNoShow = jest.fn(async () => undefined);
+    mockUseDriveRealtime.mockReturnValue({
+      activeRequest: null,
+      activeTrip: {
+        id: 'trip-2',
+        rideId: 'trip-2',
+        riderName: 'Taylor',
+        rideType: 'standard',
+        pickupAddress: 'Pickup',
+        dropoffAddress: 'Dropoff',
+        pickupPosition: { latitude: 1, longitude: 1 },
+        dropoffPosition: { latitude: 2, longitude: 2 },
+        pickupDistanceKm: 1,
+        tripDistanceKm: 4,
+        estimatedFare: 18.25,
+        surgeMultiplier: 1,
+        pickupEtaMinutes: 2,
+        riderRating: 4.9,
+        directionTag: 'toward_downtown',
+        status: 'arrived_at_pickup',
+        timeline: [{ id: 'event-1', title: 'Arrived', message: 'Waiting at pickup', createdAt: new Date().toISOString() }],
+      },
+      requestTimeLeft: 0,
+      acceptRequest: jest.fn(),
+      declineRequest: jest.fn(),
+      advanceTrip: jest.fn(),
+      profile: {} as never,
+      metrics: {} as never,
+      location: { latitude: 0, longitude: 0 },
+      nearbyRequests: [],
+      rideHistory: [],
+      notifications: [],
+      isLoading: false,
+      error: null,
+      onboardingRequired: false,
+      isOfflineMode: false,
+      setOnline: jest.fn(),
+      updatePreferences: jest.fn(),
+      refreshData: jest.fn(),
+      waitingSeconds: 120,
+      arriveAtPickup: jest.fn(),
+      reportNoShow,
+      cancelTrip: jest.fn(),
+    });
+
+    const screen = render(<RideRequestCard />);
+    fireEvent.press(screen.getByText('Rider No-Show'));
+    expect(reportNoShow).toHaveBeenCalledTimes(1);
+  });
+
+  test('shows cancel reason actions for accepted trip', async () => {
+    const cancelTrip = jest.fn(async () => undefined);
+    mockUseDriveRealtime.mockReturnValue({
+      activeRequest: null,
+      activeTrip: {
+        id: 'trip-3',
+        rideId: 'trip-3',
+        riderName: 'Morgan',
+        rideType: 'standard',
+        pickupAddress: 'Pickup',
+        dropoffAddress: 'Dropoff',
+        pickupPosition: { latitude: 1, longitude: 1 },
+        dropoffPosition: { latitude: 2, longitude: 2 },
+        pickupDistanceKm: 1,
+        tripDistanceKm: 4,
+        estimatedFare: 18.25,
+        surgeMultiplier: 1,
+        pickupEtaMinutes: 2,
+        riderRating: 4.9,
+        directionTag: 'toward_downtown',
+        status: 'accepted',
+        timeline: [{ id: 'event-1', title: 'Accepted', message: 'Head to pickup', createdAt: new Date().toISOString() }],
+      },
+      requestTimeLeft: 0,
+      acceptRequest: jest.fn(),
+      declineRequest: jest.fn(),
+      advanceTrip: jest.fn(),
+      profile: {} as never,
+      metrics: {} as never,
+      location: { latitude: 0, longitude: 0 },
+      nearbyRequests: [],
+      rideHistory: [],
+      notifications: [],
+      isLoading: false,
+      error: null,
+      onboardingRequired: false,
+      isOfflineMode: false,
+      setOnline: jest.fn(),
+      updatePreferences: jest.fn(),
+      refreshData: jest.fn(),
+      waitingSeconds: 0,
+      arriveAtPickup: jest.fn(),
+      reportNoShow: jest.fn(),
+      cancelTrip,
+    });
+
+    const screen = render(<RideRequestCard />);
+    fireEvent.press(screen.getByText('Cancel trip'));
+    fireEvent.press(screen.getByText('Vehicle issue'));
+    await waitFor(() => expect(cancelTrip).toHaveBeenCalledWith('vehicle_issue'));
   });
 });

@@ -41,7 +41,7 @@ export const driverStatusMeta: Record<DriverStatus, { label: string; subtitle: s
     label: 'On trip',
     subtitle: 'Rider is onboard. Follow the route to dropoff and complete the trip.',
     accentColor: '#F59E0B',
-    actionLabel: 'Complete Trip',
+    actionLabel: 'End Trip',
   },
   completed: {
     label: 'Trip completed',

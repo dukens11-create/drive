@@ -137,6 +137,36 @@ const formatCoordinate = (lat?: number, lng?: number) => {
   return `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`;
 };
 
+const mapFareSummary = (ride: RideSummary) => {
+  const fallbackTotal = Number(ride.fareEstimate.toFixed(2));
+  return {
+    subtotal: Number((ride.fareDetails?.subtotal ?? fallbackTotal).toFixed(2)),
+    discounts: Number((ride.fareDetails?.discounts ?? 0).toFixed(2)),
+    taxes: Number((ride.fareDetails?.taxes ?? 0).toFixed(2)),
+    tolls: Number((ride.fareDetails?.tolls ?? 0).toFixed(2)),
+    tips: Number((ride.fareDetails?.tips ?? 0).toFixed(2)),
+    total: Number((ride.fareDetails?.total ?? fallbackTotal).toFixed(2)),
+    driverEarnings: Number((ride.fareDetails?.driverEarnings ?? fallbackTotal * 0.8).toFixed(2)),
+    currency: (ride.fareDetails?.currency || ride.receipt?.currency || 'USD').toUpperCase(),
+  };
+};
+
+const mapReceiptSummary = (ride: RideSummary): ActiveTrip['receipt'] | undefined => {
+  if (ride.status !== 'completed' && ride.status !== 'canceled') {
+    return undefined;
+  }
+  return {
+    receiptType: ride.receipt?.receiptType ?? (ride.status === 'completed' ? 'ride_receipt' : 'ride_cancellation'),
+    invoiceNumber: ride.receipt?.invoiceNumber || `INV-${ride.id.toUpperCase()}`,
+    issuedAt: ride.receipt?.issuedAt || ride.updatedAt || ride.createdAt,
+    paymentStatus: ride.receipt?.paymentStatus || (ride.status === 'completed' ? 'settled_internal' : 'not_charged'),
+    totalCents: Number.isFinite(ride.receipt?.totalCents)
+      ? Number(ride.receipt?.totalCents)
+      : Math.round((ride.fareDetails?.total ?? ride.fareEstimate) * 100),
+    currency: ride.receipt?.currency || ride.fareDetails?.currency || 'USD',
+  };
+};
+
 const riderNameFrom = (riderId: string) => {
   if (!riderId) {
     return 'Rider';
@@ -183,6 +213,8 @@ const mapRideToActiveTrip = (ride: RideSummary): ActiveTrip => {
     passengerRating: ride.passengerRating,
     passengerReview: ride.passengerReview,
     waitingSince: ride.waitingSince,
+    fareSummary: mapFareSummary(ride),
+    receipt: mapReceiptSummary(ride),
   };
 };
 
@@ -314,6 +346,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
   const [activeRequest, setActiveRequest] = useState<RideRequest | null>(null);
   const [backendActiveTrip, setBackendActiveTrip] = useState<ActiveTrip | null>(null);
   const [mockActiveTrip, setMockActiveTrip] = useState<ActiveTrip | null>(null);
+  const [completedTripReview, setCompletedTripReview] = useState<ActiveTrip | null>(null);
   const [rideHistory, setRideHistory] = useState<RideHistoryItem[]>([]);
   const [notifications, setNotifications] = useState<DriverNotification[]>([]);
   const [requestTimeLeft, setRequestTimeLeft] = useState(0);
@@ -322,7 +355,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
   const [error, setError] = useState<string | null>(null);
   const [onboardingRequired, setOnboardingRequired] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
-  const activeTrip = backendActiveTrip ?? mockActiveTrip;
+  const activeTrip = backendActiveTrip ?? mockActiveTrip ?? completedTripReview;
 
   const persistCacheSnapshot = useCallback(async (snapshot: DriverCacheSnapshot) => {
     try {
@@ -359,6 +392,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       setMetrics(defaultMetrics);
       setBackendActiveTrip(null);
       setMockActiveTrip(null);
+      setCompletedTripReview(null);
       setActiveRequest(null);
       setRequestQueue([]);
       setDeclinedRequestCooldowns({});
@@ -401,6 +435,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       setBackendActiveTrip(mappedTrip);
       if (mappedTrip) {
         setMockActiveTrip(null);
+        setCompletedTripReview(null);
         setRequestQueue([]);
         setDeclinedRequestCooldowns({});
         setRequestTimeLeft(0);
@@ -772,6 +807,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       if (activeRequest.id.startsWith(MOCK_REQUEST_PREFIX)) {
         trackDriverEvent('request_accepted', { requestId: activeRequest.id, mock: true });
         setMockActiveTrip(mapRequestToMockTrip(activeRequest));
+        setCompletedTripReview(null);
         setActiveRequest(null);
         setRequestQueue([]);
         setDeclinedRequestCooldowns({});
@@ -785,6 +821,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       await ridesApi.accept(activeRequest.id);
       handledRequestIdsRef.current.add(activeRequest.id);
       previousTripRef.current = { rideId: activeRequest.id, status: 'accepted' };
+      setCompletedTripReview(null);
       trackDriverEvent('request_accepted', { requestId: activeRequest.id, mock: false });
       await sendDriverAlert('accepted', 'Request accepted', `Head to ${activeRequest.riderName} for pickup.`);
       await refreshData();
@@ -842,6 +879,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
           toStatus = 'completed';
         } else {
           setMockActiveTrip(null);
+          setCompletedTripReview(null);
           toStatus = 'cleared';
         }
       } else if (activeTrip.status === 'accepted') {
@@ -856,17 +894,23 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
         await sendDriverAlert('trip-started', 'Trip started', `${activeTrip.riderName} is onboard. Continue to the destination.`);
         toStatus = 'in-progress';
       } else if (activeTrip.status === 'in-progress') {
-        await ridesApi.complete(activeTrip.rideId);
+        const completion = await ridesApi.complete(activeTrip.rideId);
+        setCompletedTripReview(mapRideToActiveTrip({ ...completion.ride, receipt: completion.receipt ?? completion.ride.receipt }));
+        setBackendActiveTrip(null);
+        setMockActiveTrip(null);
         suppressedTripAlertRef.current = buildSuppressedTripAlertKey(activeTrip.rideId, 'completed');
         trackDriverEvent('trip_status_advanced', { rideId: activeTrip.rideId, nextStatus: 'completed', mock: false });
         await sendDriverAlert('trip-ended', 'Trip ended', `${activeTrip.riderName}'s trip is complete.`);
         toStatus = 'completed';
+      } else if (activeTrip.status === 'completed') {
+        setCompletedTripReview(null);
+        toStatus = 'cleared';
       }
       await vibrateForAction('success');
-      if (!activeTrip.rideId.startsWith(MOCK_REQUEST_PREFIX)) {
+      const resolvedToStatus = toStatus === 'unchanged' ? fromStatus : toStatus;
+      if (!activeTrip.rideId.startsWith(MOCK_REQUEST_PREFIX) && resolvedToStatus !== 'cleared') {
         await refreshData();
       }
-      const resolvedToStatus = toStatus === 'unchanged' ? fromStatus : toStatus;
       stopAdvanceTimer({ success: true, toStatus: resolvedToStatus });
       logEvent('trip_status_advanced', {
         rideId: activeTrip.rideId,

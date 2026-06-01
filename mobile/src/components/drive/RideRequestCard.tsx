@@ -30,6 +30,7 @@ export const RideRequestCard = () => {
   const [passengerRating, setPassengerRating] = useState(5);
   const [passengerComment, setPassengerComment] = useState('');
   const [ratingState, setRatingState] = useState<string | null>(null);
+  const [showReceipt, setShowReceipt] = useState(false);
   const [showCancelMenu, setShowCancelMenu] = useState(false);
   const [cancelState, setCancelState] = useState<string | null>(null);
   const [swipeTrackWidth, setSwipeTrackWidth] = useState(0);
@@ -39,6 +40,7 @@ export const RideRequestCard = () => {
     setPassengerRating(5);
     setPassengerComment('');
     setRatingState(null);
+    setShowReceipt(false);
     setShowCancelMenu(false);
     setCancelState(null);
   }, [activeTrip?.rideId]);
@@ -62,6 +64,17 @@ export const RideRequestCard = () => {
     const isAtPickup = activeTrip.status === 'arrived_at_pickup';
     const canReportNoShow = isAtPickup && waitingSeconds >= NO_SHOW_WAIT_SECONDS;
     const canCancel = activeTrip.status === 'accepted' || activeTrip.status === 'arrived_at_pickup';
+    const fareSummary = activeTrip.fareSummary ?? {
+      subtotal: activeTrip.estimatedFare,
+      discounts: 0,
+      taxes: 0,
+      tolls: 0,
+      tips: 0,
+      total: activeTrip.estimatedFare,
+      driverEarnings: activeTrip.estimatedFare,
+      currency: 'USD',
+    };
+    const tripReceipt = activeTrip.receipt;
 
     return (
       <View className={`absolute bottom-72 left-4 right-4 z-30 rounded-[28px] p-5 shadow-soft ${highContrastEnabled ? 'border border-white bg-black' : 'bg-white dark:bg-zinc-900'}`}>
@@ -158,6 +171,46 @@ export const RideRequestCard = () => {
             </View>
           ))}
         </View>
+
+        {activeTrip.status === 'completed' ? (
+          <View className="mt-4 rounded-2xl bg-zinc-100 p-3 dark:bg-zinc-800">
+            <Text className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 dark:text-zinc-300">Fare summary</Text>
+            <View className="mt-2 gap-1.5">
+              <InfoItem label="Subtotal" value={formatCurrency(fareSummary.subtotal)} />
+              <InfoItem label="Discounts" value={fareSummary.discounts > 0 ? `-${formatCurrency(fareSummary.discounts)}` : formatCurrency(0)} />
+              <InfoItem label="Taxes + tolls + tips" value={formatCurrency(fareSummary.taxes + fareSummary.tolls + fareSummary.tips)} />
+              <InfoItem label="Driver earnings" value={formatCurrency(fareSummary.driverEarnings)} />
+            </View>
+            <View className="mt-2 rounded-xl bg-emerald-500/10 px-3 py-2">
+              <Text className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Total fare · {formatCurrency(fareSummary.total)}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        {activeTrip.status === 'completed' && tripReceipt ? (
+          <View className="mt-3 rounded-2xl bg-zinc-100 p-3 dark:bg-zinc-800">
+            <Pressable
+              className="rounded-xl border border-zinc-300 px-3 py-2 dark:border-zinc-700"
+              onPress={() => setShowReceipt((current) => !current)}
+              accessibilityRole="button"
+              accessibilityLabel="View trip receipt"
+            >
+              <Text className="text-center text-xs font-semibold text-zinc-700 dark:text-zinc-200" maxFontSizeMultiplier={maxFontSizeMultiplier}>
+                {showReceipt ? 'Hide Trip Receipt' : 'View Trip Receipt'}
+              </Text>
+            </Pressable>
+            {showReceipt ? (
+              <View className="mt-2 gap-1 rounded-xl bg-white px-3 py-2 dark:bg-zinc-900">
+                <Text className="text-xs text-zinc-600 dark:text-zinc-300">Invoice: {tripReceipt.invoiceNumber}</Text>
+                <Text className="text-xs text-zinc-600 dark:text-zinc-300">Issued: {formatTime(tripReceipt.issuedAt)}</Text>
+                <Text className="text-xs text-zinc-600 dark:text-zinc-300">Payment: {tripReceipt.paymentStatus}</Text>
+                <Text className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                  Charged: {formatCurrency(Number((tripReceipt.totalCents / 100).toFixed(2)))}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         {activeTrip.status === 'completed' && typeof activeTrip.passengerRating !== 'number' ? (
           <View className="mt-4 rounded-2xl bg-zinc-100 p-3 dark:bg-zinc-800">

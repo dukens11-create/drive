@@ -63,6 +63,24 @@ export type RideSummary = {
   passengerReview?: string;
   events?: RideEvent[];
   latestEvent?: RideEvent | null;
+  fareDetails?: {
+    currency?: string;
+    subtotal?: number;
+    discounts?: number;
+    taxes?: number;
+    tolls?: number;
+    tips?: number;
+    total?: number;
+    driverEarnings?: number;
+  };
+  receipt?: {
+    receiptType?: 'ride_receipt' | 'ride_cancellation';
+    invoiceNumber?: string;
+    issuedAt?: string;
+    paymentStatus?: string;
+    totalCents?: number;
+    currency?: string;
+  };
   updatedAt: string;
   createdAt: string;
 };

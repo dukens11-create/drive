@@ -69,6 +69,24 @@ export type ActiveTrip = Omit<RideRequest, 'expiresAt'> & {
   passengerRating?: number;
   passengerReview?: string;
   waitingSince?: string;
+  fareSummary?: {
+    subtotal: number;
+    discounts: number;
+    taxes: number;
+    tolls: number;
+    tips: number;
+    total: number;
+    driverEarnings: number;
+    currency: string;
+  };
+  receipt?: {
+    receiptType: 'ride_receipt' | 'ride_cancellation';
+    invoiceNumber: string;
+    issuedAt: string;
+    paymentStatus: string;
+    totalCents: number;
+    currency: string;
+  };
 };
 
 export type RideHistoryItem = {
