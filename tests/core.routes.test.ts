@@ -153,14 +153,10 @@ test('GET / serves the professional dashboard login page', async () => {
       const body = await response.text();
       assert.match(body, /<script src="\/socket\.io\/socket\.io\.js"><\/script>/);
       assert.match(body, /<script src="\/driver-dashboard\.js"><\/script>/);
-<<<<<<< HEAD
-      ['toggle-availability-button', 'Driver mode', 'Professional control center', 'Ride History', 'Real-time Map', 'Performance Stats', 'Support \/ Help', 'Driver dashboard navigation', 'Follow Driver: ON', 'Simulate GPS', 'ETA Pickup', 'Selfie Photo', 'Verification Status', 'Arrived at Pickup', 'Start Trip', 'End Trip', 'Rider Rating', 'countdown-pill', 'passenger-photo', 'swipe-accept-track', 'sheet-handle', 'bottom-sheet'].forEach(label => {
-=======
       assert.match(body, /api\.mapbox\.com\/mapbox-gl-js/);
       assert.match(body, /id="mapbox"/);
       assert.match(body, /id="mapbox-token-save"/);
-      ['toggle-availability-button', 'Driver mode', 'Professional control center', 'Ride History', 'Real-time Map', 'Performance Stats', 'Support \/ Help', 'Driver dashboard navigation', 'Follow Driver: ON', 'Simulate GPS', 'ETA Pickup', 'Selfie Photo', 'Verification Status', 'countdown-pill', 'passenger-photo', 'swipe-accept-track', 'sheet-handle', 'bottom-sheet'].forEach(label => {
->>>>>>> origin/main
+      ['toggle-availability-button', 'Driver mode', 'Professional control center', 'Ride History', 'Real-time Map', 'Performance Stats', 'Support \/ Help', 'Driver dashboard navigation', 'Follow Driver: ON', 'Simulate GPS', 'ETA Pickup', 'Selfie Photo', 'Verification Status', 'Arrived at Pickup', 'Start Trip', 'End Trip', 'Rider Rating', 'countdown-pill', 'passenger-photo', 'swipe-accept-track', 'sheet-handle', 'bottom-sheet'].forEach(label => {
         assert.match(body, new RegExp(label));
       });
       assert.doesNotMatch(body, /\s(onclick|onsubmit)=/);
@@ -184,15 +180,12 @@ test('GET /driver-dashboard.js includes realtime and offline sync hooks', async 
       'dispatch:rides',
       'subscribeFirebaseStream',
       'flushOfflineLocationQueue',
-<<<<<<< HEAD
       'handleArrivedAtPickup',
       'handleStartTrip',
       'handleEndTrip',
       'handleSubmitRiderRating',
-=======
       'initializeMapbox',
       'mapbox://styles/mapbox',
->>>>>>> origin/main
       'playIncomingRideAlert',
       'updateRideRequestCountdowns',
       'acceptRideById',
