@@ -1347,7 +1347,33 @@
                 <button id="close-ride-details" type="button" class="icon-button" aria-label="Close ride details">&times;</button>
             </div>
             <div id="ride-details-content" class="modal-lite-content"></div>
+            <div id="ride-fare-breakdown" class="modal-lite-content pt-0 text-muted small"></div>
+            <div id="rider-rating-controls" class="modal-lite-content pt-0 d-none">
+                <div class="fw-semibold mb-2">Rider Rating</div>
+                <div class="row g-2">
+                    <div class="col-sm-4">
+                        <label for="rider-rating-score" class="form-label">Rating</label>
+                        <select id="rider-rating-score" class="form-select">
+                            <option value="5">5 - Excellent</option>
+                            <option value="4">4 - Good</option>
+                            <option value="3">3 - Average</option>
+                            <option value="2">2 - Poor</option>
+                            <option value="1">1 - Bad</option>
+                        </select>
+                    </div>
+                    <div class="col-sm-8">
+                        <label for="rider-rating-comment" class="form-label">Comment (optional)</label>
+                        <input id="rider-rating-comment" class="form-control" type="text" maxlength="200" placeholder="Share rider feedback">
+                    </div>
+                </div>
+                <button id="submit-rider-rating-button" class="secondary-action mt-2" type="button">
+                    <i class="bi bi-star"></i> Submit Rider Rating
+                </button>
+            </div>
             <div class="modal-lite-footer">
+                <button id="arrived-button" class="secondary-action" type="button"><i class="bi bi-geo-alt-fill"></i> Arrived at Pickup</button>
+                <button id="start-trip-button" class="secondary-action" type="button"><i class="bi bi-play-fill"></i> Start Trip</button>
+                <button id="end-trip-button" class="secondary-action" type="button"><i class="bi bi-flag-fill"></i> End Trip</button>
                 <button id="pickup-directions-button" class="secondary-action" type="button"><i class="bi bi-sign-turn-right"></i> Navigate to Pickup</button>
                 <button id="dropoff-directions-button" class="primary-action" type="button"><i class="bi bi-geo"></i> Navigate to Dropoff</button>
             </div>

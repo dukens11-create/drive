@@ -30,6 +30,9 @@ const DEFAULT_FALLBACK_LAT = 37.7749;
 const DEFAULT_FALLBACK_LNG = -122.4194;
 const DEFAULT_LOCATION_ACCURACY_M = 80;
 const DEFAULT_LOCATION_SPEED_KMH = 40;
+const BASE_FARE = 2.5;
+const DISTANCE_RATE = 1.9;
+const TIME_RATE = 0.25;
 
 // Map projection constants
 const BASE_PROJECTION_SCALE = 190;    // %/degree at reference zoom
@@ -339,7 +342,7 @@ function normalizeRealtimeRidePayload(payload) {
 function applyRealtimeRides(payload) {
   if (payload === null || payload === undefined) return;
   const rides = normalizeRealtimeRidePayload(payload).map(normalizeRide);
-  nearbyRideRequests = rides.filter(ride => ['requested', 'accepted', 'started'].includes(ride.status));
+  nearbyRideRequests = rides.filter(ride => ['requested', 'accepted', 'arrived_at_pickup', 'started'].includes(ride.status));
   completedRideHistory = rides.filter(ride => ride.status === 'completed');
   cacheRealtimeSection('activeRides', nearbyRideRequests);
   cacheRealtimeSection('completedRides', completedRideHistory);
@@ -639,6 +642,39 @@ function formatCoordinate(lat, lng) {
   return `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`;
 }
 
+function formatRideStatus(status) {
+  return String(status || 'requested')
+    .split('_')
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function roundToTwoDecimals(amount) {
+  return Math.round(Number(amount || 0) * 100) / 100;
+}
+
+function calculateFareBreakdown(ride) {
+  const miles = Number(ride?.miles || 0);
+  const minutes = Number(ride?.minutes || 0);
+  const baseFare = BASE_FARE;
+  const distanceFare = roundToTwoDecimals(miles * DISTANCE_RATE);
+  const timeFare = roundToTwoDecimals(minutes * TIME_RATE);
+  const calculatedFare = roundToTwoDecimals(baseFare + distanceFare + timeFare);
+  const fare = Number(ride?.fareEstimate || calculatedFare);
+  return { baseFare, distanceFare, timeFare, calculatedFare, fare };
+}
+
+function hasPassengerRating(ride) {
+  return ride?.passengerRating != null && Number.isFinite(Number(ride.passengerRating));
+}
+
+function getRefreshedRideOrFallback(previousRide, apiRide, fallbackPatch) {
+  if (!previousRide?.id && !apiRide) return null;
+  if (!previousRide?.id) return normalizeRide(apiRide || fallbackPatch || {}, 0);
+  return getRideById(previousRide.id) || normalizeRide(apiRide || { ...previousRide, ...(fallbackPatch || {}) }, 0);
+}
+
 function getLastKnownLocation() {
   try {
     const raw = localStorage.getItem(LAST_KNOWN_LOCATION_KEY);
@@ -660,6 +696,7 @@ function normalizeRide(ride, index) {
   const pickupLng = Number(ride.pickupLng ?? ride.startLng);
   const dropoffLat = Number(ride.dropoffLat ?? ride.endLat);
   const dropoffLng = Number(ride.dropoffLng ?? ride.endLng);
+  const passengerRating = Number(ride.passengerRating);
   return {
     id: ride.id || `ride_mock_${index + 1}`,
     status: ride.status || 'requested',
@@ -667,10 +704,12 @@ function normalizeRide(ride, index) {
     pickupLng: Number.isFinite(pickupLng) ? pickupLng : DEFAULT_FALLBACK_LNG,
     dropoffLat: Number.isFinite(dropoffLat) ? dropoffLat : DEFAULT_FALLBACK_LAT + 0.01,
     dropoffLng: Number.isFinite(dropoffLng) ? dropoffLng : DEFAULT_FALLBACK_LNG + 0.01,
+    miles: Number(ride.miles || 0),
     fareEstimate: Number(ride.fareEstimate || 0),
     estimatedEarnings: Number(ride.driverEarningsEstimate ?? ride.earningsEstimate ?? ride.fareEstimate ?? 0),
     minutes: Number(ride.minutes || 18),
-    passengerRating: Number(ride.passengerRating || 4.8),
+    passengerRating: Number.isFinite(passengerRating) ? passengerRating : null,
+    passengerReview: ride.passengerReview || '',
     passengerName: ride.passengerName || `Passenger ${index + 1}`,
     passengerPhotoUrl: ride.passengerPhotoUrl || ride.passengerAvatarUrl || ride.avatarUrl || ride.photoUrl || '',
     requestExpiresAt: ride.requestExpiresAt || ride.expiresAt || null,
@@ -1824,7 +1863,7 @@ async function loadAvailableRideRequests() {
     });
     if (data?.ok && Array.isArray(data.rides)) {
       nearbyRideRequests = data.rides
-        .filter(ride => ['requested', 'accepted', 'started'].includes(ride.status))
+        .filter(ride => ['requested', 'accepted', 'arrived_at_pickup', 'started'].includes(ride.status))
         .map(normalizeRide);
       const nextRideIds = new Set(nearbyRideRequests.map(ride => ride.id));
       const newRideRequests = nearbyRideRequests.filter(ride => !knownRideRequestIds.has(ride.id));
@@ -1874,7 +1913,7 @@ function renderRideHistory() {
 function renderPerformanceStats() {
   const container = document.getElementById('performance-stats');
   const allRides = [...nearbyRideRequests, ...completedRideHistory];
-  const accepted = allRides.filter(ride => ['accepted', 'started', 'completed'].includes(ride.status)).length;
+  const accepted = allRides.filter(ride => ['accepted', 'arrived_at_pickup', 'started', 'completed'].includes(ride.status)).length;
   const completed = allRides.filter(ride => ride.status === 'completed').length;
   const canceled = allRides.filter(ride => ride.status === 'canceled').length;
   const total = Math.max(allRides.length, 1);
@@ -1923,19 +1962,67 @@ function getRideById(rideId) {
   return nearbyRideRequests.find(ride => ride.id === rideId) || completedRideHistory.find(ride => ride.id === rideId);
 }
 
+function syncSelectedRideFromState() {
+  if (!selectedRideForDetails?.id) return selectedRideForDetails;
+  const latestRide = getRideById(selectedRideForDetails.id);
+  if (latestRide) selectedRideForDetails = latestRide;
+  return selectedRideForDetails;
+}
+
+function renderRideFlowControls() {
+  const ride = syncSelectedRideFromState();
+  const arrivedButton = document.getElementById('arrived-button');
+  const startTripButton = document.getElementById('start-trip-button');
+  const endTripButton = document.getElementById('end-trip-button');
+  const pickupDirectionsButton = document.getElementById('pickup-directions-button');
+  const dropoffDirectionsButton = document.getElementById('dropoff-directions-button');
+  const riderRatingControls = document.getElementById('rider-rating-controls');
+  const fareBreakdownDiv = document.getElementById('ride-fare-breakdown');
+
+  if (!ride) {
+    [arrivedButton, startTripButton, endTripButton, pickupDirectionsButton, dropoffDirectionsButton].filter(Boolean).forEach(button => button.classList.add('d-none'));
+    if (riderRatingControls) riderRatingControls.classList.add('d-none');
+    if (fareBreakdownDiv) fareBreakdownDiv.textContent = '';
+    return;
+  }
+
+  const fare = calculateFareBreakdown(ride);
+  const fareLabel = ride.status === 'completed' ? 'Final Fare' : 'Estimated Fare';
+  fareBreakdownDiv.innerHTML = `
+    <div><strong>${fareLabel}:</strong> $${fare.fare.toFixed(2)}</div>
+    <div>Base $${fare.baseFare.toFixed(2)} + Distance $${fare.distanceFare.toFixed(2)} + Time $${fare.timeFare.toFixed(2)}</div>
+  `;
+
+  const isAccepted = ride.status === 'accepted';
+  const isArrived = ride.status === 'arrived_at_pickup';
+  const isStarted = ride.status === 'started';
+  const isCompleted = ride.status === 'completed';
+
+  arrivedButton.classList.toggle('d-none', !isAccepted);
+  startTripButton.classList.toggle('d-none', !isArrived);
+  endTripButton.classList.toggle('d-none', !isStarted);
+  pickupDirectionsButton.classList.toggle('d-none', isStarted || isCompleted);
+  dropoffDirectionsButton.classList.toggle('d-none', !(isStarted || isCompleted));
+  riderRatingControls.classList.toggle('d-none', !(isCompleted && !hasPassengerRating(ride)));
+}
+
 function renderRideDetailsModal(ride) {
   if (!ride) return;
   selectedRideForDetails = ride;
   const modal = document.getElementById('ride-details-modal');
   const content = document.getElementById('ride-details-content');
+  const passengerRating = Number(ride.passengerRating);
+  const passengerRatingText = Number.isFinite(passengerRating) ? `${passengerRating.toFixed(1)} ★` : 'N/A';
   content.innerHTML = `
     <div><strong>Passenger:</strong> ${escapeHtml(ride.passengerName || 'Guest Rider')}</div>
-    <div><strong>Passenger Rating:</strong> ${Number(ride.passengerRating || 0).toFixed(1)} ★</div>
+    <div><strong>Passenger Rating:</strong> ${passengerRatingText}</div>
+    <div><strong>Ride Status:</strong> ${escapeHtml(formatRideStatus(ride.status))}</div>
     <div><strong>Pickup:</strong> ${escapeHtml(formatCoordinate(ride.pickupLat, ride.pickupLng))}</div>
     <div><strong>Dropoff:</strong> ${escapeHtml(formatCoordinate(ride.dropoffLat, ride.dropoffLng))}</div>
-    <div><strong>Estimated Fare:</strong> $${Number(ride.fareEstimate || 0).toFixed(2)}</div>
+    <div><strong>Trip Distance:</strong> ${Number(ride.miles || 0).toFixed(2)} mi</div>
     <div><strong>Duration:</strong> ${Number(ride.minutes || 0)} mins</div>
   `;
+  renderRideFlowControls();
   modal.classList.add('show');
   modal.setAttribute('aria-hidden', 'false');
   // Refresh route data for this ride
@@ -1948,8 +2035,96 @@ function closeRideDetailsModal() {
   const modal = document.getElementById('ride-details-modal');
   modal.classList.remove('show');
   modal.setAttribute('aria-hidden', 'true');
+  document.getElementById('ride-fare-breakdown').textContent = '';
+  document.getElementById('rider-rating-controls').classList.add('d-none');
   selectedRideForDetails = null;
   queueMapRender();
+}
+
+async function performRideFlowAction(actionPath, successMessage) {
+  const ride = syncSelectedRideFromState();
+  if (!ride?.id) {
+    showAlert('warning', 'Select an active ride to continue.');
+    return;
+  }
+
+  try {
+    const { data } = await fetchJson(`${API_BASE_URL}/api/rides/${actionPath}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + accessToken
+      },
+      body: JSON.stringify({ rideId: ride.id })
+    });
+    if (!data?.ok) {
+      showAlert('danger', data?.error || 'Unable to update ride status.');
+      return;
+    }
+    await Promise.all([loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
+    const refreshedRide = getRefreshedRideOrFallback(ride, data.ride, { status: data?.ride?.status || ride.status });
+    if (!refreshedRide) {
+      showAlert('warning', 'Ride updated, but details are unavailable. Refreshing dashboard.');
+      closeRideDetailsModal();
+      return;
+    }
+    renderRideDetailsModal(refreshedRide);
+    showAlert('success', successMessage);
+  } catch (_error) {
+    showAlert('danger', 'Unable to update ride status.');
+  }
+}
+
+function handleArrivedAtPickup() {
+  performRideFlowAction('arrive', 'Marked as arrived at pickup.');
+}
+
+function handleStartTrip() {
+  performRideFlowAction('start', 'Trip started.');
+}
+
+function handleEndTrip() {
+  performRideFlowAction('complete', 'Trip ended successfully.');
+}
+
+async function handleSubmitRiderRating() {
+  const ride = syncSelectedRideFromState();
+  if (!ride?.id || ride.status !== 'completed') {
+    showAlert('warning', 'Complete a ride before submitting rider feedback.');
+    return;
+  }
+  const rating = Number(document.getElementById('rider-rating-score').value);
+  const comment = document.getElementById('rider-rating-comment').value.trim();
+  if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+    showAlert('warning', 'Rating must be between 1 and 5.');
+    return;
+  }
+
+  try {
+    const { data } = await fetchJson(`${API_BASE_URL}/api/rides/rate-passenger`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + accessToken
+      },
+      body: JSON.stringify({ rideId: ride.id, rating, comment })
+    });
+    if (!data?.ok) {
+      showAlert('danger', data?.error || 'Unable to submit rider rating.');
+      return;
+    }
+    await Promise.all([loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
+    const refreshedRide = getRefreshedRideOrFallback(ride, data.ride, { passengerRating: rating, passengerReview: comment });
+    if (!refreshedRide) {
+      showAlert('warning', 'Rating submitted, but details are unavailable. Refreshing dashboard.');
+      closeRideDetailsModal();
+      return;
+    }
+    renderRideDetailsModal(refreshedRide);
+    showAlert('success', 'Rider rating submitted.');
+  } catch (_error) {
+    showAlert('danger', 'Unable to submit rider rating.');
+  }
 }
 
 async function acceptRideById(rawRideId) {
@@ -2528,6 +2703,10 @@ window.addEventListener('load', async () => {
   document.getElementById('ride-details-modal').addEventListener('click', event => {
     if (event.target.id === 'ride-details-modal') closeRideDetailsModal();
   });
+  document.getElementById('arrived-button').addEventListener('click', handleArrivedAtPickup);
+  document.getElementById('start-trip-button').addEventListener('click', handleStartTrip);
+  document.getElementById('end-trip-button').addEventListener('click', handleEndTrip);
+  document.getElementById('submit-rider-rating-button').addEventListener('click', handleSubmitRiderRating);
   document.getElementById('pickup-directions-button').addEventListener('click', () => openDirections('pickup'));
   document.getElementById('dropoff-directions-button').addEventListener('click', () => openDirections('dropoff'));
   document.querySelectorAll('.nav-tab').forEach(button => {
