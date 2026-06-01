@@ -152,7 +152,11 @@ test('GET / serves the professional dashboard login page', async () => {
       const body = await response.text();
       assert.match(body, /<script src="\/socket\.io\/socket\.io\.js"><\/script>/);
       assert.match(body, /<script src="\/driver-dashboard\.js"><\/script>/);
+<<<<<<< HEAD
       ['toggle-availability-button', 'Driver mode', 'Professional control center', 'Ride History', 'Real-time Map', 'Performance Stats', 'Support \/ Help', 'Driver dashboard navigation', 'Follow Driver: ON', 'Simulate GPS', 'ETA Pickup', 'Selfie Photo', 'Verification Status', 'Arrived at Pickup', 'Start Trip', 'End Trip', 'Rider Rating', 'sheet-handle', 'bottom-sheet'].forEach(label => {
+=======
+      ['toggle-availability-button', 'Driver mode', 'Professional control center', 'Ride History', 'Real-time Map', 'Performance Stats', 'Support \/ Help', 'Driver dashboard navigation', 'Follow Driver: ON', 'Simulate GPS', 'ETA Pickup', 'Selfie Photo', 'Verification Status', 'countdown-pill', 'passenger-photo', 'swipe-accept-track', 'sheet-handle', 'bottom-sheet'].forEach(label => {
+>>>>>>> origin/main
         assert.match(body, new RegExp(label));
       });
       assert.doesNotMatch(body, /\s(onclick|onsubmit)=/);
@@ -176,10 +180,19 @@ test('GET /driver-dashboard.js includes realtime and offline sync hooks', async 
       'dispatch:rides',
       'subscribeFirebaseStream',
       'flushOfflineLocationQueue',
+<<<<<<< HEAD
       'handleArrivedAtPickup',
       'handleStartTrip',
       'handleEndTrip',
       'handleSubmitRiderRating',
+=======
+      'playIncomingRideAlert',
+      'updateRideRequestCountdowns',
+      'acceptRideById',
+      'Swipe accept',
+      'Estimated earnings',
+      'Pickup distance',
+>>>>>>> origin/main
       'setupBottomSheetControls',
       'setupPaneSwipeNavigation',
       'pointerdown',

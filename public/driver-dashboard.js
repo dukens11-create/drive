@@ -15,6 +15,11 @@ const GPS_LOG_KEY = 'driverGpsLog';
 const LAST_KNOWN_LOCATION_KEY = 'driverLastKnownLocation';
 const MAX_GPS_LOG_ENTRIES = 200;
 const ROUTE_CACHE_TTL_MS = 30000;
+const RIDE_REQUEST_ALERT_WINDOW_MS = 18000;
+const RIDE_REQUEST_COUNTDOWN_TICK_MS = 1000;
+const RIDE_REQUEST_EXPIRING_THRESHOLD_MS = 7000;
+const SWIPE_ACCEPT_THRESHOLD = 0.72;
+const SWIPE_ACCEPT_TRACK_PADDING = 14;
 const SWIPE_VERTICAL_THRESHOLD = 80;
 const SWIPE_HORIZONTAL_THRESHOLD = 60;
 
@@ -113,6 +118,12 @@ let gpsSimulationIntervalId = null;
 let gpsSimulationIndex = 0;
 let wakeLockSentinel = null;
 let routeCache = { pickupEta: null, dropoffEta: null, pickupDistKm: null, dropoffDistKm: null, cachedAt: 0 };
+let rideRequestCountdownIntervalId = null;
+let rideRequestFeedInitialized = false;
+let knownRideRequestIds = new Set();
+const rideRequestExpirations = new Map();
+const acceptingRideIds = new Set();
+let incomingRideAudioContext = null;
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 function showAlert(kind, message) {
@@ -568,6 +579,45 @@ function getDriverDisplayName(email) {
     .join(' ');
 }
 
+function getPassengerInitials(name) {
+  const parts = String(name || 'Passenger')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+  if (!parts.length) return 'P';
+  return parts.map(part => part.charAt(0).toUpperCase()).join('');
+}
+
+function createPassengerAvatarDataUrl(name) {
+  const initials = getPassengerInitials(name);
+  const safeInitials = escapeHtml(initials);
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" role="img" aria-label="${safeInitials}">
+      <defs>
+        <linearGradient id="avatarGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#26d07c" />
+          <stop offset="100%" stop-color="#1b80ff" />
+        </linearGradient>
+      </defs>
+      <rect width="96" height="96" rx="28" fill="url(#avatarGradient)" />
+      <text x="50%" y="54%" text-anchor="middle" dominant-baseline="middle" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="700" fill="#071018">${safeInitials}</text>
+    </svg>
+  `.trim();
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+function getPassengerPhotoUrl(ride) {
+  const candidate = String(
+    ride.passengerPhotoUrl ||
+    ride.passengerAvatarUrl ||
+    ride.avatarUrl ||
+    ride.photoUrl ||
+    ''
+  ).trim();
+  return candidate || createPassengerAvatarDataUrl(ride.passengerName);
+}
+
 function formatCoordinate(lat, lng) {
   if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return 'Unknown location';
   return `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`;
@@ -637,10 +687,13 @@ function normalizeRide(ride, index) {
     dropoffLng: Number.isFinite(dropoffLng) ? dropoffLng : DEFAULT_FALLBACK_LNG + 0.01,
     miles: Number(ride.miles || 0),
     fareEstimate: Number(ride.fareEstimate || 0),
+    estimatedEarnings: Number(ride.driverEarningsEstimate ?? ride.earningsEstimate ?? ride.fareEstimate ?? 0),
     minutes: Number(ride.minutes || 18),
     passengerRating: Number.isFinite(passengerRating) ? passengerRating : null,
     passengerReview: ride.passengerReview || '',
     passengerName: ride.passengerName || `Passenger ${index + 1}`,
+    passengerPhotoUrl: ride.passengerPhotoUrl || ride.passengerAvatarUrl || ride.avatarUrl || ride.photoUrl || '',
+    requestExpiresAt: ride.requestExpiresAt || ride.expiresAt || null,
     completedAt: ride.completedAt || ride.updatedAt || new Date().toISOString()
   };
 }
@@ -699,6 +752,97 @@ function formatDistance(km) {
   const miles = km * 0.621371;
   if (km < 1) return `${Math.round(km * 1000)} m / ${(miles * 5280).toFixed(0)} ft`;
   return `${km.toFixed(2)} km / ${miles.toFixed(2)} mi`;
+}
+
+function formatRideRequestCountdown(msRemaining) {
+  const totalSeconds = Math.max(0, Math.ceil(msRemaining / 1000));
+  const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+  const seconds = String(totalSeconds % 60).padStart(2, '0');
+  return `${minutes}:${seconds}`;
+}
+
+function getDriverReferenceLocation() {
+  if (Number.isFinite(mapState.lastPosition?.lat) && Number.isFinite(mapState.lastPosition?.lng)) {
+    return mapState.lastPosition;
+  }
+  if (Number.isFinite(Number(currentProfile?.lat)) && Number.isFinite(Number(currentProfile?.lng))) {
+    return { lat: Number(currentProfile.lat), lng: Number(currentProfile.lng) };
+  }
+  return getLastKnownLocation();
+}
+
+function getRidePickupDistanceKm(ride) {
+  const reference = getDriverReferenceLocation();
+  if (!reference) return NaN;
+  return calculateDistance(reference.lat, reference.lng, Number(ride.pickupLat), Number(ride.pickupLng));
+}
+
+function getRideRequestExpiryTimestamp(ride) {
+  const explicitExpiry = Date.parse(String(ride.requestExpiresAt || ''));
+  if (Number.isFinite(explicitExpiry) && explicitExpiry > Date.now()) {
+    return explicitExpiry;
+  }
+  if (!rideRequestExpirations.has(ride.id)) {
+    rideRequestExpirations.set(ride.id, Date.now() + RIDE_REQUEST_ALERT_WINDOW_MS);
+  }
+  return rideRequestExpirations.get(ride.id);
+}
+
+function pruneRideRequestState(rides) {
+  const activeIds = new Set(rides.map(ride => ride.id));
+  Array.from(rideRequestExpirations.keys()).forEach(rideId => {
+    if (!activeIds.has(rideId)) rideRequestExpirations.delete(rideId);
+  });
+  knownRideRequestIds = new Set(Array.from(knownRideRequestIds).filter(rideId => activeIds.has(rideId)));
+}
+
+async function primeIncomingRideAudio() {
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextCtor) return;
+  if (!incomingRideAudioContext) incomingRideAudioContext = new AudioContextCtor();
+  if (incomingRideAudioContext.state === 'suspended') {
+    await incomingRideAudioContext.resume();
+  }
+}
+
+async function playIncomingRideAlert() {
+  try {
+    await primeIncomingRideAudio();
+  } catch (_error) {
+    return;
+  }
+  if (!incomingRideAudioContext) return;
+  const now = incomingRideAudioContext.currentTime;
+  [0, 0.2].forEach((offset, index) => {
+    const oscillator = incomingRideAudioContext.createOscillator();
+    const gain = incomingRideAudioContext.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(index === 0 ? 880 : 1174, now + offset);
+    gain.gain.setValueAtTime(0.0001, now + offset);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + offset + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.16);
+    oscillator.connect(gain);
+    gain.connect(incomingRideAudioContext.destination);
+    oscillator.start(now + offset);
+    oscillator.stop(now + offset + 0.18);
+  });
+}
+
+function updateRideRequestCountdowns() {
+  document.querySelectorAll('[data-request-countdown]').forEach(element => {
+    const expiresAt = Number(element.getAttribute('data-expires-at'));
+    const remainingMs = expiresAt - Date.now();
+    element.textContent = formatRideRequestCountdown(remainingMs);
+    const isExpiring = remainingMs <= RIDE_REQUEST_EXPIRING_THRESHOLD_MS;
+    element.classList.toggle('is-expiring', isExpiring);
+    element.closest('[data-ride-request-card]')?.classList.toggle('is-expiring', isExpiring);
+  });
+}
+
+function startRideRequestCountdowns() {
+  if (rideRequestCountdownIntervalId !== null) return;
+  updateRideRequestCountdowns();
+  rideRequestCountdownIntervalId = window.setInterval(updateRideRequestCountdowns, RIDE_REQUEST_COUNTDOWN_TICK_MS);
 }
 
 function headingToCardinal(degrees) {
@@ -1424,10 +1568,87 @@ async function loadDriverProfile() {
 }
 
 // ─── Ride Rendering ───────────────────────────────────────────────────────────
+function attachRideRequestSwipeControls(listDiv) {
+  listDiv.querySelectorAll('[data-swipe-accept]').forEach(control => {
+    const track = control.querySelector('.swipe-accept-track');
+    const thumb = control.querySelector('[data-swipe-thumb]');
+    const rideId = control.getAttribute('data-ride-id') || '';
+    const passengerName = control.getAttribute('data-passenger-name') || 'passenger';
+    if (!track || !thumb || !rideId) return;
+
+    let pointerId = null;
+    let currentOffset = 0;
+    let startX = 0;
+    const getMaxOffset = () => Math.max(track.clientWidth - thumb.clientWidth - SWIPE_ACCEPT_TRACK_PADDING, 0);
+    const resetSwipe = () => {
+      currentOffset = 0;
+      thumb.style.transform = 'translateX(0px)';
+      control.classList.remove('is-armed');
+    };
+    const updateSwipe = clientX => {
+      const maxOffset = getMaxOffset();
+      currentOffset = Math.max(0, Math.min(maxOffset, clientX - startX));
+      thumb.style.transform = `translateX(${currentOffset}px)`;
+      const progress = maxOffset > 0 ? currentOffset / maxOffset : 0;
+      control.classList.toggle('is-armed', progress >= SWIPE_ACCEPT_THRESHOLD);
+    };
+    const commitSwipe = async () => {
+      const maxOffset = getMaxOffset();
+      thumb.style.transform = `translateX(${maxOffset}px)`;
+      control.classList.add('is-armed');
+      await acceptRideById(rideId);
+      resetSwipe();
+    };
+    const finalizeSwipe = async event => {
+      if (pointerId !== event.pointerId) return;
+      const maxOffset = getMaxOffset();
+      const progress = maxOffset > 0 ? currentOffset / maxOffset : 0;
+      const shouldAccept = progress >= SWIPE_ACCEPT_THRESHOLD;
+      pointerId = null;
+      thumb.releasePointerCapture?.(event.pointerId);
+      if (shouldAccept) {
+        await commitSwipe();
+      } else {
+        resetSwipe();
+      }
+    };
+
+    resetSwipe();
+    track.tabIndex = 0;
+    track.setAttribute('role', 'button');
+    track.setAttribute('aria-label', `Swipe to accept ride request from ${passengerName}`);
+
+    thumb.addEventListener('pointerdown', event => {
+      if (acceptingRideIds.has(rideId)) return;
+      pointerId = event.pointerId;
+      startX = event.clientX - currentOffset;
+      thumb.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+    thumb.addEventListener('pointermove', event => {
+      if (pointerId !== event.pointerId) return;
+      updateSwipe(event.clientX);
+    });
+    thumb.addEventListener('pointerup', event => {
+      finalizeSwipe(event).catch(() => {});
+    });
+    thumb.addEventListener('pointercancel', event => {
+      finalizeSwipe(event).catch(() => {});
+    });
+    track.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      if (acceptingRideIds.has(rideId)) return;
+      commitSwipe().catch(() => {});
+    });
+  });
+}
+
 function renderAvailableRideRequests() {
   const listDiv = document.getElementById('available-rides');
   const rejected = new Set(getRejectedRideIds());
   const rides = nearbyRideRequests.filter(ride => !rejected.has(ride.id));
+  pruneRideRequestState(rides);
 
   if (!rides.length) {
     listDiv.innerHTML = '<div class="text-muted">No available ride requests right now.</div>';
@@ -1437,13 +1658,29 @@ function renderAvailableRideRequests() {
   }
 
   listDiv.innerHTML = rides.map(ride => `
-    <div class="ride-item">
+    <div class="ride-item incoming-request" data-ride-request-card data-ride-id="${escapeHtml(ride.id)}">
       <div class="ride-item-top">
-        <div>
-          <div class="ride-passenger">${escapeHtml(ride.passengerName || 'Passenger')}</div>
-          <div class="ride-id">${escapeHtml(ride.id)} &bull; ${Number(ride.passengerRating || 0).toFixed(1)} &star;</div>
+        <div class="ride-request-passenger">
+          <img class="passenger-photo" src="${escapeHtml(getPassengerPhotoUrl(ride))}" alt="${escapeHtml(`${ride.passengerName || 'Passenger'} photo`)}">
+          <div>
+            <div class="ride-passenger">${escapeHtml(ride.passengerName || 'Passenger')}</div>
+            <div class="ride-id">${escapeHtml(ride.id)} &bull; ${Number(ride.passengerRating || 0).toFixed(1)} &star;</div>
+          </div>
         </div>
-        <span class="ride-status">${escapeHtml(ride.status)}</span>
+        <div class="ride-request-status">
+          <span class="countdown-pill" data-request-countdown data-expires-at="${getRideRequestExpiryTimestamp(ride)}"><i class="bi bi-stopwatch"></i> 00:00</span>
+          <span class="ride-status">${escapeHtml(ride.status)}</span>
+        </div>
+      </div>
+      <div class="ride-request-highlights">
+        <div class="ride-meta ride-meta-highlight">
+          <span>Estimated earnings</span>
+          <strong>$${Number(ride.estimatedEarnings || 0).toFixed(2)}</strong>
+        </div>
+        <div class="ride-meta ride-meta-highlight">
+          <span>Pickup distance</span>
+          <strong>${escapeHtml(formatDistance(getRidePickupDistanceKm(ride)))}</strong>
+        </div>
       </div>
       <div class="ride-route">
         <span><i class="bi bi-geo-alt"></i> Pickup</span>
@@ -1464,6 +1701,15 @@ function renderAvailableRideRequests() {
             <strong>${Number(ride.minutes || 0)} mins</strong>
           </div>
         </div>
+        <span class="ride-request-pill"><i class="bi bi-broadcast-pin"></i> Live incoming request</span>
+      </div>
+      <div class="swipe-accept" data-swipe-accept data-ride-id="${escapeHtml(ride.id)}" data-passenger-name="${escapeHtml(ride.passengerName || 'Passenger')}">
+        <div class="swipe-accept-track">
+          <span class="swipe-accept-label"><i class="bi bi-chevron-double-right"></i> Swipe accept</span>
+          <button class="swipe-accept-thumb" data-swipe-thumb type="button" aria-label="Accept ride request"><i class="bi bi-arrow-right"></i></button>
+        </div>
+      </div>
+      <div class="ride-footer mt-3">
         <button class="secondary-action choose-ride-button" data-ride-id="${escapeHtml(ride.id)}">Use Ride ID</button>
       </div>
     </div>
@@ -1477,6 +1723,8 @@ function renderAvailableRideRequests() {
     });
   });
 
+  attachRideRequestSwipeControls(listDiv);
+  updateRideRequestCountdowns();
   queueMapRender();
 }
 
@@ -1489,6 +1737,19 @@ async function loadAvailableRideRequests() {
       nearbyRideRequests = data.rides
         .filter(ride => ['requested', 'accepted', 'arrived_at_pickup', 'started'].includes(ride.status))
         .map(normalizeRide);
+      const nextRideIds = new Set(nearbyRideRequests.map(ride => ride.id));
+      const newRideRequests = nearbyRideRequests.filter(ride => !knownRideRequestIds.has(ride.id));
+      if (rideRequestFeedInitialized && newRideRequests.length) {
+        playIncomingRideAlert().catch(() => {});
+        showAlert(
+          'info',
+          newRideRequests.length === 1
+            ? `Incoming ride request from ${newRideRequests[0].passengerName || 'Passenger'}.`
+            : `${newRideRequests.length} incoming ride requests are waiting.`
+        );
+      }
+      knownRideRequestIds = nextRideIds;
+      rideRequestFeedInitialized = true;
       cacheRealtimeSection('activeRides', nearbyRideRequests);
       publishRealtimeSnapshot('rides', data.rides).catch(() => {});
     } else {
@@ -1652,6 +1913,7 @@ function closeRideDetailsModal() {
   queueMapRender();
 }
 
+<<<<<<< HEAD
 async function performRideFlowAction(actionPath, successMessage) {
   const ride = syncSelectedRideFromState();
   if (!ride?.id) {
@@ -1744,6 +2006,18 @@ async function handleAcceptRide(event) {
   const rideId = rideIdInput.value.trim();
   if (!rideId) return;
   const queuedRide = getRideById(rideId);
+=======
+async function acceptRideById(rawRideId) {
+  const rideId = String(rawRideId || '').trim();
+  if (!rideId) return false;
+  if (acceptingRideIds.has(rideId)) {
+    showAlert('info', `Ride ${rideId} is already being accepted.`);
+    return false;
+  }
+  const rideIdInput = document.getElementById('ride-id-input');
+  if (rideIdInput) rideIdInput.value = rideId;
+  acceptingRideIds.add(rideId);
+>>>>>>> origin/main
   try {
     const { data } = await fetchJson(`${API_BASE_URL}/api/rides/accept`, {
       method: 'POST',
@@ -1755,16 +2029,34 @@ async function handleAcceptRide(event) {
     });
     if (!data?.ok) {
       showAlert('danger', data.error || 'Unable to accept ride.');
-      return;
+      return false;
     }
     await Promise.all([loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
+<<<<<<< HEAD
     const acceptedRide = getRideById(rideId) || normalizeRide(data.ride || { ...queuedRide, id: rideId, status: 'accepted' }, 0);
     renderRideDetailsModal(acceptedRide);
     showAlert('success', `Ride ${rideId} accepted.`);
     event.target.reset();
+=======
+    document.getElementById('accept-ride-form')?.reset();
+    return true;
+>>>>>>> origin/main
   } catch (_error) {
     showAlert('danger', 'Unable to accept ride.');
+    return false;
+  } finally {
+    acceptingRideIds.delete(rideId);
   }
+}
+
+async function handleAcceptRide(event) {
+  event.preventDefault();
+  const rideId = document.getElementById('ride-id-input').value.trim();
+  if (!rideId) {
+    showAlert('warning', 'Please enter a ride ID.');
+    return;
+  }
+  await acceptRideById(rideId);
 }
 
 function handleRejectRide() {
@@ -2223,6 +2515,7 @@ function startUiRefreshLoop() {
   window.setInterval(() => {
     if (mapState.lastUpdateAt) updateMapUiReadouts();
   }, 5000);
+  startRideRequestCountdowns();
 }
 
 // ─── Page Lifecycle ───────────────────────────────────────────────────────────
@@ -2255,6 +2548,9 @@ window.addEventListener('load', async () => {
   }
 
   // Wire up static UI controls
+  document.addEventListener('pointerdown', () => {
+    primeIncomingRideAudio().catch(() => {});
+  }, { once: true });
   document.getElementById('logout-button').addEventListener('click', handleLogout);
   document.getElementById('accept-ride-form').addEventListener('submit', handleAcceptRide);
   document.getElementById('reject-ride-button').addEventListener('click', handleRejectRide);
@@ -2300,6 +2596,7 @@ window.addEventListener('load', async () => {
   window.addEventListener('beforeunload', () => {
     stopLocationTracking();
     if (gpsSimulationIntervalId !== null) window.clearInterval(gpsSimulationIntervalId);
+    if (rideRequestCountdownIntervalId !== null) window.clearInterval(rideRequestCountdownIntervalId);
     if (wakeLockSentinel && typeof wakeLockSentinel.release === 'function') wakeLockSentinel.release().catch(() => {});
   });
 

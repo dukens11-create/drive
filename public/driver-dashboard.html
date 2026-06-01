@@ -631,10 +631,160 @@
             padding: 14px;
         }
 
+        .ride-item.incoming-request {
+            position: relative;
+            overflow: hidden;
+            background:
+                linear-gradient(145deg, rgba(38, 208, 124, 0.16), rgba(27, 128, 255, 0.12)),
+                rgba(255, 255, 255, 0.06);
+            box-shadow: 0 16px 40px rgba(12, 23, 38, 0.34);
+            animation: incomingPulse 1.8s ease-in-out infinite;
+        }
+
+        .ride-item.incoming-request.is-expiring {
+            box-shadow: 0 0 0 1px rgba(255, 107, 107, 0.42), 0 20px 46px rgba(255, 107, 107, 0.18);
+        }
+
         .ride-item-top {
             justify-content: space-between;
             gap: 12px;
             margin-bottom: 10px;
+        }
+
+        .ride-request-passenger,
+        .ride-request-status,
+        .ride-request-highlights {
+            display: flex;
+            align-items: center;
+        }
+
+        .ride-request-passenger {
+            gap: 12px;
+            min-width: 0;
+        }
+
+        .ride-request-status {
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .ride-request-highlights {
+            gap: 10px;
+            margin: 12px 0;
+            flex-wrap: wrap;
+        }
+
+        .passenger-photo {
+            width: 54px;
+            height: 54px;
+            border-radius: 18px;
+            object-fit: cover;
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+            background: rgba(255, 255, 255, 0.1);
+            flex-shrink: 0;
+        }
+
+        .ride-request-pill,
+        .countdown-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 10px;
+            border-radius: 999px;
+            font-size: 0.74rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .ride-request-pill {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--muted);
+        }
+
+        .countdown-pill {
+            background: rgba(248, 193, 93, 0.16);
+            border: 1px solid rgba(248, 193, 93, 0.26);
+            color: #ffe1a0;
+        }
+
+        .countdown-pill.is-expiring {
+            background: rgba(255, 107, 107, 0.18);
+            border-color: rgba(255, 107, 107, 0.32);
+            color: #ffd5d5;
+            animation: countdownPulse 1s ease-in-out infinite;
+        }
+
+        .ride-meta-highlight {
+            min-width: 140px;
+            padding: 12px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.07);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            flex: 1 1 0;
+        }
+
+        .swipe-accept {
+            margin-top: 14px;
+        }
+
+        .swipe-accept-track {
+            position: relative;
+            display: flex;
+            align-items: center;
+            min-height: 58px;
+            padding: 8px;
+            border-radius: 999px;
+            background: rgba(5, 14, 24, 0.84);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            overflow: hidden;
+            user-select: none;
+            cursor: pointer;
+            outline: none;
+        }
+
+        .swipe-accept-track:focus-visible {
+            box-shadow: 0 0 0 2px rgba(38, 208, 124, 0.32);
+        }
+
+        .swipe-accept-label {
+            width: 100%;
+            text-align: center;
+            padding: 0 62px 0 18px;
+            color: var(--muted);
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            pointer-events: none;
+        }
+
+        .swipe-accept-thumb {
+            position: absolute;
+            inset: 7px auto 7px 7px;
+            width: 44px;
+            height: 44px;
+            border: 0;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #26d07c, #1b80ff);
+            color: #071018;
+            box-shadow: 0 10px 22px rgba(38, 208, 124, 0.3);
+            transition: transform 0.18s ease;
+            touch-action: pan-y;
+        }
+
+        .swipe-accept.is-armed .swipe-accept-track {
+            background: rgba(38, 208, 124, 0.14);
+            border-color: rgba(38, 208, 124, 0.26);
+        }
+
+        .swipe-accept.is-armed .swipe-accept-label {
+            color: #b7f7d5;
         }
 
         .ride-id,
@@ -777,6 +927,16 @@
         @keyframes pulseMarker {
             0%, 100% { transform: translate(-50%, -50%) scale(1); }
             50% { transform: translate(-50%, -50%) scale(1.08); }
+        }
+
+        @keyframes incomingPulse {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-1px); }
+        }
+
+        @keyframes countdownPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.04); }
         }
 
         @media (min-width: 768px) {
