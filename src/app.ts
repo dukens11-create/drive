@@ -14,7 +14,13 @@ export function createApp() {
   const httpServer = createServer(app);
   const io = new Server(httpServer, { cors: { origin: '*' } });
 
-  app.use(helmet());
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        connectSrc: ["'self'", 'https://*.firebaseio.com', 'https://*.supabase.co', 'wss://*.supabase.co']
+      }
+    }
+  }));
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));
   app.use(rateLimit({ windowMs: 60_000, limit: 300 }));

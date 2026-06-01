@@ -130,7 +130,12 @@ test('GET / serves the professional dashboard login page', async () => {
     await withServer(async baseUrl => {
       const response = await fetch(`${baseUrl}/driver-dashboard.html`);
       assert.equal(response.status, 200);
-      assert.match(response.headers.get('content-security-policy') ?? '', /script-src 'self'/);
+      const csp = response.headers.get('content-security-policy') ?? '';
+      assert.match(csp, /script-src 'self'/);
+      assert.match(csp, /connect-src 'self'/);
+      assert.match(csp, /https:\/\/\*\.firebaseio\.com/);
+      assert.match(csp, /https:\/\/\*\.supabase\.co/);
+      assert.match(csp, /wss:\/\/\*\.supabase\.co/);
 
       const body = await response.text();
       assert.match(body, /<script src="\/driver-dashboard\.js"><\/script>/);
@@ -139,6 +144,24 @@ test('GET / serves the professional dashboard login page', async () => {
       });
       assert.doesNotMatch(body, /\s(onclick|onsubmit)=/);
       assert.doesNotMatch(body, /<script>([\s\S]*?)<\/script>/i);
+    });
+  });
+});
+
+test('GET /driver-dashboard.js includes realtime and offline sync hooks', async () => {
+  await withServer(async baseUrl => {
+    const response = await fetch(`${baseUrl}/driver-dashboard.js`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /javascript/);
+    const body = await response.text();
+    [
+      'DRIVER_REALTIME_CONFIG_KEY',
+      'hydrateDashboardFromCache',
+      'startRealtimeSync',
+      'subscribeFirebaseStream',
+      'flushOfflineLocationQueue'
+    ].forEach(token => {
+      assert.match(body, new RegExp(token));
     });
   });
 });
