@@ -171,7 +171,10 @@ test('GET /driver-dashboard.js includes realtime and offline sync hooks', async 
       'hydrateDashboardFromCache',
       'startRealtimeSync',
       'subscribeFirebaseStream',
-      'flushOfflineLocationQueue'
+      'flushOfflineLocationQueue',
+      'PROFILE_LOAD_MAX_RETRIES',
+      'validateAuthSession',
+      'buildFallbackDemoProfile'
     ].forEach(token => {
       assert.match(body, new RegExp(token));
     });

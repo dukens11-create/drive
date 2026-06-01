@@ -9,6 +9,8 @@ const DRIVER_OFFLINE_LOCATION_QUEUE_KEY = 'driverOfflineLocationQueue';
 const MAX_OFFLINE_LOCATION_QUEUE = 50;
 const REALTIME_POLL_INTERVAL_MS = 12_000;
 const ALERT_DISPLAY_DURATION = 4200;
+const PROFILE_LOAD_MAX_RETRIES = 2;
+const PROFILE_RETRY_DELAY_MS = 800;
 const GPS_LOG_KEY = 'driverGpsLog';
 const LAST_KNOWN_LOCATION_KEY = 'driverLastKnownLocation';
 const MAX_GPS_LOG_ENTRIES = 200;
@@ -56,6 +58,7 @@ const SIMULATION_WAYPOINTS = [
 let currentUser = null;
 let accessToken = null;
 let currentProfile = null;
+let isProfileLoading = false;
 let nearbyRideRequests = [];
 let completedRideHistory = [];
 let selectedRideForDetails = null;
@@ -121,6 +124,12 @@ async function fetchJson(url, options) {
     throw new Error('Unexpected server response.');
   }
   return { response, data };
+}
+
+function sleep(ms) {
+  return new Promise(resolve => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
 function parseStoredJson(key, fallback) {
@@ -1184,6 +1193,10 @@ function renderAvailabilityControls() {
 
 function renderProfile() {
   const profileDiv = document.getElementById('profile-info');
+  if (isProfileLoading) {
+    profileDiv.innerHTML = '<div class="profile-card-item text-muted"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Loading driver profile...</div>';
+    return;
+  }
   if (!currentProfile) {
     profileDiv.innerHTML = '<div class="profile-card-item text-danger">Unable to load driver profile.</div>';
     return;
@@ -1216,22 +1229,94 @@ function renderProfile() {
   `;
 }
 
+function setProfileLoading(nextLoading) {
+  isProfileLoading = nextLoading;
+  const button = document.getElementById('toggle-availability-button');
+  if (button) button.disabled = nextLoading;
+  renderProfile();
+}
+
+function buildFallbackDemoProfile() {
+  return {
+    userId: currentUser?.id || 'demo-driver',
+    rating: 5,
+    availabilityStatus: 'offline'
+  };
+}
+
+async function validateAuthSession() {
+  if (!accessToken) throw new Error('Missing access token');
+  if (!currentUser?.id) throw new Error('Missing authenticated user');
+
+  const { response, data } = await fetchJson(`${API_BASE_URL}/api/auth/sessions`, {
+    headers: { Authorization: 'Bearer ' + accessToken }
+  });
+
+  if (!response.ok || !data?.ok) {
+    throw new Error(data?.error || 'Authentication session is invalid');
+  }
+}
+
+function getProfileError(data) {
+  if (data?.error) return data.error;
+  if (data?.ok === false) return 'driver not found';
+  if (!data?.profile || typeof data.profile !== 'object') return 'driver profile missing';
+  return null;
+}
+
 async function loadDriverProfile() {
+  setProfileLoading(true);
+  let lastError = null;
+
   try {
-    const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/me`, {
-      headers: { Authorization: 'Bearer ' + accessToken }
-    });
-    if (!data?.ok) {
-      currentProfile = null;
-      renderProfile();
-      return;
+    for (let attempt = 1; attempt <= PROFILE_LOAD_MAX_RETRIES + 1; attempt += 1) {
+      try {
+        await validateAuthSession();
+
+        const { response, data } = await fetchJson(`${API_BASE_URL}/api/drivers/me`, {
+          headers: { Authorization: 'Bearer ' + accessToken }
+        });
+        const profileError = !response.ok ? (data?.error || `request failed (${response.status})`) : getProfileError(data);
+        if (profileError) {
+          throw new Error(profileError);
+        }
+
+        currentProfile = data.profile || {};
+        renderAvailabilityControls();
+        if (attempt > 1) {
+          showAlert('success', 'Driver profile loaded after retry.');
+        }
+        return;
+      } catch (error) {
+        lastError = error;
+        console.error('Driver profile load failed', {
+          attempt,
+          maxAttempts: PROFILE_LOAD_MAX_RETRIES + 1,
+          userId: currentUser?.id,
+          hasAccessToken: Boolean(accessToken),
+          error
+        });
+
+        if (attempt <= PROFILE_LOAD_MAX_RETRIES) {
+          showAlert('warning', `Retrying driver profile load (${attempt}/${PROFILE_LOAD_MAX_RETRIES})...`);
+          await sleep(PROFILE_RETRY_DELAY_MS * attempt);
+          continue;
+        }
+      }
     }
-    currentProfile = data.profile || {};
-    renderProfile();
-    renderAvailabilityControls();
-  } catch (_error) {
-    currentProfile = null;
-    renderProfile();
+
+    const message = String(lastError?.message || '').toLowerCase();
+    if (message.includes('authentication') || message.includes('access token') || message.includes('authenticated user')) {
+      currentProfile = null;
+      showAlert('danger', 'Session expired. Please sign in again.');
+      window.setTimeout(() => handleLogout(), 1200);
+    } else {
+      currentProfile = buildFallbackDemoProfile();
+      renderAvailabilityControls();
+      showAlert('warning', 'Unable to load driver profile. Loaded fallback demo profile.');
+    }
+  } finally {
+    setProfileLoading(false);
   }
 }
 
@@ -1798,20 +1883,28 @@ function startUiRefreshLoop() {
 // ─── Page Lifecycle ───────────────────────────────────────────────────────────
 window.addEventListener('load', async () => {
   accessToken = localStorage.getItem('accessToken');
+  const refreshToken = localStorage.getItem('refreshToken');
   const userStr = localStorage.getItem('user');
-  if (!accessToken || !userStr) {
+  if (!accessToken || !refreshToken || !userStr) {
+    console.error('Driver dashboard auth session is incomplete', {
+      hasAccessToken: Boolean(accessToken),
+      hasRefreshToken: Boolean(refreshToken),
+      hasUser: Boolean(userStr)
+    });
     window.location.href = '/index.html';
     return;
   }
 
   try {
     currentUser = JSON.parse(userStr);
-  } catch (_error) {
+  } catch (error) {
+    console.error('Unable to parse stored driver session', { error, userStr });
     handleLogout();
     return;
   }
 
-  if (currentUser.role !== 'driver') {
+  if (!currentUser?.id || currentUser.role !== 'driver') {
+    console.error('Invalid driver session role payload', { user: currentUser });
     window.location.replace('/dashboard.html');
     return;
   }
