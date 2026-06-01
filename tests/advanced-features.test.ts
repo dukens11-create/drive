@@ -353,6 +353,143 @@ test('chat: create conversation, send/edit/react/read/search/delete message', as
   });
 });
 
+test('chat: voice note message with transcription', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+    const driver = await signup(baseUrl, 'driver');
+
+    const conversation = await post(baseUrl, '/api/chat/conversations', {
+      participantIds: [driver.userId],
+      type: 'direct',
+    }, rider.token);
+    assert.equal(conversation.status, 201);
+
+    const voiceNote = await post(baseUrl, `/api/chat/conversations/${conversation.body.id}/messages`, {
+      voiceNoteUrl: 'https://example.com/audio/voice-note-001.m4a',
+      voiceNoteDurationSecs: 12,
+      transcription: 'I am on my way to pick you up',
+    }, rider.token);
+    assert.equal(voiceNote.status, 201, JSON.stringify(voiceNote.body));
+    assert.equal(voiceNote.body.voiceNoteUrl, 'https://example.com/audio/voice-note-001.m4a');
+    assert.equal(voiceNote.body.voiceNoteDurationSecs, 12);
+    assert.equal(voiceNote.body.transcription, 'I am on my way to pick you up');
+  });
+});
+
+test('chat: translate a message to multiple locales', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+    const driver = await signup(baseUrl, 'driver');
+
+    const conversation = await post(baseUrl, '/api/chat/conversations', {
+      participantIds: [driver.userId],
+      type: 'direct',
+    }, rider.token);
+    assert.equal(conversation.status, 201);
+
+    const sent = await post(baseUrl, `/api/chat/conversations/${conversation.body.id}/messages`, {
+      content: 'I have arrived',
+    }, rider.token);
+    assert.equal(sent.status, 201);
+
+    const translated = await post(baseUrl, `/api/chat/messages/${sent.body.id}/translate`, {
+      targetLocale: 'es',
+    }, driver.token);
+    assert.equal(translated.status, 200, JSON.stringify(translated.body));
+    assert.equal(translated.body.targetLocale, 'es');
+    assert.ok(typeof translated.body.translatedContent === 'string');
+
+    const translatedFr = await post(baseUrl, `/api/chat/messages/${sent.body.id}/translate`, {
+      targetLocale: 'fr',
+    }, driver.token);
+    assert.equal(translatedFr.status, 200);
+    assert.equal(translatedFr.body.targetLocale, 'fr');
+
+    const badLocale = await post(baseUrl, `/api/chat/messages/${sent.body.id}/translate`, {
+      targetLocale: 'xx-INVALID',
+    }, driver.token);
+    assert.equal(badLocale.status, 400);
+  });
+});
+
+test('chat: quick reply templates CRUD', async () => {
+  await withServer(async baseUrl => {
+    const driver = await signup(baseUrl, 'driver');
+
+    const list = await get(baseUrl, '/api/chat/quick-replies', driver.token);
+    assert.equal(list.status, 200, JSON.stringify(list.body));
+    assert.ok(Array.isArray(list.body));
+
+    const created = await post(baseUrl, '/api/chat/quick-replies', {
+      label: 'On my way',
+      content: 'I am on my way to pick you up.',
+    }, driver.token);
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    assert.equal(created.body.label, 'On my way');
+    assert.equal(created.body.content, 'I am on my way to pick you up.');
+    assert.ok(created.body.id);
+
+    const listAfter = await get(baseUrl, '/api/chat/quick-replies', driver.token);
+    assert.equal(listAfter.status, 200);
+    assert.equal(listAfter.body.length, 1);
+
+    const deleted = await del(baseUrl, `/api/chat/quick-replies/${created.body.id}`, driver.token);
+    assert.equal(deleted.status, 200);
+    assert.equal(deleted.body.ok, true);
+
+    const listFinal = await get(baseUrl, '/api/chat/quick-replies', driver.token);
+    assert.equal(listFinal.body.length, 0);
+  });
+});
+
+test('chat: call session initiate, get, and update status', async () => {
+  await withServer(async baseUrl => {
+    const driver = await signup(baseUrl, 'driver');
+    const rider = await signup(baseUrl, 'rider');
+
+    const call = await post(baseUrl, '/api/chat/calls', {
+      calleeId: rider.userId,
+      callType: 'voip',
+    }, driver.token);
+    assert.equal(call.status, 201, JSON.stringify(call.body));
+    assert.equal(call.body.callerId, driver.userId);
+    assert.equal(call.body.calleeId, rider.userId);
+    assert.equal(call.body.status, 'ringing');
+    assert.equal(call.body.callType, 'voip');
+    assert.ok(call.body.id);
+
+    const fetched = await get(baseUrl, `/api/chat/calls/${call.body.id}`, rider.token);
+    assert.equal(fetched.status, 200);
+    assert.equal(fetched.body.id, call.body.id);
+
+    const answered = await post(baseUrl, `/api/chat/calls/${call.body.id}/status`, {
+      status: 'active',
+    }, rider.token);
+    assert.equal(answered.status, 200);
+    assert.equal(answered.body.status, 'active');
+    assert.ok(answered.body.startedAt);
+
+    const ended = await post(baseUrl, `/api/chat/calls/${call.body.id}/status`, {
+      status: 'ended',
+    }, driver.token);
+    assert.equal(ended.status, 200);
+    assert.equal(ended.body.status, 'ended');
+    assert.ok(ended.body.endedAt);
+    assert.ok(typeof ended.body.durationSecs === 'number');
+  });
+});
+
+test('chat: call to unknown callee returns 404', async () => {
+  await withServer(async baseUrl => {
+    const driver = await signup(baseUrl, 'driver');
+    const res = await post(baseUrl, '/api/chat/calls', {
+      calleeId: 'nonexistent-user-id',
+      callType: 'voip',
+    }, driver.token);
+    assert.equal(res.status, 404);
+  });
+});
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 
 test('GET /api/notifications/health returns ok', async () => {
