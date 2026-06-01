@@ -156,7 +156,6 @@ test('GET / serves the professional dashboard login page', async () => {
       assert.match(body, /api\.mapbox\.com\/mapbox-gl-js/);
       assert.match(body, /id="mapbox"/);
       assert.match(body, /id="mapbox-token-save"/);
-<<<<<<< HEAD
       ['toggle-availability-button', 'Driver mode', 'Professional control center', 'Ride History', 'Real-time Map', 'Performance Stats', 'Support \/ Help', 'Driver dashboard navigation', 'Follow Driver: ON', 'Simulate GPS', 'ETA Pickup', 'ETA Destination', 'Route Details', 'Refresh Route', 'Hide Route', 'Pickup Route', 'Destination Route', 'Total Trip Distance', 'Selfie Photo', 'Verification Status', 'Arrived at Pickup', 'Start Trip', 'End Trip', 'Rider Rating', 'countdown-pill', 'passenger-photo', 'swipe-accept-track', 'sheet-handle', 'bottom-sheet', 'sheet-backdrop', 'fab-main', 'Passenger Info', 'trip-details'].forEach(label => {
         assert.match(body, new RegExp(label));
       });
