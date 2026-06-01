@@ -1305,6 +1305,7 @@ function pruneRideRequestState(rides) {
 
 function refreshRideRequestFeedState(rides) {
   const rejected = new Set(getRejectedRideIds());
+  // Track only open incoming requests so accepted/in-progress rides do not retrigger "incoming" alerts.
   const trackedRequests = rides.filter(ride => ride.status === 'requested' && !rejected.has(ride.id));
   const nextRideIds = new Set(trackedRequests.map(ride => ride.id));
   const newRideRequests = trackedRequests.filter(ride => !knownRideRequestIds.has(ride.id));
@@ -1312,7 +1313,7 @@ function refreshRideRequestFeedState(rides) {
   if (rideRequestFeedInitialized && newRideRequests.length) {
     newRideRequests.forEach(ride => {
       emitRideRequestAction('requesting', ride, {
-        remainingMs: Math.max(getRideRequestExpiryTimestamp(ride) - Date.now(), 0)
+        remainingMs: RIDE_REQUEST_ALERT_WINDOW_MS
       });
     });
     playIncomingRideAlert().catch(() => {});
