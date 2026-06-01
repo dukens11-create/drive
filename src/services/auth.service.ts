@@ -6,6 +6,7 @@ import {
   store,
   timestamp,
   type DriverProfile,
+  type RiderProfile,
   type RefreshTokenSession,
   type Role
 } from '../database/data.store';
@@ -106,6 +107,15 @@ function createDefaultDriverProfile(userId: string): DriverProfile {
   };
 }
 
+function createDefaultRiderProfile(userId: string): RiderProfile {
+  return {
+    userId,
+    favoriteLocations: [],
+    rating: 5,
+    reviewCount: 0
+  };
+}
+
 export async function signup(body: any, _params?: any, _query?: any) {
   const email = body?.email?.toLowerCase?.();
   const phone = body?.phone;
@@ -123,6 +133,8 @@ export async function signup(body: any, _params?: any, _query?: any) {
   store.users.set(user.id, user);
   if (role === 'driver') {
     store.drivers.set(user.id, createDefaultDriverProfile(user.id));
+  } else if (role === 'rider') {
+    store.riders.set(user.id, createDefaultRiderProfile(user.id));
   }
 
   const accessToken = signAccessToken(user);

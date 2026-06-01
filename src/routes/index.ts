@@ -14,6 +14,7 @@ export { default as merchantRoutes } from './merchant.routes';
 export { default as mlRoutes } from './ml.routes';
 export { default as notificationsRoutes } from './notifications.routes';
 export { default as paymentsRoutes } from './payments.routes';
+export { default as ridersRoutes } from './riders.routes';
 export { default as ridesRoutes } from './rides.routes';
 export { default as restaurantsRoutes } from './restaurants.routes';
 export { default as safetyRoutes } from './safety.routes';

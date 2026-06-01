@@ -6,7 +6,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import path from 'path';
 import { errorHandler } from './middleware';
-import { authRoutes, ridesRoutes, driversRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes, restaurantsRoutes } from './routes';
+import { authRoutes, ridesRoutes, driversRoutes, ridersRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes, restaurantsRoutes } from './routes';
 import { registerTrackingSocket, registerChatSocket } from './websocket';
 
 export function createApp() {
@@ -49,6 +49,7 @@ export function createApp() {
   app.use('/api/auth', authRoutes);
   app.use('/api/rides', ridesRoutes);
   app.use('/api/drivers', driversRoutes);
+  app.use('/api/riders', ridersRoutes);
   app.use('/api/payments', paymentsRoutes);
   app.use('/api/wallet', walletRoutes);
   app.use('/api/kyc', kycRoutes);

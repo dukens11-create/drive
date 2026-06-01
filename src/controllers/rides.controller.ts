@@ -6,6 +6,7 @@ export async function history(req: any, res: any) { res.json(await service.histo
 export async function detail(req: any, res: any) { res.json(await service.detail({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function request(req: any, res: any) { res.json(await service.request({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function accept(req: any, res: any) { res.json(await service.accept({ ...req.body, actor: req.user }, req.params, req.query)); }
+export async function updateStatus(req: any, res: any) { res.json(await service.updateStatus({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function arrive(req: any, res: any) { res.json(await service.arrive({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function start(req: any, res: any) { res.json(await service.start({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function complete(req: any, res: any) { res.json(await service.complete({ ...req.body, actor: req.user }, req.params, req.query)); }
@@ -15,5 +16,6 @@ export async function ratePassenger(req: any, res: any) { res.json(await service
 export async function message(req: any, res: any) { res.json(await service.message({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function cancel(req: any, res: any) { res.json(await service.cancel({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function rate(req: any, res: any) { res.json(await service.rate({ ...req.body, actor: req.user }, req.params, req.query)); }
+export async function submitRating(req: any, res: any) { res.json(await service.submitRating({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function receipt(req: any, res: any) { res.json(await service.receipt({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function notifications(req: any, res: any) { res.json(await service.notifications({ ...req.body, actor: req.user }, req.params, req.query)); }
