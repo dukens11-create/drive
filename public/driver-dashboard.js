@@ -650,19 +650,67 @@ function formatRideStatus(status) {
     .join(' ');
 }
 
+function formatLifecycleLabel(state, fallbackStatus) {
+  const label = String(state || fallbackStatus || 'requested')
+    .replaceAll('-', '_')
+    .split('_')
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+  return label === 'Canceled' ? 'Cancelled' : label;
+}
+
+function formatTimestamp(value) {
+  if (!value) return '—';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '—';
+  return parsed.toLocaleString();
+}
+
+function formatMinutes(minutes) {
+  const totalMinutes = Number(minutes || 0);
+  if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) return '0 min';
+  if (totalMinutes < 60) return `${Math.round(totalMinutes)} min`;
+  const hours = Math.floor(totalMinutes / 60);
+  const remainingMinutes = Math.round(totalMinutes % 60);
+  return remainingMinutes ? `${hours} hr ${remainingMinutes} min` : `${hours} hr`;
+}
+
 function roundToTwoDecimals(amount) {
   return Math.round(Number(amount || 0) * 100) / 100;
 }
 
 function calculateFareBreakdown(ride) {
+  if (ride?.fareDetails) {
+    return {
+      baseFare: Number(ride.fareDetails.baseFare || BASE_FARE),
+      distanceFare: Number(ride.fareDetails.distanceFare || 0),
+      timeFare: Number(ride.fareDetails.timeFare || 0),
+      calculatedFare: Number(ride.fareDetails.meterFare || 0),
+      fare: Number(ride.fareDetails.total || ride.fareEstimate || 0),
+      surgeFare: Number(ride.fareDetails.surgeFare || 0),
+      surgeMultiplier: Number(ride.fareDetails.surgeMultiplier || 1),
+      serviceFee: Number(ride.fareDetails.serviceFee || 0),
+      taxes: Number(ride.fareDetails.taxes || 0),
+      tolls: Number(ride.fareDetails.tolls || 0),
+      discounts: Number(ride.fareDetails.discounts || 0),
+      tips: Number(ride.fareDetails.tips || 0),
+      driverEarnings: Number(ride.fareDetails.driverEarnings || 0)
+    };
+  }
+
   const miles = Number(ride?.miles || 0);
   const minutes = Number(ride?.minutes || 0);
   const baseFare = BASE_FARE;
   const distanceFare = roundToTwoDecimals(miles * DISTANCE_RATE);
   const timeFare = roundToTwoDecimals(minutes * TIME_RATE);
-  const calculatedFare = roundToTwoDecimals(baseFare + distanceFare + timeFare);
-  const fare = Number(ride?.fareEstimate || calculatedFare);
-  return { baseFare, distanceFare, timeFare, calculatedFare, fare };
+  const calculatedFare = roundToTwoDecimals(Math.max(baseFare, distanceFare + timeFare));
+  const surgeMultiplier = Number(ride?.surgeMultiplier || 1);
+  const surgeFare = roundToTwoDecimals(calculatedFare * surgeMultiplier);
+  const serviceFee = roundToTwoDecimals(surgeFare * 0.12);
+  const discounts = roundToTwoDecimals(Number(ride?.discountCents || 0) / 100);
+  const fare = roundToTwoDecimals(Math.max(0, surgeFare + serviceFee - discounts));
+  return { baseFare, distanceFare, timeFare, calculatedFare, fare, surgeFare, surgeMultiplier, serviceFee, taxes: 0, tolls: 0, discounts, tips: 0, driverEarnings: roundToTwoDecimals(Math.max(0, surgeFare - serviceFee)) };
 }
 
 function hasPassengerRating(ride) {
@@ -700,6 +748,7 @@ function normalizeRide(ride, index) {
   return {
     id: ride.id || `ride_mock_${index + 1}`,
     status: ride.status || 'requested',
+    lifecycleState: ride.lifecycleState || ride.status || 'requested',
     pickupLat: Number.isFinite(pickupLat) ? pickupLat : DEFAULT_FALLBACK_LAT,
     pickupLng: Number.isFinite(pickupLng) ? pickupLng : DEFAULT_FALLBACK_LNG,
     dropoffLat: Number.isFinite(dropoffLat) ? dropoffLat : DEFAULT_FALLBACK_LAT + 0.01,
@@ -712,8 +761,18 @@ function normalizeRide(ride, index) {
     passengerReview: ride.passengerReview || '',
     passengerName: ride.passengerName || `Passenger ${index + 1}`,
     passengerPhotoUrl: ride.passengerPhotoUrl || ride.passengerAvatarUrl || ride.avatarUrl || ride.photoUrl || '',
+    arrivedAt: ride.arrivedAt || null,
+    waitingSince: ride.waitingSince || null,
+    waitTimeoutAt: ride.waitTimeoutAt || null,
+    startedAt: ride.startedAt || null,
+    completedAt: ride.completedAt || ride.updatedAt || null,
+    canceledAt: ride.canceledAt || null,
+    cancellationReason: ride.cancellationReason || '',
+    cancellationFeeCents: Number(ride.cancellationFeeCents || ride.noShowFeeCents || 0),
+    fareDetails: ride.fareDetails || null,
+    events: Array.isArray(ride.events) ? ride.events : [],
     requestExpiresAt: ride.requestExpiresAt || ride.expiresAt || null,
-    completedAt: ride.completedAt || ride.updatedAt || new Date().toISOString()
+    updatedAt: ride.updatedAt || new Date().toISOString()
   };
 }
 
@@ -2008,36 +2067,48 @@ function renderRideFlowControls() {
   const arrivedButton = document.getElementById('arrived-button');
   const startTripButton = document.getElementById('start-trip-button');
   const endTripButton = document.getElementById('end-trip-button');
+  const cancelTripButton = document.getElementById('cancel-trip-button');
+  const noShowButton = document.getElementById('mark-no-show-button');
   const pickupDirectionsButton = document.getElementById('pickup-directions-button');
   const dropoffDirectionsButton = document.getElementById('dropoff-directions-button');
   const riderRatingControls = document.getElementById('rider-rating-controls');
   const fareBreakdownDiv = document.getElementById('ride-fare-breakdown');
 
   if (!ride) {
-    [arrivedButton, startTripButton, endTripButton, pickupDirectionsButton, dropoffDirectionsButton].filter(Boolean).forEach(button => button.classList.add('d-none'));
+    [arrivedButton, startTripButton, endTripButton, cancelTripButton, noShowButton, pickupDirectionsButton, dropoffDirectionsButton].filter(Boolean).forEach(button => button.classList.add('d-none'));
     if (riderRatingControls) riderRatingControls.classList.add('d-none');
     if (fareBreakdownDiv) fareBreakdownDiv.textContent = '';
     return;
   }
 
   const fare = calculateFareBreakdown(ride);
-  const fareLabel = ride.status === 'completed' ? 'Final Fare' : 'Estimated Fare';
+  const fareLabel = ['completed', 'rated'].includes(ride.lifecycleState) ? 'Final Fare' : 'Estimated Fare';
+  const waitMinutes = ride.waitingSince ? Math.max(0, Math.floor((Date.now() - new Date(ride.waitingSince).getTime()) / 60000)) : 0;
   fareBreakdownDiv.innerHTML = `
     <div><strong>${fareLabel}:</strong> $${fare.fare.toFixed(2)}</div>
     <div>Base $${fare.baseFare.toFixed(2)} + Distance $${fare.distanceFare.toFixed(2)} + Time $${fare.timeFare.toFixed(2)}</div>
+    <div>Surge ${fare.surgeMultiplier.toFixed(2)}x • Service Fee $${fare.serviceFee.toFixed(2)} • Driver Earns $${fare.driverEarnings.toFixed(2)}</div>
+    ${(fare.taxes || fare.tolls || fare.discounts || fare.tips)
+      ? `<div>Taxes $${fare.taxes.toFixed(2)} • Tolls $${fare.tolls.toFixed(2)} • Discounts -$${fare.discounts.toFixed(2)} • Tips $${fare.tips.toFixed(2)}</div>`
+      : ''}
+    ${ride.waitingSince && ride.status === 'arrived_at_pickup' ? `<div>Waiting at pickup: ${waitMinutes} min</div>` : ''}
+    ${ride.cancellationFeeCents ? `<div>Cancellation / No-show fee: $${(ride.cancellationFeeCents / 100).toFixed(2)}</div>` : ''}
   `;
 
   const isAccepted = ride.status === 'accepted';
   const isArrived = ride.status === 'arrived_at_pickup';
   const isStarted = ride.status === 'started';
   const isCompleted = ride.status === 'completed';
+  const isCanceled = ride.status === 'canceled';
 
   arrivedButton.classList.toggle('d-none', !isAccepted);
   startTripButton.classList.toggle('d-none', !isArrived);
   endTripButton.classList.toggle('d-none', !isStarted);
+  cancelTripButton.classList.toggle('d-none', !(isAccepted || isArrived));
+  noShowButton.classList.toggle('d-none', !isArrived);
   pickupDirectionsButton.classList.toggle('d-none', isStarted || isCompleted);
-  dropoffDirectionsButton.classList.toggle('d-none', !(isStarted || isCompleted));
-  riderRatingControls.classList.toggle('d-none', !(isCompleted && !hasPassengerRating(ride)));
+  dropoffDirectionsButton.classList.toggle('d-none', !(isStarted || isCompleted || ride.lifecycleState === 'rated'));
+  riderRatingControls.classList.toggle('d-none', !(isCompleted && !isCanceled && !hasPassengerRating(ride)));
 }
 
 function renderRideDetailsModal(ride) {
@@ -2047,14 +2118,41 @@ function renderRideDetailsModal(ride) {
   const content = document.getElementById('ride-details-content');
   const passengerRating = Number(ride.passengerRating);
   const passengerRatingText = Number.isFinite(passengerRating) ? `${passengerRating.toFixed(1)} ★` : 'N/A';
+  const lifecycleLabel = formatLifecycleLabel(ride.lifecycleState, ride.status);
+  const timeline = (Array.isArray(ride.events) ? ride.events : [])
+    .slice()
+    .reverse()
+    .slice(0, 6)
+    .map(event => `<div class="border rounded-3 p-2 mb-2"><div class="fw-semibold">${escapeHtml(event.title || formatRideStatus(event.type))}</div><div class="small text-muted">${escapeHtml(event.message || '')}</div><div class="small text-muted">${escapeHtml(formatTimestamp(event.createdAt))}</div></div>`)
+    .join('');
   content.innerHTML = `
+    <div class="ride-item mb-3">
+      <div class="d-flex justify-content-between align-items-center gap-3">
+        <div>
+          <div class="text-muted small">Current Status</div>
+          <div class="fw-semibold">${escapeHtml(lifecycleLabel)}</div>
+        </div>
+        <div class="text-end">
+          <div class="text-muted small">Fare</div>
+          <div class="fw-semibold">$${Number(calculateFareBreakdown(ride).fare || 0).toFixed(2)}</div>
+        </div>
+      </div>
+    </div>
     <div><strong>Passenger:</strong> ${escapeHtml(ride.passengerName || 'Guest Rider')}</div>
     <div><strong>Passenger Rating:</strong> ${passengerRatingText}</div>
-    <div><strong>Ride Status:</strong> ${escapeHtml(formatRideStatus(ride.status))}</div>
+    <div><strong>Ride Status:</strong> ${escapeHtml(lifecycleLabel)}</div>
     <div><strong>Pickup:</strong> ${escapeHtml(formatCoordinate(ride.pickupLat, ride.pickupLng))}</div>
     <div><strong>Dropoff:</strong> ${escapeHtml(formatCoordinate(ride.dropoffLat, ride.dropoffLng))}</div>
     <div><strong>Trip Distance:</strong> ${Number(ride.miles || 0).toFixed(2)} mi</div>
-    <div><strong>Duration:</strong> ${Number(ride.minutes || 0)} mins</div>
+    <div><strong>Duration:</strong> ${escapeHtml(formatMinutes(Number(ride.minutes || 0)))}</div>
+    <div><strong>Arrived At:</strong> ${escapeHtml(formatTimestamp(ride.arrivedAt))}</div>
+    <div><strong>Started At:</strong> ${escapeHtml(formatTimestamp(ride.startedAt))}</div>
+    <div><strong>Completed At:</strong> ${escapeHtml(formatTimestamp(ride.completedAt))}</div>
+    ${ride.cancellationReason ? `<div><strong>Cancellation Reason:</strong> ${escapeHtml(ride.cancellationReason)}</div>` : ''}
+    <div class="mt-3">
+      <div class="fw-semibold mb-2">Trip Timeline</div>
+      ${timeline || '<div class="text-muted small">No trip updates yet.</div>'}
+    </div>
   `;
   renderRideFlowControls();
   modal.classList.add('show');
@@ -2075,7 +2173,7 @@ function closeRideDetailsModal() {
   queueMapRender();
 }
 
-async function performRideFlowAction(actionPath, successMessage) {
+async function performRideFlowAction(actionPath, successMessage, payload = {}) {
   const ride = syncSelectedRideFromState();
   if (!ride?.id) {
     showAlert('warning', 'Select an active ride to continue.');
@@ -2089,7 +2187,7 @@ async function performRideFlowAction(actionPath, successMessage) {
         'Content-Type': 'application/json',
         Authorization: 'Bearer ' + accessToken
       },
-      body: JSON.stringify({ rideId: ride.id })
+      body: JSON.stringify({ rideId: ride.id, ...payload })
     });
     if (!data?.ok) {
       showAlert('danger', data?.error || 'Unable to update ride status.');
@@ -2114,11 +2212,25 @@ function handleArrivedAtPickup() {
 }
 
 function handleStartTrip() {
-  performRideFlowAction('start', 'Trip started.');
+  if (!window.confirm('Confirm rider pickup and start the trip?')) return;
+  performRideFlowAction('start', 'Trip started.', { riderConfirmed: true });
 }
 
 function handleEndTrip() {
+  if (!window.confirm('Confirm trip completion at the destination?')) return;
   performRideFlowAction('complete', 'Trip ended successfully.');
+}
+
+function handleMarkNoShow() {
+  if (!window.confirm('Confirm rider no-show and apply the no-show fee?')) return;
+  const photoEvidenceUrl = window.prompt('Optional photo evidence URL (leave blank to skip):', '') || '';
+  performRideFlowAction('no-show', 'Rider marked as no-show.', { manual: true, photoEvidenceUrl });
+}
+
+function handleCancelTrip() {
+  const reason = window.prompt('Why are you canceling this trip?', 'driver_canceled_trip');
+  if (reason == null) return;
+  performRideFlowAction('driver-cancel', 'Trip canceled.', { reason: reason.trim() || 'driver_canceled_trip' });
 }
 
 async function handleSubmitRiderRating() {
@@ -2740,6 +2852,8 @@ window.addEventListener('load', async () => {
   document.getElementById('arrived-button').addEventListener('click', handleArrivedAtPickup);
   document.getElementById('start-trip-button').addEventListener('click', handleStartTrip);
   document.getElementById('end-trip-button').addEventListener('click', handleEndTrip);
+  document.getElementById('mark-no-show-button').addEventListener('click', handleMarkNoShow);
+  document.getElementById('cancel-trip-button').addEventListener('click', handleCancelTrip);
   document.getElementById('submit-rider-rating-button').addEventListener('click', handleSubmitRiderRating);
   document.getElementById('pickup-directions-button').addEventListener('click', () => openDirections('pickup'));
   document.getElementById('dropoff-directions-button').addEventListener('click', () => openDirections('dropoff'));
