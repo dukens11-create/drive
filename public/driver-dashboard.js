@@ -2,6 +2,7 @@ const API_BASE_URL = '';
 const REJECTED_RIDES_KEY = 'driverRejectedRideIds';
 const DRIVER_DOCS_KEY = 'driverDashboardDocs';
 const DRIVER_SUPPORT_KEY = 'driverDashboardSupportLog';
+const MAX_VERIFICATION_DOCUMENTS = 15;
 const GPS_LOG_KEY = 'driverGpsTraceLog';
 const LAST_LOCATION_KEY = 'driverLastKnownLocation';
 const ROUTE_CACHE_TTL_MS = 60_000;
@@ -266,6 +267,7 @@ function renderProfile() {
     <div><strong>Email:</strong> ${escapeHtml(currentUser.email || 'N/A')}</div>
     <div><strong>Role:</strong> ${escapeHtml(String(currentUser.role || 'driver').toUpperCase())}</div>
     <div><strong>Availability:</strong> ${escapeHtml(currentProfile.availabilityStatus || 'offline')}</div>
+    <div><strong>Verification:</strong> ${escapeHtml(currentProfile.verificationState || 'documents_pending')}</div>
     <div><strong>Rating:</strong> ${escapeHtml(currentProfile.rating ?? 'N/A')}</div>
   `;
 }
@@ -341,9 +343,12 @@ async function loadDriverProfile() {
     currentProfile = data.profile || {};
     renderProfile();
     renderAvailabilityControls();
+    renderVerificationSummary();
+    renderDocumentList();
   } catch (_error) {
     currentProfile = null;
     renderProfile();
+    renderVerificationSummary();
   }
 }
 
@@ -953,6 +958,7 @@ async function loadEarnings() {
 }
 
 function getDocumentStatus(expiryDate) {
+  if (!expiryDate) return { text: 'No expiry required', className: 'bg-info text-dark' };
   const now = new Date();
   const expiry = new Date(expiryDate);
   if (Number.isNaN(expiry.getTime())) return { text: 'Invalid expiry date', className: 'bg-secondary' };
@@ -962,8 +968,29 @@ function getDocumentStatus(expiryDate) {
   return { text: `Valid (${days} days left)`, className: 'bg-success' };
 }
 
+function getDisplayDocuments() {
+  if (Array.isArray(currentProfile?.verificationDocuments) && currentProfile.verificationDocuments.length) {
+    return currentProfile.verificationDocuments;
+  }
+  return getStoredList(DRIVER_DOCS_KEY);
+}
+
+function renderVerificationSummary() {
+  const container = document.getElementById('verification-summary');
+  if (!container) return;
+  const selfie = currentProfile?.selfieVerification;
+  const review = currentProfile?.verificationReview;
+  container.innerHTML = `
+    <strong>Verification Status</strong>
+    <div class="mt-2">State: <span class="badge bg-secondary">${escapeHtml(currentProfile?.verificationState || 'documents_pending')}</span></div>
+    <div class="mt-2">Selfie Verification: ${escapeHtml(selfie?.status || 'missing')} ${selfie ? `(${Math.round(Number(selfie.score || 0) * 100)}% match)` : ''}</div>
+    <div class="mt-1">Admin Review: ${escapeHtml(review?.status || 'pending_review')}</div>
+    ${review?.notes ? `<div class="mt-1 text-muted">${escapeHtml(review.notes)}</div>` : '<div class="mt-1 text-muted">Upload a driver license scan and selfie for OCR extraction and admin approval.</div>'}
+  `;
+}
+
 function renderDocumentList() {
-  const docs = getStoredList(DRIVER_DOCS_KEY);
+  const docs = getDisplayDocuments();
   const container = document.getElementById('document-list');
   if (!docs.length) {
     container.innerHTML = '<div class="text-muted">No documents uploaded yet.</div>';
@@ -978,7 +1005,10 @@ function renderDocumentList() {
           <span class="badge ${status.className}">${escapeHtml(status.text)}</span>
         </div>
         <div>File: ${escapeHtml(doc.fileName)}</div>
-        <div>Expiry: ${escapeHtml(doc.expiryDate)}</div>
+        <div>Expiry: ${escapeHtml(doc.expiryDate || 'Not required')}</div>
+        ${doc.extractedFields?.licenseNumber ? `<div>OCR License #: ${escapeHtml(doc.extractedFields.licenseNumber)}</div>` : ''}
+        ${doc.ocrText ? `<pre class="mt-2 p-2 bg-light rounded small">${escapeHtml(doc.ocrText)}</pre>` : ''}
+        ${doc.type === 'Selfie Photo' && currentProfile?.selfieVerification ? `<div>Selfie Match: ${Math.round(Number(currentProfile.selfieVerification.score || 0) * 100)}%</div>` : ''}
       </div>
     `;
   }).join('');
@@ -989,15 +1019,17 @@ async function handleDocumentSubmit(event) {
   const type = document.getElementById('document-type').value;
   const expiryDate = document.getElementById('document-expiry').value;
   const fileInput = document.getElementById('document-file');
+  const documentNumber = document.getElementById('document-license-number').value.trim();
   const fileName = fileInput.files && fileInput.files.length ? fileInput.files[0].name : '';
+  const requiresExpiry = type !== 'Selfie Photo';
 
-  if (!fileName || !expiryDate) {
-    showAlert('warning', 'Choose a document file and expiry date.');
+  if (!fileName || (requiresExpiry && !expiryDate)) {
+    showAlert('warning', requiresExpiry ? 'Choose a document file and expiry date.' : 'Choose a document file.');
     return;
   }
 
-  const expiryDateValue = new Date(expiryDate);
-  if (Number.isNaN(expiryDateValue.getTime())) {
+  const expiryDateValue = expiryDate ? new Date(expiryDate) : null;
+  if (expiryDate && (!expiryDateValue || Number.isNaN(expiryDateValue.getTime()))) {
     showAlert('warning', 'Provide a valid expiry date.');
     return;
   }
@@ -1012,25 +1044,50 @@ async function handleDocumentSubmit(event) {
     attempt += 1;
   }
   if (docs.some(doc => doc.id === docId)) docId = `${Date.now()}_${docs.length + 1}`;
-  const nextDocs = [{ id: docId, type, expiryDate, fileName }, ...docs].slice(0, 15);
+  const nextDoc = {
+    id: docId,
+    type,
+    expiryDate: expiryDate || undefined,
+    fileName,
+    extractedFields: type === 'Driver License' ? { licenseNumber: documentNumber || 'Pending OCR' } : undefined,
+    ocrText: type === 'Driver License'
+      ? ['DRIVER LICENSE', `License Number: ${documentNumber || 'Pending OCR'}`, `Expiry Date: ${expiryDate || 'Not provided'}`].join('\n')
+      : undefined,
+    selfieMatchScore: undefined
+  };
+  const nextDocs = [nextDoc, ...docs.filter(doc => !(doc.type === type && doc.fileName === fileName))].slice(0, MAX_VERIFICATION_DOCUMENTS);
   setStoredList(DRIVER_DOCS_KEY, nextDocs);
-  renderDocumentList();
 
   try {
-    await fetchJson(`${API_BASE_URL}/api/drivers/documents`, {
+    const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/documents`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: 'Bearer ' + accessToken
       },
-      body: JSON.stringify({ documents: nextDocs.map(doc => `${doc.type}:${doc.expiryDate}:${doc.fileName}`) })
+      body: JSON.stringify({
+        documents: [{
+          id: docId,
+          type,
+          expiryDate: expiryDate || undefined,
+          fileName,
+          documentNumber: documentNumber || undefined,
+          extractedText: nextDoc.ocrText,
+          selfieMatchScore: nextDoc.selfieMatchScore
+        }]
+      })
     });
+    if (data?.ok && data?.profile) {
+      currentProfile = data.profile;
+    }
   } catch (_error) {
     // local storage still provides a full mock workflow for dashboard testing
   }
 
+  renderVerificationSummary();
+  renderDocumentList();
   event.target.reset();
-  showAlert('success', `${type} uploaded and tracked.`);
+  showAlert('success', `${type} uploaded and sent for verification review.`);
 }
 
 function renderSupportLog() {
@@ -1157,6 +1214,15 @@ window.addEventListener('load', async () => {
   document.getElementById('reject-ride-button').addEventListener('click', handleRejectRide);
   document.getElementById('toggle-availability-button').addEventListener('click', toggleAvailability);
   document.getElementById('document-form').addEventListener('submit', handleDocumentSubmit);
+  document.getElementById('document-type').addEventListener('change', event => {
+    const expiryInput = document.getElementById('document-expiry');
+    const licenseInput = document.getElementById('document-license-number');
+    const selectedType = event.target.value;
+    expiryInput.required = selectedType !== 'Selfie Photo';
+    if (selectedType !== 'Driver License') {
+      licenseInput.value = '';
+    }
+  });
   document.getElementById('support-form').addEventListener('submit', handleSupportSubmit);
   document.getElementById('close-ride-details').addEventListener('click', closeRideDetailsModal);
   document.getElementById('ride-details-modal').addEventListener('click', event => {
@@ -1237,10 +1303,13 @@ window.addEventListener('load', async () => {
   });
 
   document.getElementById('driver-role').textContent = `Role: ${String(currentUser.role || 'driver').toUpperCase()}`;
+  renderVerificationSummary();
   renderDocumentList();
   renderSupportLog();
 
   await Promise.all([loadDriverProfile(), loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
+  renderVerificationSummary();
+  renderDocumentList();
   await ensureDriverLocation();
   await recalculateRouteData();
   await startLocationTracking();

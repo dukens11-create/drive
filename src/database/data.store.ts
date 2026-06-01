@@ -111,10 +111,40 @@ export type MarketConfig = {
   updatedAt: string;
 };
 
+export type DriverVerificationDocument = {
+  id: string;
+  type: string;
+  fileName: string;
+  expiryDate?: string;
+  uploadedAt: string;
+  ocrText?: string;
+  extractedFields?: {
+    fullName?: string;
+    licenseNumber?: string;
+    expiryDate?: string;
+  };
+  verificationStatus: 'pending_review' | 'approved' | 'rejected' | 'auto_verified';
+};
+
+export type DriverSelfieVerification = {
+  status: 'missing' | 'pending_review' | 'matched' | 'failed';
+  score: number;
+  fileName?: string;
+  checkedAt?: string;
+};
+
+export type DriverVerificationReview = {
+  status: 'pending_review' | 'approved' | 'rejected';
+  notes?: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  checklist?: string[];
+};
+
 export type DriverProfile = {
   userId: string;
   status: 'pending' | 'approved' | 'rejected';
-  verificationState: 'documents_pending' | 'kyc_pending' | 'verified' | 'rejected';
+  verificationState: 'documents_pending' | 'kyc_pending' | 'review_pending' | 'verified' | 'rejected';
   availabilityStatus: 'offline' | 'online' | 'assigned' | 'unavailable';
   available: boolean;
   lat?: number;
@@ -124,6 +154,9 @@ export type DriverProfile = {
   cancellationRate: number;
   earningsCents: number;
   documents: string[];
+  verificationDocuments?: DriverVerificationDocument[];
+  selfieVerification?: DriverSelfieVerification;
+  verificationReview?: DriverVerificationReview;
 };
 
 export type Payment = {

@@ -212,7 +212,7 @@ type AdminValue = {
   notifications: Array<{ id: string; title: string; message: string; createdAt: string }>;
   lastApiKey: string | null;
   refresh: () => Promise<void>;
-  approveDriver: (userId: string, approved: boolean) => Promise<void>;
+  approveDriver: (userId: string, approved: boolean, notes?: string, checklist?: string[]) => Promise<void>;
   suspendUser: (userId: string, suspend: boolean) => Promise<void>;
   updateTicket: (ticketId: string, status: string, resolution?: string) => Promise<void>;
   replyTicket: (ticketId: string, message: string) => Promise<void>;
@@ -409,7 +409,7 @@ function AdminProvider({ children }: { children: React.ReactNode }) {
     notifications,
     lastApiKey,
     refresh,
-    approveDriver: (userId, approved) => run(() => adminApi.approveDriver(session!.accessToken, userId, approved)),
+    approveDriver: (userId, approved, notes, checklist) => run(() => adminApi.approveDriver(session!.accessToken, userId, approved, notes, checklist)),
     suspendUser: (userId, suspend) => run(() => adminApi.suspendUser(session!.accessToken, userId, suspend)),
     updateTicket: (ticketId, status, resolution) => run(() => adminApi.updateTicket(session!.accessToken, ticketId, status, resolution)),
     replyTicket: (ticketId, message) => run(() => adminApi.replyTicket(session!.accessToken, ticketId, message)),

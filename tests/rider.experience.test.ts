@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
 import { createApp } from '../src/app';
+import { env } from '../src/config/env';
 
 async function withServer(run: (baseUrl: string) => Promise<void>) {
   const { httpServer } = createApp();
@@ -43,14 +44,31 @@ async function signup(baseUrl: string, role: 'rider' | 'driver') {
   return body as { user: { id: string }; accessToken: string };
 }
 
+async function loginAdmin(baseUrl: string) {
+  const response = await postJson(baseUrl, '/api/auth/login', {
+    email: 'admin@drive.com',
+    password: env.adminSeedPassword
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  return body.accessToken as string;
+}
+
 test('rider-facing trip history, detail, receipt, notification, cancellation, and review flows work together', async () => {
   await withServer(async baseUrl => {
     const rider = await signup(baseUrl, 'rider');
     const driver = await signup(baseUrl, 'driver');
+    const adminToken = await loginAdmin(baseUrl);
 
     await postJson(baseUrl, '/api/drivers/apply', {}, driver.accessToken);
-    await postJson(baseUrl, '/api/drivers/documents', { documents: ['license', 'insurance'] }, driver.accessToken);
+    await postJson(baseUrl, '/api/drivers/documents', {
+      documents: [
+        { type: 'Driver License', fileName: 'rider-experience-license.jpg', expiryDate: '2030-08-31', documentNumber: 'RIDER-DRV-01' },
+        { type: 'Selfie Photo', fileName: 'rider-experience-selfie.jpg', selfieMatchScore: 0.9 }
+      ]
+    }, driver.accessToken);
     await postJson(baseUrl, '/api/kyc/webhook', { userId: driver.user.id, status: 'verified' });
+    await postJson(baseUrl, '/api/admin/approve-driver', { userId: driver.user.id, approved: true }, adminToken);
     await postJson(baseUrl, '/api/drivers/location', { lat: 37.72, lng: -122.41 }, driver.accessToken);
     await postJson(baseUrl, '/api/drivers/availability', { available: true }, driver.accessToken);
 
