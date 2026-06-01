@@ -81,7 +81,12 @@ function setStoredList(storageKey, value) {
 
 function getDriverDisplayName(email) {
   if (!email) return 'Driver';
-  return email.split('@')[0].replace(/[._-]+/g, ' ');
+  return email
+    .split('@')[0]
+    .split(/[._-]+/g)
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 function formatCoordinate(lat, lng) {
