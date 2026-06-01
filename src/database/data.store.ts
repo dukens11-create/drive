@@ -147,6 +147,7 @@ export type DriverVerificationReview = {
 
 export type DriverProfile = {
   userId: string;
+  currentTripId?: string;
   status: 'pending' | 'approved' | 'rejected';
   verificationState: 'documents_pending' | 'kyc_pending' | 'review_pending' | 'verified' | 'rejected';
   availabilityStatus: 'offline' | 'online' | 'assigned' | 'unavailable';
@@ -162,6 +163,68 @@ export type DriverProfile = {
   verificationDocuments?: DriverVerificationDocument[];
   selfieVerification?: DriverSelfieVerification;
   verificationReview?: DriverVerificationReview;
+};
+
+export type RiderFavoriteLocation = {
+  label: string;
+  lat: number;
+  lng: number;
+};
+
+export type RiderProfile = {
+  userId: string;
+  currentTripId?: string;
+  lat?: number;
+  lng?: number;
+  lastLocationUpdatedAt?: string;
+  vehiclePreference?: string;
+  routePreference?: string;
+  favoriteLocations: RiderFavoriteLocation[];
+  rating: number;
+  reviewCount: number;
+};
+
+export type RideRequestResponse = {
+  driverId: string;
+  status: 'broadcasted' | 'accepted' | 'ignored' | 'expired' | 'rejected' | 'canceled';
+  respondedAt: string;
+};
+
+export type RideRequest = {
+  id: string;
+  rideId: string;
+  riderId: string;
+  pickupLat?: number;
+  pickupLng?: number;
+  dropoffLat?: number;
+  dropoffLng?: number;
+  fareEstimate: number;
+  broadcastedDrivers: string[];
+  responses: RideRequestResponse[];
+  acceptedDriverId?: string;
+  expiresAt: string;
+  status: 'broadcasting' | 'accepted' | 'expired' | 'canceled' | 'completed';
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DriverLocationPoint = {
+  driverId: string;
+  lat: number;
+  lng: number;
+  accuracy?: number;
+  heading?: number;
+  speed?: number;
+  timestamp: string;
+};
+
+export type DispatchEvent = {
+  id: string;
+  sequence: number;
+  type: string;
+  entityId?: string;
+  createdAt: string;
+  payload: Record<string, unknown>;
 };
 
 export type Payment = {
@@ -735,6 +798,8 @@ type PersistedStore = {
   refreshTokens: Array<[string, RefreshTokenSession]>;
   rides: Ride[];
   drivers: DriverProfile[];
+  riders: RiderProfile[];
+  rideRequests: RideRequest[];
   payments: Payment[];
   paymentMethods: PaymentMethod[];
   invoices: Invoice[];
@@ -777,6 +842,8 @@ type PersistedStore = {
   deviceTokens: DeviceToken[];
   bankAccounts: Array<[string, BankAccount]>;
   payoutRequests: Array<[string, PayoutRequest]>;
+  locationHistory: DriverLocationPoint[];
+  dispatchEvents: DispatchEvent[];
 };
 
 let isHydrating = false;
@@ -844,6 +911,8 @@ export const store = {
   refreshTokens: new PersistentMap<string, RefreshTokenSession>(),
   rides: new PersistentMap<string, Ride>(),
   drivers: new PersistentMap<string, DriverProfile>(),
+  riders: new PersistentMap<string, RiderProfile>(),
+  rideRequests: new PersistentMap<string, RideRequest>(),
   payments: new PersistentMap<string, Payment>(),
   paymentMethods: new PersistentMap<string, PaymentMethod>(),
   invoices: new PersistentMap<string, Invoice>(),
@@ -885,7 +954,9 @@ export const store = {
   notificationPreferences: new PersistentMap<string, NotificationPreference>(),
   deviceTokens: createPersistentArray<DeviceToken>(),
   bankAccounts: new PersistentMap<string, BankAccount>(),
-  payoutRequests: new PersistentMap<string, PayoutRequest>()
+  payoutRequests: new PersistentMap<string, PayoutRequest>(),
+  locationHistory: createPersistentArray<DriverLocationPoint>(),
+  dispatchEvents: createPersistentArray<DispatchEvent>()
 };
 
 function toSerializableStore(): PersistedStore {
@@ -894,6 +965,8 @@ function toSerializableStore(): PersistedStore {
     refreshTokens: Array.from(store.refreshTokens.entries()),
     rides: Array.from(store.rides.values()),
     drivers: Array.from(store.drivers.values()),
+    riders: Array.from(store.riders.values()),
+    rideRequests: Array.from(store.rideRequests.values()),
     payments: Array.from(store.payments.values()),
     paymentMethods: Array.from(store.paymentMethods.values()),
     invoices: Array.from(store.invoices.values()),
@@ -935,7 +1008,9 @@ function toSerializableStore(): PersistedStore {
     notificationPreferences: Array.from(store.notificationPreferences.entries()),
     deviceTokens: [...store.deviceTokens],
     bankAccounts: Array.from(store.bankAccounts.entries()),
-    payoutRequests: Array.from(store.payoutRequests.entries())
+    payoutRequests: Array.from(store.payoutRequests.entries()),
+    locationHistory: [...store.locationHistory],
+    dispatchEvents: [...store.dispatchEvents]
   };
 }
 
@@ -986,6 +1061,8 @@ function hydrateStore() {
     }
     for (const ride of parsed.rides || []) store.rides.set(ride.id, ride);
     for (const driver of parsed.drivers || []) store.drivers.set(driver.userId, driver);
+    for (const rider of parsed.riders || []) store.riders.set(rider.userId, rider);
+    for (const rideRequest of parsed.rideRequests || []) store.rideRequests.set(rideRequest.id, rideRequest);
     for (const payment of parsed.payments || []) store.payments.set(payment.id, payment);
     for (const paymentMethod of parsed.paymentMethods || []) store.paymentMethods.set(paymentMethod.id, paymentMethod);
     for (const invoice of parsed.invoices || []) store.invoices.set(invoice.id, invoice);
@@ -1028,6 +1105,8 @@ function hydrateStore() {
     for (const deviceToken of parsed.deviceTokens || []) store.deviceTokens.push(deviceToken);
     for (const [id, bankAccount] of parsed.bankAccounts || []) store.bankAccounts.set(id, bankAccount);
     for (const [id, payoutRequest] of parsed.payoutRequests || []) store.payoutRequests.set(id, payoutRequest);
+    for (const locationPoint of parsed.locationHistory || []) store.locationHistory.push(locationPoint);
+    for (const dispatchEvent of parsed.dispatchEvents || []) store.dispatchEvents.push(dispatchEvent);
   } finally {
     isHydrating = false;
   }

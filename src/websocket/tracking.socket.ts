@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import { Server } from 'socket.io';
 import { store } from '../database/data.store';
 import { env } from '../config/env';
-import { getDriverRealtimeDispatchSnapshot, registerRealtimeDispatchServer } from '../services/realtime-dispatch.service';
+import { DISPATCH_EVENT_HISTORY_LIMIT, getDriverRealtimeDispatchSnapshot, getRealtimeDispatchSnapshot, registerRealtimeDispatchServer } from '../services/realtime-dispatch.service';
 
 export function registerTrackingSocket(io: Server) {
   registerRealtimeDispatchServer(io);
@@ -28,8 +28,22 @@ export function registerTrackingSocket(io: Server) {
     }
 
     socket.on('dispatch:subscribe', () => {
-      if (!userId || role !== 'driver') return;
+      if (!userId) return;
+      if (role === 'admin') {
+        socket.emit('dispatch:sync_state', getRealtimeDispatchSnapshot());
+        return;
+      }
+      if (role !== 'driver') return;
       const snapshot = getDriverRealtimeDispatchSnapshot(userId);
+      socket.emit('dispatch:sync_state', {
+        provider: 'firebase',
+        driverId: userId,
+        snapshot,
+        requests: Array.from(store.rideRequests.values()).filter(request =>
+          request.broadcastedDrivers.includes(userId) || request.acceptedDriverId === userId
+        ),
+        events: [...store.dispatchEvents].slice(-DISPATCH_EVENT_HISTORY_LIMIT)
+      });
       socket.emit('dispatch:rides', {
         reason: 'initial_sync',
         items: snapshot.rides,

@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto';
+import * as authService from './auth.service';
 import { markStoreDirty, store, timestamp, type DriverProfile, type DriverVerificationDocument } from '../database/data.store';
-import { publishDriverRealtimeLocation } from './realtime-dispatch.service';
+import { publishDriverRealtimeLocation, publishDriverStatusChanged } from './realtime-dispatch.service';
+import { findNearbyDrivers, rankDrivers } from '../utils/dispatch.engine';
 
 type DriverDocumentInput = string | {
   id?: string;
@@ -14,9 +16,14 @@ type DriverDocumentInput = string | {
 
 const SELFIE_DOCUMENT_TYPE = 'Selfie Photo';
 const LICENSE_DOCUMENT_TYPE = 'Driver License';
+const LOCATION_HISTORY_LIMIT = 5_000;
 
 function getProfile(userId: string) {
   return store.drivers.get(userId);
+}
+
+function canManageDriver(actor: any, targetDriverId: string) {
+  return actor?.role === 'admin' || actor?.id === targetDriverId;
 }
 
 function createDefaultDriverProfile(userId: string): DriverProfile {
@@ -322,6 +329,13 @@ export async function apply(body: any, _params?: any, _query?: any) {
   return { module: 'drivers', action: 'apply', ok: true, profile };
 }
 
+export async function register(body: any, _params?: any, _query?: any) {
+  const result = await authService.signup({ ...body, role: 'driver' });
+  if (!result?.ok || !result?.user?.id) return result;
+  const profile = getOrCreateProfile(result.user.id, 'driver');
+  return { ...result, profile };
+}
+
 export async function availability(body: any, _params?: any, _query?: any) {
   const userId = body?.actor?.id || body?.userId;
   const profile = getProfile(userId);
@@ -346,7 +360,15 @@ export async function availability(body: any, _params?: any, _query?: any) {
   const result = setAvailability(profile, requestedState);
   if ('error' in result) return { module: 'drivers', action: 'availability', error: result.error };
   markStoreDirty();
+  publishDriverStatusChanged(userId);
   return { module: 'drivers', action: 'availability', ok: true, profile };
+}
+
+export async function availabilityById(body: any, params?: any, query?: any) {
+  const driverId = params?.id || body?.userId;
+  if (!driverId) return { module: 'drivers', action: 'availability', error: 'driverId is required' };
+  if (!canManageDriver(body?.actor, driverId)) return { module: 'drivers', action: 'availability', error: 'forbidden' };
+  return availability({ ...body, userId: driverId }, params, query);
 }
 
 export async function location(body: any, _params?: any, _query?: any) {
@@ -360,9 +382,31 @@ export async function location(body: any, _params?: any, _query?: any) {
   profile.lat = lat;
   profile.lng = lng;
   profile.lastLocationUpdatedAt = updatedAt;
+  const accuracy = Number(body?.accuracy);
+  const heading = Number(body?.heading);
+  const speed = Number(body?.speed);
+  store.locationHistory.push({
+    driverId: userId,
+    lat,
+    lng,
+    accuracy: Number.isFinite(accuracy) ? accuracy : undefined,
+    heading: Number.isFinite(heading) ? heading : undefined,
+    speed: Number.isFinite(speed) ? speed : undefined,
+    timestamp: updatedAt
+  });
+  if (store.locationHistory.length > LOCATION_HISTORY_LIMIT) {
+    store.locationHistory.splice(0, store.locationHistory.length - LOCATION_HISTORY_LIMIT);
+  }
   markStoreDirty();
   publishDriverRealtimeLocation(userId);
   return { module: 'drivers', action: 'location', ok: true, profile };
+}
+
+export async function locationById(body: any, params?: any, query?: any) {
+  const driverId = params?.id || body?.userId;
+  if (!driverId) return { module: 'drivers', action: 'location', error: 'driverId is required' };
+  if (!canManageDriver(body?.actor, driverId)) return { module: 'drivers', action: 'location', error: 'forbidden' };
+  return location({ ...body, userId: driverId }, params, query);
 }
 
 export async function me(body: any, _params?: any, _query?: any) {
@@ -379,9 +423,16 @@ export async function currentTrip(body: any, _params?: any, _query?: any) {
   const userId = body?.actor?.id || body?.userId;
   const profile = getProfile(userId);
   if (!profile) return { module: 'drivers', action: 'current-trip', error: 'driver not found' };
+  if (profile.currentTripId) {
+    const activeRide = store.rides.get(profile.currentTripId);
+    if (activeRide && ['accepted', 'arrived_at_pickup', 'started'].includes(activeRide.status)) {
+      return { module: 'drivers', action: 'current-trip', ok: true, ride: activeRide };
+    }
+  }
   const ride = Array.from(store.rides.values())
-    .filter(candidate => candidate.driverId === userId && (candidate.status === 'accepted' || candidate.status === 'started'))
+    .filter(candidate => candidate.driverId === userId && ['accepted', 'arrived_at_pickup', 'started'].includes(candidate.status))
     .sort((left, right) => (right.updatedAt > left.updatedAt ? 1 : -1))[0] || null;
+  if (ride) profile.currentTripId = ride.id;
   return { module: 'drivers', action: 'current-trip', ok: true, ride };
 }
 
@@ -406,6 +457,29 @@ export async function earnings(body: any, _params?: any, _query?: any) {
     earningsCents: total,
     rideCount: rideEarnings.length,
     rideEarnings
+  };
+}
+
+export async function nearby(body: any, _params?: any, query?: any) {
+  const lat = Number(query?.lat ?? body?.lat);
+  const lng = Number(query?.lng ?? body?.lng);
+  const radiusMiles = Math.max(0.1, Math.min(100, Number(query?.radiusMiles ?? body?.radiusMiles ?? 10)));
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return { module: 'drivers', action: 'nearby', error: 'lat and lng query parameters are required' };
+  }
+  const ranked = rankDrivers(await findNearbyDrivers(lat, lng));
+  const drivers = ranked.filter(driver => driver.distanceMiles <= radiusMiles);
+  return {
+    module: 'drivers',
+    action: 'nearby',
+    ok: true,
+    drivers,
+    meta: {
+      lat,
+      lng,
+      radiusMiles,
+      count: drivers.length
+    }
   };
 }
 

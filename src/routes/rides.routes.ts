@@ -3,6 +3,7 @@ import * as controller from '../controllers/rides.controller';
 import { validateBody } from '../utils/validate';
 import {
   rideAcceptSchema,
+  rideAcceptPathSchema,
   rideDriverCancelSchema,
   rideEstimateSchema,
   rideHistorySchema,
@@ -10,8 +11,10 @@ import {
   rideMessageSchema,
   rideNotificationsSchema,
   ridePassengerRateSchema,
+  rideRatePathSchema,
   rideRateSchema,
   rideRequestSchema,
+  rideStatusUpdateSchema,
   rideStartCompleteCancelSchema
 } from '../schemas/rides.schemas';
 import { requireAuth, requireRole } from '../middleware/auth.middleware';
@@ -22,6 +25,9 @@ router.post('/estimate', validateBody(rideEstimateSchema), controller.estimate);
 router.get('/history', controller.history);
 router.get('/:rideId', controller.detail);
 router.post('/request', requireRole('rider'), validateBody(rideRequestSchema), controller.request);
+router.post('/:rideId/accept', requireRole('driver'), validateBody(rideAcceptPathSchema), controller.accept);
+router.put('/:rideId/status', requireRole('driver', 'rider', 'admin'), validateBody(rideStatusUpdateSchema), controller.updateStatus);
+router.post('/:rideId/rate', requireRole('driver', 'rider'), validateBody(rideRatePathSchema), controller.submitRating);
 router.post('/history', requireRole('rider'), validateBody(rideHistorySchema), controller.history);
 router.post('/detail', requireRole('rider'), validateBody(rideLookupSchema), controller.detail);
 router.post('/receipt', requireRole('rider'), validateBody(rideLookupSchema), controller.receipt);

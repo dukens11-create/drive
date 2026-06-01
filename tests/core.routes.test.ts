@@ -156,6 +156,7 @@ test('GET / serves the professional dashboard login page', async () => {
       assert.match(body, /api\.mapbox\.com\/mapbox-gl-js/);
       assert.match(body, /id="mapbox"/);
       assert.match(body, /id="mapbox-token-save"/);
+<<<<<<< HEAD
       [
         'toggle-availability-button',
         'Driver mode',
@@ -185,6 +186,9 @@ test('GET / serves the professional dashboard login page', async () => {
         'bottom-sheet',
         'driver-marker-speed'
       ].forEach(label => {
+=======
+      ['toggle-availability-button', 'Driver mode', 'Professional control center', 'Ride History', 'Real-time Map', 'Performance Stats', 'Support \/ Help', 'Driver dashboard navigation', 'Follow Driver: ON', 'Simulate GPS', 'ETA Pickup', 'ETA Destination', 'Route Details', 'Refresh Route', 'Hide Route', 'Pickup Route', 'Destination Route', 'Total Trip Distance', 'Selfie Photo', 'Verification Status', 'Arrived at Pickup', 'Start Trip', 'End Trip', 'Rider Rating', 'countdown-pill', 'passenger-photo', 'swipe-accept-track', 'ride-request-popup-layer', 'ride-popup-swipe-track', 'sheet-handle', 'bottom-sheet'].forEach(label => {
+>>>>>>> origin/main
         assert.match(body, new RegExp(label));
       });
       assert.doesNotMatch(body, /\s(onclick|onsubmit)=/);
@@ -216,14 +220,33 @@ test('GET /driver-dashboard.js includes realtime and offline sync hooks', async 
       'mapbox://styles/mapbox',
       'playIncomingRideAlert',
       'updateRideRequestCountdowns',
+      'syncIncomingRideRequestPopup',
+      'driver:ride-request-action',
+      'RIDE_REQUEST_HISTORY_KEY',
+      'RIDE_ALERT_MUTE_UNTIL_KEY',
+      'handleRidePopupKeyboardShortcuts',
+      'Mute 5 min',
+      'Swipe right to accept',
       'acceptRideById',
       'Swipe accept',
       'Estimated earnings',
       'Pickup distance',
+      'scheduleRouteRefresh',
+      'fitMapToTrackedRoute',
+      'refresh-route-button',
+      'route-visibility-button',
+      'driver-live-route-to-pickup',
+      'driver-live-route-to-dropoff',
       'setupBottomSheetControls',
       'setupPaneSwipeNavigation',
       'pointerdown',
       'PROFILE_LOAD_MAX_RETRIES',
+      'GPS_ACQUISITION_TIMEOUT_MS',
+      'scheduleGpsRetry',
+      'getGpsAccuracyDetails',
+      'Started navigator.geolocation.watchPosition.',
+      'Location permission denied. Enable location access in your browser settings.',
+      'Acquiring GPS...',
       'validateAuthSession',
       'buildFallbackDemoProfile',
       'requestAnimationFrame',
