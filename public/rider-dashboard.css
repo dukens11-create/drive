@@ -1,0 +1,591 @@
+/* ─── Rider Dashboard Styles ──────────────────────────────────────────────────
+   Matches the driver-dashboard dark-mode palette.
+   Swap localStorage sync for Firebase/Supabase realtime when going to prod.
+──────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --bg: #071018;
+  --bg-soft: rgba(11, 19, 32, 0.78);
+  --panel: rgba(17, 27, 43, 0.74);
+  --panel-strong: rgba(15, 24, 38, 0.92);
+  --line: rgba(255, 255, 255, 0.12);
+  --text: #f5f7fb;
+  --muted: #9fb0c7;
+  --accent: #26d07c;
+  --accent-soft: rgba(38, 208, 124, 0.18);
+  --warning: #f8c15d;
+  --danger: #ff6b6b;
+  --info: #1b80ff;
+  --sheet-height: min(62vh, 660px);
+  --sheet-min-height: 120px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(38, 208, 124, 0.18), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(27, 128, 255, 0.14), transparent 30%),
+    linear-gradient(180deg, #071018 0%, #0b1220 100%);
+  color: var(--text);
+  font-family: Inter, "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  overflow: hidden;
+}
+
+a { color: inherit; text-decoration: none; }
+
+button, input, select {
+  border-radius: 14px !important;
+}
+
+input, select {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: var(--text) !important;
+}
+
+input::placeholder { color: rgba(245, 247, 251, 0.45) !important; }
+
+/* ─── App Layout ─────────────────────────────────────────────────────────── */
+.rider-app {
+  position: fixed;
+  inset: 0;
+}
+
+/* ─── Map ─────────────────────────────────────────────────────────────────── */
+#rider-map {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: #0d1b2a;
+}
+
+/* ─── Top Bar ─────────────────────────────────────────────────────────────── */
+.top-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  padding-top: calc(12px + var(--safe-top));
+  background: linear-gradient(180deg, rgba(7,16,24,0.92) 70%, transparent 100%);
+  gap: 12px;
+}
+
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--accent);
+}
+
+.app-brand i { font-size: 1.3rem; }
+
+.nav-links {
+  display: flex;
+  gap: 8px;
+}
+
+.nav-link-btn {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 20px !important;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  white-space: nowrap;
+}
+
+.nav-link-btn:hover, .nav-link-btn.is-active {
+  color: var(--text);
+  background: rgba(38, 208, 124, 0.18);
+  border-color: var(--accent);
+}
+
+/* ─── Alert Banner ────────────────────────────────────────────────────────── */
+#alert-container {
+  position: absolute;
+  top: 64px;
+  left: 16px;
+  right: 16px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.alert-toast {
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  backdrop-filter: blur(12px);
+  pointer-events: auto;
+  animation: slideIn 0.2s ease;
+}
+
+.alert-toast.success { background: rgba(38,208,124,0.22); border: 1px solid rgba(38,208,124,0.4); color: #7affc8; }
+.alert-toast.danger  { background: rgba(255,107,107,0.22); border: 1px solid rgba(255,107,107,0.4); color: #ffb3b3; }
+.alert-toast.warning { background: rgba(248,193,93,0.22); border: 1px solid rgba(248,193,93,0.4); color: #ffe0a0; }
+.alert-toast.info    { background: rgba(27,128,255,0.22); border: 1px solid rgba(27,128,255,0.4); color: #aad0ff; }
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Bottom Sheet ────────────────────────────────────────────────────────── */
+.bottom-sheet {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: var(--panel-strong);
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+  border-top: 1px solid var(--line);
+  backdrop-filter: blur(16px);
+  transition: transform 0.3s ease;
+  padding-bottom: calc(16px + var(--safe-bottom));
+  max-height: var(--sheet-height);
+  overflow-y: auto;
+}
+
+.sheet-drag-handle {
+  width: 36px;
+  height: 4px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 2px;
+  margin: 12px auto 8px;
+}
+
+.sheet-content {
+  padding: 8px 20px 16px;
+}
+
+/* ─── Rider Profile Strip ─────────────────────────────────────────────────── */
+.rider-profile-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 14px;
+  border: 1px solid var(--line);
+}
+
+.rider-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--info));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1rem;
+  color: #071018;
+  flex-shrink: 0;
+}
+
+.rider-profile-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.rider-name {
+  font-size: 0.92rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rider-role-tag {
+  font-size: 0.72rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ─── Location Inputs ─────────────────────────────────────────────────────── */
+.location-card {
+  background: rgba(255,255,255,0.05);
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  padding: 8px 0;
+  margin-bottom: 14px;
+}
+
+.location-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+}
+
+.location-row + .location-row {
+  border-top: 1px solid var(--line);
+}
+
+.location-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.location-dot.pickup { background: var(--accent); }
+.location-dot.dest   { background: var(--danger); }
+
+.location-row input {
+  flex: 1;
+  background: transparent !important;
+  border: none !important;
+  padding: 4px 0 !important;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text) !important;
+  min-width: 0;
+}
+
+.location-row input:focus { outline: none; }
+
+.location-action-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 8px !important;
+  line-height: 1;
+}
+
+.location-action-btn:hover { background: var(--accent-soft); }
+
+/* ─── Ride Type Selector ──────────────────────────────────────────────────── */
+.ride-type-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+.ride-type-row::-webkit-scrollbar { display: none; }
+
+.ride-type-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px !important;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.ride-type-btn i { font-size: 1.3rem; }
+
+.ride-type-btn.is-selected {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ─── Fare Estimate ───────────────────────────────────────────────────────── */
+.fare-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+
+.fare-label { font-size: 0.82rem; color: var(--muted); }
+.fare-amount { font-size: 1.1rem; font-weight: 700; color: var(--accent); }
+.fare-detail { font-size: 0.78rem; color: var(--muted); }
+
+/* ─── Action Buttons ──────────────────────────────────────────────────────── */
+.primary-btn {
+  width: 100%;
+  padding: 14px;
+  background: var(--accent);
+  color: #071018;
+  border: none;
+  border-radius: 14px !important;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.primary-btn:hover { opacity: 0.9; }
+.primary-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.secondary-btn {
+  width: 100%;
+  padding: 12px;
+  background: rgba(255,107,107,0.15);
+  color: var(--danger);
+  border: 1px solid rgba(255,107,107,0.35);
+  border-radius: 14px !important;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.secondary-btn:hover { background: rgba(255,107,107,0.25); }
+
+.demo-btn {
+  width: 100%;
+  padding: 10px;
+  background: rgba(248, 193, 93, 0.12);
+  color: var(--warning);
+  border: 1px solid rgba(248, 193, 93, 0.3);
+  border-radius: 14px !important;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+  transition: background 0.15s;
+}
+
+.demo-btn:hover { background: rgba(248, 193, 93, 0.2); }
+
+/* ─── Ride Status Panel ───────────────────────────────────────────────────── */
+.status-panel {
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.status-panel.is-visible { display: flex; }
+
+.status-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.status-badge.searching  { background: rgba(248,193,93,0.18); color: var(--warning); border: 1px solid rgba(248,193,93,0.3); }
+.status-badge.assigned   { background: rgba(38,208,124,0.18); color: var(--accent); border: 1px solid rgba(38,208,124,0.3); }
+.status-badge.arriving   { background: rgba(27,128,255,0.18); color: var(--info); border: 1px solid rgba(27,128,255,0.3); }
+.status-badge.started    { background: rgba(38,208,124,0.18); color: var(--accent); border: 1px solid rgba(38,208,124,0.3); }
+.status-badge.completed  { background: rgba(38,208,124,0.25); color: var(--accent); border: 1px solid var(--accent); }
+
+/* Driver info card */
+.driver-card {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  background: rgba(38,208,124,0.08);
+  border: 1px solid rgba(38,208,124,0.25);
+  border-radius: 16px;
+}
+
+.driver-card.is-visible { display: flex; }
+
+.driver-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.driver-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #26d07c, #1b80ff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #071018;
+  flex-shrink: 0;
+}
+
+.driver-info { flex: 1; min-width: 0; }
+.driver-name { font-size: 0.95rem; font-weight: 700; }
+.driver-rating { font-size: 0.78rem; color: var(--warning); }
+.driver-vehicle { font-size: 0.78rem; color: var(--muted); margin-top: 1px; }
+
+.driver-meta-row {
+  display: flex;
+  gap: 12px;
+}
+
+.driver-meta-item {
+  flex: 1;
+  background: rgba(255,255,255,0.05);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.driver-meta-item .meta-label { color: var(--muted); font-size: 0.72rem; }
+.driver-meta-item .meta-value { font-weight: 700; margin-top: 2px; }
+
+/* ─── Progress Timeline ───────────────────────────────────────────────────── */
+.trip-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 14px;
+  border: 1px solid var(--line);
+}
+
+.timeline-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 0;
+  position: relative;
+}
+
+.timeline-step + .timeline-step::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: -6px;
+  width: 2px;
+  height: 12px;
+  background: var(--line);
+}
+
+.timeline-step.is-done + .timeline-step::before { background: var(--accent); }
+
+.timeline-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  margin-top: 1px;
+}
+
+.timeline-step.is-active .timeline-dot {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #071018;
+}
+
+.timeline-step.is-done .timeline-dot {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.timeline-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding-top: 1px;
+  color: var(--muted);
+}
+
+.timeline-step.is-active .timeline-label,
+.timeline-step.is-done .timeline-label {
+  color: var(--text);
+}
+
+.timeline-step.is-active .timeline-label::after {
+  content: '  •';
+  color: var(--accent);
+}
+
+/* ─── Pulse animation for searching ──────────────────────────────────────── */
+.pulse-ring {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--warning);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.45; transform: scale(1.5); }
+}
+
+/* ─── Mapbox overrides ────────────────────────────────────────────────────── */
+.mapboxgl-ctrl-bottom-left,
+.mapboxgl-ctrl-bottom-right { display: none; }
+
+.mapboxgl-ctrl-top-right { top: 80px; right: 12px; }
+
+/* ─── Responsive ──────────────────────────────────────────────────────────── */
+@media (min-width: 480px) {
+  .bottom-sheet {
+    max-width: 420px;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    border-top-left-radius: 24px;
+    border-top-right-radius: 24px;
+  }
+}
