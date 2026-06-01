@@ -35,6 +35,33 @@ export type DriverSummary = {
   cancellationRate: number;
   earningsCents: number;
   documents: string[];
+  verificationDocuments?: Array<{
+    id: string;
+    type: string;
+    fileName: string;
+    expiryDate?: string;
+    uploadedAt: string;
+    ocrText?: string;
+    extractedFields?: {
+      fullName?: string;
+      licenseNumber?: string;
+      expiryDate?: string;
+    };
+    verificationStatus: string;
+  }>;
+  selfieVerification?: {
+    status: string;
+    score: number;
+    fileName?: string;
+    checkedAt?: string;
+  };
+  verificationReview?: {
+    status: string;
+    notes?: string;
+    reviewedAt?: string;
+    reviewedBy?: string;
+    checklist?: string[];
+  };
   lat?: number;
   lng?: number;
   tripCount: number;
@@ -263,7 +290,7 @@ export async function loginAdmin(email: string, password: string): Promise<Sessi
 
 export const adminApi = {
   fetchOverview: (token: string) => request<{ ok: boolean } & AdminOverview>('/api/admin/overview', { method: 'GET' }, token),
-  approveDriver: (token: string, userId: string, approved: boolean) => request('/api/admin/approve-driver', { method: 'POST', body: JSON.stringify({ userId, approved }) }, token),
+  approveDriver: (token: string, userId: string, approved: boolean, notes?: string, checklist?: string[]) => request('/api/admin/approve-driver', { method: 'POST', body: JSON.stringify({ userId, approved, notes, checklist }) }, token),
   suspendUser: (token: string, userId: string, suspend: boolean) => request('/api/admin/suspend-user', { method: 'POST', body: JSON.stringify({ userId, suspend }) }, token),
   updateTicket: (token: string, ticketId: string, status: string, resolution?: string) => request('/api/admin/update-ticket', { method: 'POST', body: JSON.stringify({ ticketId, status, resolution }) }, token),
   replyTicket: (token: string, ticketId: string, message: string) => request('/api/support/reply-ticket', { method: 'POST', body: JSON.stringify({ ticketId, message, authorRole: 'admin' }) }, token),

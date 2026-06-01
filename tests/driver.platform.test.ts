@@ -20,12 +20,32 @@ test('driver onboarding progresses through documents and KYC before online', asy
   assert.ok(earlyOnline.error);
   assert.equal(earlyOnline.error, 'driver is not verified');
 
-  await drivers.documents({ userId: 'driver_onboarding', documents: ['license', 'insurance'] });
+  await drivers.documents({
+    userId: 'driver_onboarding',
+    documents: [
+      { type: 'Driver License', fileName: 'license-front.jpg', expiryDate: '2030-08-31', documentNumber: 'DL-9999' },
+      { type: 'Selfie Photo', fileName: 'selfie.jpg', selfieMatchScore: 0.91 }
+    ]
+  });
   let profile = store.drivers.get('driver_onboarding');
   assert.equal(profile?.verificationState, 'kyc_pending');
+  assert.equal(profile?.selfieVerification?.status, 'matched');
+  assert.match(profile?.verificationDocuments?.find(document => document.type === 'Driver License')?.ocrText || '', /DL-9999/);
 
   await kyc.webhook({ userId: 'driver_onboarding', status: 'verified' });
   profile = store.drivers.get('driver_onboarding');
+  assert.equal(profile?.status, 'pending');
+  assert.equal(profile?.verificationState, 'review_pending');
+
+  profile!.verificationReview = {
+    status: 'approved',
+    reviewedAt: new Date().toISOString(),
+    reviewedBy: 'admin_test',
+    checklist: ['License scan reviewed', 'Selfie verification matched']
+  };
+  const approved = drivers.syncDriverVerificationState('driver_onboarding');
+  profile = store.drivers.get('driver_onboarding');
+  assert.equal(approved?.userId, 'driver_onboarding');
   assert.equal(profile?.status, 'approved');
   assert.equal(profile?.verificationState, 'verified');
 
@@ -38,8 +58,16 @@ test('driver onboarding progresses through documents and KYC before online', asy
 test('ride request auto-assigns an eligible online driver and releases on completion', async () => {
   resetDriverData();
   await drivers.apply({ userId: 'driver_dispatch' });
-  await drivers.documents({ userId: 'driver_dispatch', documents: ['license', 'insurance'] });
+  await drivers.documents({
+    userId: 'driver_dispatch',
+    documents: [
+      { type: 'Driver License', fileName: 'dispatch-license.jpg', expiryDate: '2030-08-31' },
+      { type: 'Selfie Photo', fileName: 'dispatch-selfie.jpg', selfieMatchScore: 0.92 }
+    ]
+  });
   await kyc.webhook({ userId: 'driver_dispatch', status: 'verified' });
+  store.drivers.get('driver_dispatch')!.verificationReview = { status: 'approved', reviewedAt: new Date().toISOString(), reviewedBy: 'admin_test' };
+  drivers.syncDriverVerificationState('driver_dispatch');
   await drivers.location({ userId: 'driver_dispatch', lat: 10, lng: 10 });
   await drivers.availability({ userId: 'driver_dispatch', status: 'online' });
 
@@ -71,8 +99,16 @@ test('ride request stays unassigned when no dispatch-eligible drivers exist', as
 test('driver can send trip chat and rate passenger after completion', async () => {
   resetDriverData();
   await drivers.apply({ userId: 'driver_feedback' });
-  await drivers.documents({ userId: 'driver_feedback', documents: ['license', 'insurance'] });
+  await drivers.documents({
+    userId: 'driver_feedback',
+    documents: [
+      { type: 'Driver License', fileName: 'feedback-license.jpg', expiryDate: '2030-08-31' },
+      { type: 'Selfie Photo', fileName: 'feedback-selfie.jpg', selfieMatchScore: 0.88 }
+    ]
+  });
   await kyc.webhook({ userId: 'driver_feedback', status: 'verified' });
+  store.drivers.get('driver_feedback')!.verificationReview = { status: 'approved', reviewedAt: new Date().toISOString(), reviewedBy: 'admin_test' };
+  drivers.syncDriverVerificationState('driver_feedback');
   await drivers.location({ userId: 'driver_feedback', lat: 9, lng: 9 });
   await drivers.availability({ userId: 'driver_feedback', status: 'online' });
 
