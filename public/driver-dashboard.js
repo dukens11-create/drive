@@ -17,7 +17,14 @@ const PROFILE_RETRY_DELAY_MS = 800;
 const GPS_LOG_KEY = 'driverGpsLog';
 const LAST_KNOWN_LOCATION_KEY = 'driverLastKnownLocation';
 const MAX_GPS_LOG_ENTRIES = 200;
-const ROUTE_CACHE_TTL_MS = 30000;
+const GPS_RETRY_MAX_ATTEMPTS = 3;
+const GPS_RETRY_BASE_DELAY_MS = 2_000;
+const GPS_ACQUISITION_TIMEOUT_MS = 30_000;
+const INITIAL_GPS_LOOKUP_TIMEOUT_MS = 5_000;
+const GPS_STALE_POSITION_MS = 9_000;
+const ROUTE_CACHE_TTL_MS = 15000;
+const ROUTE_RECALC_DEBOUNCE_MS = 1200;
+const ROUTE_MOVEMENT_REFRESH_KM = 0.08;
 const MAPBOX_TOKEN_STORAGE_KEY = 'drive.mapboxToken';
 const MAPBOX_STYLE_STREETS = 'mapbox://styles/mapbox/navigation-night-v1';
 const MAPBOX_STYLE_SATELLITE = 'mapbox://styles/mapbox/satellite-streets-v12';
@@ -86,7 +93,6 @@ let earningsSnapshot = { earningsCents: 0, rideCount: 0 };
 let realtimeSubscriptions = [];
 let realtimePollers = [];
 let realtimeSocket = null;
-let geolocationWatchId = null;
 let alertTimeoutId = null;
 
 let mapState = {
@@ -102,6 +108,10 @@ let mapState = {
   locationPermissionState: 'prompt',
   updateFrequencyMs: 3000,
   lastUpdateAt: null,
+  gpsLoading: false,
+  gpsRetryCount: 0,
+  gpsRetryExhausted: false,
+  gpsStatusMessage: 'Acquiring GPS...',
   renderPending: false,
   isDragging: false,
   dragStartX: 0,
@@ -110,8 +120,14 @@ let mapState = {
   mapboxInstance: null,
   mapboxReady: false,
   mapboxInitPromise: null,
+  routeVisible: true,
+  routeFitPending: false,
+  routeHoveredSegment: null,
+  routeLayerEventsBound: false,
   markers: {
     driver: null,
+    pickup: null,
+    destination: null,
     passengers: new Map(),
   },
   activePointerId: null
@@ -133,17 +149,37 @@ let activePane = 'map';
 let gpsWatchId = null;
 let gpsPollIntervalId = null;
 let gpsSimulationIntervalId = null;
+let gpsRetryTimeoutId = null;
+let gpsAcquireTimeoutId = null;
+let gpsPermissionStatus = null;
 let gpsSimulationIndex = 0;
 let wakeLockSentinel = null;
-let routeCache = {
-  pickupEta: null,
-  dropoffEta: null,
-  pickupDistKm: null,
-  dropoffDistKm: null,
-  pickupGeometry: null,
-  dropoffGeometry: null,
-  cachedAt: 0,
-};
+let routeRefreshTimeoutId = null;
+
+function createEmptyRouteCache() {
+  return {
+    pickupEta: null,
+    dropoffEta: null,
+    pickupDistKm: null,
+    dropoffDistKm: null,
+    totalDistKm: null,
+    pickupDurationMin: null,
+    dropoffDurationMin: null,
+    totalDurationMin: null,
+    pickupGeometry: null,
+    dropoffGeometry: null,
+    cacheKey: '',
+    driverLat: null,
+    driverLng: null,
+    cachedAt: 0,
+    loading: false,
+    warning: '',
+    statusMessage: 'Waiting for route',
+    lastAnnouncement: '',
+  };
+}
+
+let routeCache = createEmptyRouteCache();
 let rideRequestCountdownIntervalId = null;
 let rideRequestFeedInitialized = false;
 let knownRideRequestIds = new Set();
@@ -195,6 +231,37 @@ function sleep(ms) {
   return new Promise(resolve => {
     window.setTimeout(resolve, ms);
   });
+}
+
+function logGpsEvent(level, message, payload) {
+  const writer = typeof console?.[level] === 'function' ? console[level] : console.log;
+  if (typeof payload === 'undefined') {
+    writer(`[GPS] ${message}`);
+    return;
+  }
+  writer(`[GPS] ${message}`, payload);
+}
+
+function setGpsStatus(message, { loading = mapState.gpsLoading } = {}) {
+  mapState.gpsLoading = loading;
+  if (message) mapState.gpsStatusMessage = message;
+  const caption = document.getElementById('map-caption');
+  if (caption && message) caption.textContent = message;
+  updateMapUiReadouts();
+}
+
+function clearGpsRetryTimer() {
+  if (gpsRetryTimeoutId !== null) {
+    window.clearTimeout(gpsRetryTimeoutId);
+    gpsRetryTimeoutId = null;
+  }
+}
+
+function clearGpsAcquisitionTimeout() {
+  if (gpsAcquireTimeoutId !== null) {
+    window.clearTimeout(gpsAcquireTimeoutId);
+    gpsAcquireTimeoutId = null;
+  }
 }
 
 function parseStoredJson(key, fallback) {
@@ -562,21 +629,6 @@ async function flushOfflineLocationQueue() {
   setOfflineLocationQueue(remaining);
 }
 
-function startLocationTracking() {
-  if (!navigator.geolocation || geolocationWatchId !== null) return;
-  geolocationWatchId = navigator.geolocation.watchPosition(
-    position => {
-      syncDriverLocationToBackends({
-        lat: position.coords.latitude,
-        lng: position.coords.longitude,
-        updatedAt: new Date().toISOString()
-      }).catch(() => {});
-    },
-    () => {},
-    { enableHighAccuracy: true, timeout: 8_000, maximumAge: 2_000 }
-  );
-}
-
 function getRejectedRideIds() {
   try {
     const parsed = JSON.parse(localStorage.getItem(REJECTED_RIDES_KEY) || '[]');
@@ -830,6 +882,42 @@ function formatEta(minutes) {
     return `${h}h ${m}m`;
   }
   return `${mins} min`;
+}
+
+function getTrackedRide() {
+  return syncSelectedRideFromState() || nearbyRideRequests[0] || null;
+}
+
+function buildRouteCacheKey(driverLat, driverLng, ride) {
+  if (!ride) return '';
+  return [
+    ride.id || 'ride',
+    roundCoord(driverLat),
+    roundCoord(driverLng),
+    roundCoord(ride.pickupLat),
+    roundCoord(ride.pickupLng),
+    roundCoord(ride.dropoffLat),
+    roundCoord(ride.dropoffLng),
+  ].join(':');
+}
+
+function buildRouteFallback(originLat, originLng, destLat, destLng, warning) {
+  const distKm = calculateDistance(originLat, originLng, destLat, destLng);
+  const speedKmh = mapState.lastPosition?.speed > 2 ? mapState.lastPosition.speed : DEFAULT_LOCATION_SPEED_KMH;
+  return {
+    distKm,
+    etaMin: calculateETA(distKm, speedKmh),
+    geometry: null,
+    source: 'fallback',
+    warning,
+  };
+}
+
+function getRouteWarningMessage(status, payload) {
+  if (status === 429) return 'Mapbox route rate limit reached. Showing an estimated route.';
+  if (status === 401 || status === 403) return 'Mapbox directions are unavailable for this token. Showing an estimated route.';
+  if (status === 422) return payload?.message || 'Route coordinates were invalid. Showing an estimated route.';
+  return payload?.message || 'Live route data is unavailable right now. Showing an estimated route.';
 }
 
 function formatDistance(km) {
@@ -1318,7 +1406,7 @@ function headingToCardinal(degrees) {
 }
 
 function getGeolocationOptions() {
-  return { enableHighAccuracy: true, timeout: 8000, maximumAge: mapState.updateFrequencyMs };
+  return { enableHighAccuracy: true, timeout: GPS_ACQUISITION_TIMEOUT_MS, maximumAge: 1000 };
 }
 
 // ─── GPS Log ──────────────────────────────────────────────────────────────────
@@ -1368,6 +1456,13 @@ function readMapboxToken() {
   }
 }
 
+function getGpsAccuracyDetails(accuracy) {
+  if (!Number.isFinite(accuracy)) return { label: 'Unknown', className: '' };
+  if (accuracy < 10) return { label: 'Good', className: 'gps-good' };
+  if (accuracy < 50) return { label: 'Fair', className: 'gps-medium' };
+  return { label: 'Poor', className: 'gps-poor' };
+}
+
 function showMapTokenOverlay(show) {
   const overlay = document.getElementById('map-token-overlay');
   if (!overlay) return;
@@ -1392,6 +1487,43 @@ function createDriverMarkerElement() {
   el.style.background = '#26d07c';
   el.style.boxShadow = '0 0 0 10px rgba(38, 208, 124, 0.16)';
   return el;
+}
+
+function createRouteMarkerElement(kind) {
+  const isPickup = kind === 'pickup';
+  const el = document.createElement('div');
+  el.style.width = '28px';
+  el.style.height = '28px';
+  el.style.borderRadius = '50%';
+  el.style.display = 'flex';
+  el.style.alignItems = 'center';
+  el.style.justifyContent = 'center';
+  el.style.fontSize = '0.72rem';
+  el.style.fontWeight = '700';
+  el.style.color = '#071018';
+  el.style.background = isPickup ? '#5b8cff' : '#26d07c';
+  el.style.boxShadow = isPickup
+    ? '0 0 0 8px rgba(91, 140, 255, 0.16)'
+    : '0 0 0 8px rgba(38, 208, 124, 0.16)';
+  el.textContent = isPickup ? 'P' : 'D';
+  el.setAttribute('aria-label', isPickup ? 'Pickup marker' : 'Destination marker');
+  return el;
+}
+
+function syncRouteLayerStyles() {
+  const map = mapState.mapboxInstance;
+  if (!map || !mapState.mapboxReady) return;
+  [
+    ['driver-live-route-to-pickup', 'pickup', '#5b8cff', 5],
+    ['driver-live-route-to-dropoff', 'dropoff', '#26d07c', 4],
+  ].forEach(([layerId, segment, color, baseWidth]) => {
+    if (!map.getLayer(layerId)) return;
+    const isHighlighted = mapState.routeHoveredSegment === segment;
+    map.setLayoutProperty(layerId, 'visibility', mapState.routeVisible ? 'visible' : 'none');
+    map.setPaintProperty(layerId, 'line-color', color);
+    map.setPaintProperty(layerId, 'line-width', isHighlighted ? baseWidth + 2 : baseWidth);
+    map.setPaintProperty(layerId, 'line-opacity', isHighlighted ? 1 : 0.9);
+  });
 }
 
 function ensureTrafficLayer() {
@@ -1454,6 +1586,54 @@ function ensureRouteLayer() {
       paint: { 'line-color': '#26d07c', 'line-width': 4, 'line-dasharray': [1, 1.2], 'line-opacity': 0.9 },
     });
   }
+  if (!mapState.routeLayerEventsBound) {
+    [
+      ['driver-live-route-to-pickup', 'pickup'],
+      ['driver-live-route-to-dropoff', 'dropoff'],
+    ].forEach(([layerId, segment]) => {
+      map.on('mouseenter', layerId, () => {
+        mapState.routeHoveredSegment = segment;
+        map.getCanvas().style.cursor = 'pointer';
+        syncRouteLayerStyles();
+      });
+      map.on('mouseleave', layerId, () => {
+        if (mapState.routeHoveredSegment === segment) mapState.routeHoveredSegment = null;
+        map.getCanvas().style.cursor = '';
+        syncRouteLayerStyles();
+      });
+      map.on('click', layerId, () => {
+        mapState.routeFitPending = true;
+        fitMapToTrackedRoute();
+      });
+    });
+    mapState.routeLayerEventsBound = true;
+  }
+  syncRouteLayerStyles();
+}
+
+function fitMapToTrackedRoute() {
+  const map = mapState.mapboxInstance;
+  if (!map || !mapState.mapboxReady || !window.mapboxgl?.LngLatBounds || !mapState.routeVisible) return;
+  const trackedRide = getTrackedRide();
+  const driverPos = mapState.lastPosition;
+  if (!trackedRide || !driverPos) return;
+  const allCoordinates = [];
+  const pickupCoords = Array.isArray(routeCache.pickupGeometry) && routeCache.pickupGeometry.length > 1
+    ? routeCache.pickupGeometry
+    : [[driverPos.lng, driverPos.lat], [trackedRide.pickupLng, trackedRide.pickupLat]];
+  const dropoffCoords = Array.isArray(routeCache.dropoffGeometry) && routeCache.dropoffGeometry.length > 1
+    ? routeCache.dropoffGeometry
+    : [[trackedRide.pickupLng, trackedRide.pickupLat], [trackedRide.dropoffLng, trackedRide.dropoffLat]];
+  allCoordinates.push(...pickupCoords, ...dropoffCoords);
+  if (allCoordinates.length < 2) return;
+  const bounds = new window.mapboxgl.LngLatBounds(allCoordinates[0], allCoordinates[0]);
+  allCoordinates.forEach(coord => bounds.extend(coord));
+  map.fitBounds(bounds, {
+    padding: { top: 90, right: 42, bottom: 260, left: 42 },
+    duration: 700,
+    maxZoom: 15.5,
+  });
+  mapState.routeFitPending = false;
 }
 
 function updateMapboxRoute() {
@@ -1493,6 +1673,10 @@ function updateMapboxRoute() {
 
   const source = map.getSource('driver-live-route');
   if (source) source.setData({ type: 'FeatureCollection', features });
+  syncRouteLayerStyles();
+  if (mapState.routeFitPending && features.length) {
+    fitMapToTrackedRoute();
+  }
 }
 
 function updateMapboxMarkers() {
@@ -1508,6 +1692,27 @@ function updateMapboxMarkers() {
     mapState.markers.driver
       .setLngLat([driverPos.lng, driverPos.lat])
       .addTo(map);
+  }
+
+  const trackedRide = getTrackedRide();
+  if (trackedRide && mapState.routeVisible) {
+    if (!mapState.markers.pickup) {
+      mapState.markers.pickup = new window.mapboxgl.Marker({ element: createRouteMarkerElement('pickup') });
+    }
+    if (!mapState.markers.destination) {
+      mapState.markers.destination = new window.mapboxgl.Marker({ element: createRouteMarkerElement('destination') });
+    }
+    mapState.markers.pickup
+      .setLngLat([trackedRide.pickupLng, trackedRide.pickupLat])
+      .setPopup(new window.mapboxgl.Popup({ offset: 16 }).setText('Pickup'))
+      .addTo(map);
+    mapState.markers.destination
+      .setLngLat([trackedRide.dropoffLng, trackedRide.dropoffLat])
+      .setPopup(new window.mapboxgl.Popup({ offset: 16 }).setText('Destination'))
+      .addTo(map);
+  } else {
+    mapState.markers.pickup?.remove();
+    mapState.markers.destination?.remove();
   }
 
   const activePassengerIds = new Set();
@@ -1610,96 +1815,115 @@ async function initializeMapbox() {
 
 // ─── Route Estimation ─────────────────────────────────────────────────────────
 async function fetchRouteEstimate(originLat, originLng, destLat, destLng) {
+  if (![originLat, originLng, destLat, destLng].every(Number.isFinite)) {
+    return buildRouteFallback(originLat, originLng, destLat, destLng, 'Route coordinates are unavailable.');
+  }
   if (mapState.mapboxToken) {
     try {
-      const url = new URL(`https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${originLng},${originLat};${destLng},${destLat}`);
+      const url = new URL(`https://api.mapbox.com/directions/v5/mapbox/driving/${originLng},${originLat};${destLng},${destLat}`);
       url.searchParams.set('geometries', 'geojson');
       url.searchParams.set('overview', 'full');
       url.searchParams.set('steps', 'false');
+      url.searchParams.set('alternatives', 'false');
       url.searchParams.set('access_token', mapState.mapboxToken);
       const response = await fetch(url.toString());
+      const payload = await response.json().catch(() => null);
       if (response.ok) {
-        const payload = await response.json();
         const route = payload?.routes?.[0];
         if (route) {
           return {
             distKm: Number(route.distance || 0) / 1000,
             etaMin: Number(route.duration || 0) / 60,
             geometry: Array.isArray(route.geometry?.coordinates) ? route.geometry.coordinates : null,
+            source: 'mapbox',
+            warning: '',
           };
         }
       }
-    } catch (_e) { /* fall through to next provider */ }
+      return buildRouteFallback(
+        originLat,
+        originLng,
+        destLat,
+        destLng,
+        getRouteWarningMessage(response.status, payload)
+      );
+    } catch (_e) {
+      return buildRouteFallback(originLat, originLng, destLat, destLng, 'Live route lookup failed. Showing an estimated route.');
+    }
   }
-
-  // Attempt Google Maps Directions API (requires API key exposed in env).
-  // Falls back to haversine estimate without network call.
-  const apiKey = typeof window !== 'undefined' && window.GOOGLE_MAPS_API_KEY;
-  if (apiKey) {
-    try {
-      const origin = `${originLat},${originLng}`;
-      const dest = `${destLat},${destLng}`;
-      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(dest)}&mode=driving&key=${encodeURIComponent(apiKey)}`;
-      const { data } = await fetchJson(url, {});
-      if (data?.routes?.[0]?.legs?.[0]) {
-        const leg = data.routes[0].legs[0];
-        return {
-          distKm: Number(leg.distance?.value || 0) / 1000,
-          etaMin: Number(leg.duration?.value || 0) / 60,
-          geometry: null,
-        };
-      }
-    } catch (_e) { /* fall through to haversine */ }
-  }
-  const distKm = calculateDistance(originLat, originLng, destLat, destLng);
-  const speedKmh = mapState.lastPosition?.speed > 2 ? mapState.lastPosition.speed : DEFAULT_LOCATION_SPEED_KMH;
-  return { distKm, etaMin: calculateETA(distKm, speedKmh), geometry: null };
+  return buildRouteFallback(originLat, originLng, destLat, destLng, 'Mapbox token missing. Showing an estimated route.');
 }
 
-async function recalculateRouteData() {
+function scheduleRouteRefresh(options = {}) {
+  const { force = false, fitRoute = false } = options;
+  if (fitRoute) mapState.routeFitPending = true;
+  if (routeRefreshTimeoutId !== null) window.clearTimeout(routeRefreshTimeoutId);
+  routeRefreshTimeoutId = window.setTimeout(() => {
+    routeRefreshTimeoutId = null;
+    recalculateRouteData({ force }).catch(error => {
+      console.warn('Unable to refresh route data:', error);
+    });
+  }, force ? 0 : ROUTE_RECALC_DEBOUNCE_MS);
+}
+
+async function recalculateRouteData(options = {}) {
+  const { force = false } = options;
   const driverLat = mapState.lastPosition?.lat ?? Number(currentProfile?.lat);
   const driverLng = mapState.lastPosition?.lng ?? Number(currentProfile?.lng);
   if (!Number.isFinite(driverLat) || !Number.isFinite(driverLng)) return;
 
+  const trackedRide = getTrackedRide();
+  const nextCacheKey = buildRouteCacheKey(driverLat, driverLng, trackedRide);
   const now = Date.now();
-  if (now - routeCache.cachedAt < ROUTE_CACHE_TTL_MS) {
+  const driverMovedKm = Number.isFinite(routeCache.driverLat) && Number.isFinite(routeCache.driverLng)
+    ? calculateDistance(routeCache.driverLat, routeCache.driverLng, driverLat, driverLng)
+    : Number.POSITIVE_INFINITY;
+  const shouldReuseCache = !force
+    && trackedRide
+    && routeCache.cacheKey === nextCacheKey
+    && now - routeCache.cachedAt < ROUTE_CACHE_TTL_MS
+    && driverMovedKm < ROUTE_MOVEMENT_REFRESH_KM;
+  if (shouldReuseCache) {
     updateMapUiReadouts();
     return;
   }
 
-  const trackedRide = selectedRideForDetails || nearbyRideRequests[0] || null;
   if (!trackedRide) {
-    routeCache = {
-      pickupEta: null,
-      dropoffEta: null,
-      pickupDistKm: null,
-      dropoffDistKm: null,
-      pickupGeometry: null,
-      dropoffGeometry: null,
-      cachedAt: now,
-    };
+    routeCache = { ...createEmptyRouteCache(), cachedAt: now, statusMessage: 'Waiting for route' };
     updateMapUiReadouts();
     updateMapboxRoute();
+    updateMapboxMarkers();
     return;
   }
 
-  try {
-    const pickupResult = await fetchRouteEstimate(driverLat, driverLng, trackedRide.pickupLat, trackedRide.pickupLng);
-    routeCache.pickupDistKm = pickupResult.distKm;
-    routeCache.pickupEta = pickupResult.etaMin;
-    routeCache.pickupGeometry = pickupResult.geometry;
-
-    const dropoffResult = await fetchRouteEstimate(trackedRide.pickupLat, trackedRide.pickupLng, trackedRide.dropoffLat, trackedRide.dropoffLng);
-    routeCache.dropoffDistKm = dropoffResult.distKm;
-    routeCache.dropoffEta = dropoffResult.etaMin;
-    routeCache.dropoffGeometry = dropoffResult.geometry;
-
-    routeCache.cachedAt = Date.now();
-  } catch (_e) {
-    // Keep previous cache values
-  }
+  routeCache.loading = true;
+  routeCache.statusMessage = 'Loading live route';
+  routeCache.warning = '';
+  updateMapUiReadouts();
+  const [pickupResult, dropoffResult] = await Promise.all([
+    fetchRouteEstimate(driverLat, driverLng, trackedRide.pickupLat, trackedRide.pickupLng),
+    fetchRouteEstimate(trackedRide.pickupLat, trackedRide.pickupLng, trackedRide.dropoffLat, trackedRide.dropoffLng),
+  ]);
+  routeCache.pickupDistKm = pickupResult.distKm;
+  routeCache.pickupEta = pickupResult.etaMin;
+  routeCache.pickupDurationMin = pickupResult.etaMin;
+  routeCache.pickupGeometry = pickupResult.geometry;
+  routeCache.dropoffDistKm = dropoffResult.distKm;
+  routeCache.dropoffDurationMin = dropoffResult.etaMin;
+  routeCache.dropoffEta = [pickupResult.etaMin, dropoffResult.etaMin].reduce((total, value) => total + (Number.isFinite(value) ? value : 0), 0);
+  routeCache.dropoffGeometry = dropoffResult.geometry;
+  routeCache.totalDistKm = [pickupResult.distKm, dropoffResult.distKm].reduce((total, value) => total + (Number.isFinite(value) ? value : 0), 0);
+  routeCache.totalDurationMin = routeCache.dropoffEta;
+  routeCache.cacheKey = nextCacheKey;
+  routeCache.driverLat = driverLat;
+  routeCache.driverLng = driverLng;
+  routeCache.cachedAt = Date.now();
+  routeCache.loading = false;
+  routeCache.warning = [pickupResult.warning, dropoffResult.warning].filter(Boolean).join(' ');
+  routeCache.statusMessage = routeCache.warning ? 'Estimated route ready' : 'Live route ready';
   updateMapUiReadouts();
   updateMapboxRoute();
+  updateMapboxMarkers();
 }
 
 // ─── Map UI Readouts ──────────────────────────────────────────────────────────
@@ -1718,7 +1942,10 @@ function updateMapUiReadouts() {
   if (accEl) {
     const acc = pos?.accuracy;
     if (Number.isFinite(acc)) {
-      accEl.textContent = `±${Math.round(acc)} m`;
+      const details = getGpsAccuracyDetails(acc);
+      accEl.textContent = `±${Math.round(acc)} m (${details.label})`;
+    } else if (mapState.gpsLoading) {
+      accEl.textContent = 'Acquiring GPS...';
     } else {
       accEl.textContent = '--';
     }
@@ -1726,15 +1953,22 @@ function updateMapUiReadouts() {
 
   // GPS Signal
   const sigEl = document.getElementById('gps-signal');
-  if (sigEl && pos) {
-    const acc = pos.accuracy || 999;
-    if (acc <= 10) { sigEl.textContent = 'Excellent'; sigEl.className = 'gps-good'; }
-    else if (acc <= 30) { sigEl.textContent = 'Good'; sigEl.className = 'gps-good'; }
-    else if (acc <= 80) { sigEl.textContent = 'Fair'; sigEl.className = 'gps-medium'; }
-    else { sigEl.textContent = 'Poor'; sigEl.className = 'gps-poor'; }
-  } else if (sigEl) {
-    sigEl.textContent = mapState.locationPermissionState === 'denied' ? 'Denied' : 'Waiting…';
-    sigEl.className = '';
+  if (sigEl) {
+    let signalClassName = '';
+    if (mapState.locationPermissionState === 'denied') {
+      sigEl.textContent = 'Denied';
+    } else if (mapState.gpsLoading) {
+      sigEl.textContent = 'Acquiring GPS...';
+    } else if (pos) {
+      const details = getGpsAccuracyDetails(pos.accuracy || 999);
+      sigEl.textContent = details.label;
+      signalClassName = details.className;
+    } else if (mapState.gpsRetryExhausted) {
+      sigEl.textContent = 'Reconnecting';
+    } else {
+      sigEl.textContent = 'Waiting…';
+    }
+    sigEl.className = signalClassName;
   }
 
   // Last update
@@ -1757,6 +1991,61 @@ function updateMapUiReadouts() {
 
   const distDropoffEl = document.getElementById('distance-dropoff');
   if (distDropoffEl) distDropoffEl.textContent = formatDistance(routeCache.dropoffDistKm);
+
+  const distTotalEl = document.getElementById('distance-total');
+  if (distTotalEl) distTotalEl.textContent = formatDistance(routeCache.totalDistKm);
+
+  const durationTotalEl = document.getElementById('duration-total');
+  if (durationTotalEl) durationTotalEl.textContent = formatEta(routeCache.totalDurationMin);
+
+  const pickupLegDistanceEl = document.getElementById('pickup-leg-distance');
+  if (pickupLegDistanceEl) pickupLegDistanceEl.textContent = formatDistance(routeCache.pickupDistKm);
+
+  const destinationLegDistanceEl = document.getElementById('destination-leg-distance');
+  if (destinationLegDistanceEl) destinationLegDistanceEl.textContent = formatDistance(routeCache.dropoffDistKm);
+
+  const pickupLegDurationEl = document.getElementById('pickup-leg-duration');
+  if (pickupLegDurationEl) pickupLegDurationEl.textContent = formatEta(routeCache.pickupDurationMin);
+
+  const destinationLegDurationEl = document.getElementById('destination-leg-duration');
+  if (destinationLegDurationEl) destinationLegDurationEl.textContent = formatEta(routeCache.dropoffDurationMin);
+
+  const totalTripDistanceEl = document.getElementById('total-trip-distance');
+  if (totalTripDistanceEl) totalTripDistanceEl.textContent = formatDistance(routeCache.totalDistKm);
+
+  const totalTripEtaEl = document.getElementById('total-trip-eta');
+  if (totalTripEtaEl) totalTripEtaEl.textContent = formatEta(routeCache.dropoffEta);
+
+  const routeStatusEl = document.getElementById('route-status');
+  if (routeStatusEl) routeStatusEl.textContent = routeCache.statusMessage || 'Waiting for route';
+
+  const routeLoadingEl = document.getElementById('route-loading-indicator');
+  if (routeLoadingEl) routeLoadingEl.classList.toggle('d-none', !routeCache.loading);
+
+  const routeVisibilityButton = document.getElementById('route-visibility-button');
+  if (routeVisibilityButton) {
+    routeVisibilityButton.textContent = mapState.routeVisible ? 'Hide Route' : 'Show Route';
+    routeVisibilityButton.setAttribute('aria-pressed', String(mapState.routeVisible));
+  }
+
+  const routeNoteEl = document.getElementById('route-note');
+  if (routeNoteEl) {
+    const trackedRide = getTrackedRide();
+    const defaultMessage = trackedRide
+      ? 'Hover over a route line to highlight it, or use Refresh Route to fetch the latest navigation path.'
+      : 'Enable location and select a ride request to visualize the route.';
+    routeNoteEl.textContent = routeCache.warning || defaultMessage;
+    routeNoteEl.classList.toggle('is-warning', Boolean(routeCache.warning));
+  }
+
+  const routeAnnouncer = document.getElementById('route-announcer');
+  const routeAnnouncement = Number.isFinite(routeCache.totalDistKm) && Number.isFinite(routeCache.dropoffEta)
+    ? `Route updated. Pickup in ${formatEta(routeCache.pickupEta)}. Destination ETA ${formatEta(routeCache.dropoffEta)}. Total trip distance ${formatDistance(routeCache.totalDistKm)}.`
+    : '';
+  if (routeAnnouncer && routeAnnouncement && routeAnnouncement !== routeCache.lastAnnouncement) {
+    routeAnnouncer.textContent = routeAnnouncement;
+    routeCache.lastAnnouncement = routeAnnouncement;
+  }
 
   // Heading / Compass
   const heading = pos?.heading;
@@ -1795,7 +2084,7 @@ function renderMap() {
   const driverPos = mapState.lastPosition;
   if (!driverPos) return;
 
-  if (mapState.followMode) {
+  if (mapState.followMode && !mapState.routeFitPending) {
     map.easeTo({
       center: [driverPos.lng, driverPos.lat],
       bearing: Number.isFinite(driverPos.heading) ? driverPos.heading : 0,
@@ -1830,10 +2119,15 @@ async function handlePositionUpdate(positionLike) {
     }
   }
 
+  const hadGpsIssue = mapState.gpsRetryCount > 0 || mapState.gpsRetryExhausted || mapState.gpsLoading;
   mapState.prevPosition = mapState.lastPosition;
   mapState.lastPosition = { lat, lng, accuracy, heading: heading ?? 0, speed: speedKmh, timestamp: Date.now() };
   mapState.lastUpdateAt = Date.now();
   mapState.locationPermissionState = 'granted';
+  mapState.gpsRetryCount = 0;
+  mapState.gpsRetryExhausted = false;
+  clearGpsRetryTimer();
+  clearGpsAcquisitionTimeout();
 
   // Persist for offline fallback
   saveLastKnownLocation(lat, lng, accuracy);
@@ -1848,34 +2142,103 @@ async function handlePositionUpdate(positionLike) {
   syncDriverLocation(lat, lng, accuracy).catch(() => {});
 
   // Recalculate route / ETA (respects cache TTL)
-  recalculateRouteData().catch(() => {});
+  scheduleRouteRefresh();
 
   // Re-render map
   queueMapRender();
-  updateMapUiReadouts();
+  const accuracyDetails = getGpsAccuracyDetails(accuracy);
+  setGpsStatus(`GPS connected • Accuracy ${accuracyDetails.label} (±${Math.round(accuracy)} m)`, { loading: false });
+  if (hadGpsIssue) {
+    logGpsEvent('info', 'GPS signal restored.', { lat, lng, accuracy });
+  }
 }
 
 function handleGeoError(error) {
+  logGpsEvent('warn', 'Geolocation error received.', error);
   if (error?.code === 1) {
     mapState.locationPermissionState = 'denied';
-    showAlert('warning', 'Location permission denied. Enable GPS permissions to track rides.');
+    clearGpsRetryTimer();
+    clearGpsAcquisitionTimeout();
+    setGpsStatus('Location permission denied. Enable location access in your browser settings.', { loading: false });
+    showAlert('warning', 'Location permission denied. Enable location access in your browser settings.');
+    stopLocationTracking();
     return;
   }
-  if (error?.code === 2) {
-    showAlert('warning', 'GPS position unavailable. Retrying…');
-  } else {
-    showAlert('warning', 'GPS signal lost. Retrying location updates…');
-  }
+
+  const isUnavailable = error?.code === 2;
+  const errorLabel = isUnavailable ? 'GPS position unavailable.' : 'GPS signal lost.';
+  setGpsStatus(`${errorLabel} Acquiring GPS...`, { loading: true });
+  showAlert('warning', `${errorLabel} Retrying location updates…`);
   // Fall back to last known location for map display
   const fallback = getLastKnownLocation();
   if (fallback && !mapState.lastPosition) {
     mapState.lastPosition = { lat: fallback.lat, lng: fallback.lng, accuracy: fallback.accuracy ?? DEFAULT_LOCATION_ACCURACY_M, heading: 0, speed: 0, timestamp: Date.now() };
     queueMapRender();
   }
+  scheduleGpsRetry(error);
 }
 
-async function startLocationTracking() {
+function scheduleGpsRetry(error) {
+  clearGpsAcquisitionTimeout();
+  if (gpsRetryTimeoutId !== null) return;
+
+  const nextAttempt = mapState.gpsRetryCount + 1;
+  if (nextAttempt > GPS_RETRY_MAX_ATTEMPTS) {
+    mapState.gpsRetryExhausted = true;
+    setGpsStatus('Waiting for GPS signal to return...', { loading: true });
+    logGpsEvent('warn', 'GPS retry limit reached; keeping watch active for automatic recovery.', error);
+    return;
+  }
+
+  mapState.gpsRetryCount = nextAttempt;
+  const delay = GPS_RETRY_BASE_DELAY_MS * (2 ** (nextAttempt - 1)); // Retry delays before attempts 1-3: 2s, 4s, 8s
+  setGpsStatus(`Acquiring GPS... retry ${nextAttempt}/${GPS_RETRY_MAX_ATTEMPTS} in ${Math.round(delay / 1000)}s`, { loading: true });
+  logGpsEvent('info', `Scheduling GPS retry ${nextAttempt}/${GPS_RETRY_MAX_ATTEMPTS}.`, { delay, error });
+  gpsRetryTimeoutId = window.setTimeout(() => {
+    gpsRetryTimeoutId = null;
+    restartLocationTracking({ reason: 'retry' }).catch(restartError => {
+      logGpsEvent('error', 'GPS retry restart failed.', restartError);
+    });
+  }, delay);
+}
+
+function startGpsAcquisitionTimeout() {
+  clearGpsAcquisitionTimeout();
+  gpsAcquireTimeoutId = window.setTimeout(() => {
+    logGpsEvent('warn', `GPS acquisition timed out after ${GPS_ACQUISITION_TIMEOUT_MS}ms.`);
+    handleGeoError({ code: 3, message: 'GPS acquisition timed out.' });
+  }, GPS_ACQUISITION_TIMEOUT_MS);
+}
+
+async function beginGeolocationWatch() {
+  if (gpsWatchId !== null) return;
+  startGpsAcquisitionTimeout();
+  gpsWatchId = navigator.geolocation.watchPosition(handlePositionUpdate, handleGeoError, getGeolocationOptions());
+  logGpsEvent('info', 'Started navigator.geolocation.watchPosition.', { watchId: gpsWatchId });
+}
+
+async function requestGeolocationPermission() {
+  return new Promise(resolve => {
+    navigator.geolocation.getCurrentPosition(
+      async position => {
+        logGpsEvent('info', 'Geolocation permission granted via prompt callback.');
+        await handlePositionUpdate(position);
+        resolve(true);
+      },
+      error => {
+        logGpsEvent(error?.code === 1 ? 'warn' : 'error', 'Geolocation permission request failed.', error);
+        handleGeoError(error);
+        resolve(false);
+      },
+      getGeolocationOptions()
+    );
+  });
+}
+
+async function startLocationTracking({ reason = 'start' } = {}) {
   if (!navigator.geolocation) {
+    logGpsEvent('error', 'Geolocation API is unavailable in this browser.');
+    setGpsStatus('Geolocation is unavailable on this browser.', { loading: false });
     showAlert('warning', 'Geolocation is unavailable on this browser.');
     return;
   }
@@ -1884,32 +2247,50 @@ async function startLocationTracking() {
   // Check/request permission
   try {
     if (navigator.permissions?.query) {
-      const perm = await navigator.permissions.query({ name: 'geolocation' });
-      mapState.locationPermissionState = perm.state;
-      perm.onchange = () => {
-        mapState.locationPermissionState = perm.state;
-        if (perm.state === 'denied') {
-          showAlert('warning', 'Location access denied. Tracking paused.');
-          stopLocationTracking();
-        } else if (perm.state === 'granted') {
-          startLocationTracking();
+      gpsPermissionStatus = await navigator.permissions.query({ name: 'geolocation' });
+      mapState.locationPermissionState = gpsPermissionStatus.state;
+      gpsPermissionStatus.onchange = () => {
+        mapState.locationPermissionState = gpsPermissionStatus.state;
+        logGpsEvent('info', `Geolocation permission changed to ${gpsPermissionStatus.state}.`);
+        if (gpsPermissionStatus.state === 'denied') {
+          handleGeoError({ code: 1, message: 'Geolocation permission denied.' });
+        } else if (gpsPermissionStatus.state === 'granted' && gpsWatchId === null) {
+          restartLocationTracking({ reason: 'permission-granted' }).catch(error => {
+            logGpsEvent('error', 'Unable to restart GPS tracking after permission change.', error);
+          });
         }
       };
+      if (gpsPermissionStatus.state === 'denied') {
+        handleGeoError({ code: 1, message: 'Geolocation permission denied.' });
+        return;
+      }
     }
   } catch (_e) {
     mapState.locationPermissionState = 'prompt';
   }
 
-  // Primary: continuous watchPosition
-  gpsWatchId = navigator.geolocation.watchPosition(handlePositionUpdate, handleGeoError, getGeolocationOptions());
+  logGpsEvent('info', `Starting GPS tracking (${reason}).`, { permission: mapState.locationPermissionState });
+  setGpsStatus('Acquiring GPS...', { loading: true });
+  if (mapState.locationPermissionState !== 'granted') {
+    const permissionGranted = await requestGeolocationPermission();
+    if (!permissionGranted && mapState.locationPermissionState === 'denied') return;
+  }
 
-  // Secondary: polling interval for browsers that throttle watchPosition
+  await beginGeolocationWatch();
+
+  // Detect stale fixes and reconnect automatically when watchPosition stalls.
   gpsPollIntervalId = window.setInterval(() => {
-    navigator.geolocation.getCurrentPosition(handlePositionUpdate, handleGeoError, getGeolocationOptions());
+    if (!mapState.lastUpdateAt || (Date.now() - mapState.lastUpdateAt) < GPS_STALE_POSITION_MS) return;
+    logGpsEvent('warn', 'GPS updates are stale; restarting watchPosition.', { lastUpdateAt: mapState.lastUpdateAt });
+    setGpsStatus('Acquiring GPS... stale fix detected.', { loading: true });
+    stopLocationTracking();
+    scheduleGpsRetry({ code: 3, message: 'GPS updates are stale.' });
   }, mapState.updateFrequencyMs);
 }
 
 function stopLocationTracking() {
+  clearGpsAcquisitionTimeout();
+  clearGpsRetryTimer();
   if (gpsWatchId !== null) {
     navigator.geolocation.clearWatch(gpsWatchId);
     gpsWatchId = null;
@@ -1920,15 +2301,20 @@ function stopLocationTracking() {
   }
 }
 
+async function restartLocationTracking({ reason = 'restart' } = {}) {
+  stopLocationTracking();
+  await startLocationTracking({ reason });
+}
+
 async function refreshTrackingFrequency() {
   if (gpsWatchId === null) return;
-  stopLocationTracking();
-  await startLocationTracking();
+  await restartLocationTracking({ reason: 'frequency-change' });
 }
 
 async function ensureDriverLocation() {
   // If we already have a live position, nothing to do
   if (mapState.lastPosition) return;
+  setGpsStatus('Acquiring GPS...', { loading: true });
 
   // Try last known from storage
   const stored = getLastKnownLocation();
@@ -1942,9 +2328,10 @@ async function ensureDriverLocation() {
           p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
           err => {
             if (err?.code === 1) mapState.locationPermissionState = 'denied';
+            logGpsEvent('warn', 'Initial GPS acquisition failed.', err);
             reject(err);
           },
-          { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 }
+          { enableHighAccuracy: true, timeout: INITIAL_GPS_LOOKUP_TIMEOUT_MS, maximumAge: 1000 }
         );
       });
       await handlePositionUpdate({ coords: { latitude: coords.lat, longitude: coords.lng, accuracy: coords.accuracy, speed: null, heading: null } });
@@ -1956,6 +2343,7 @@ async function ensureDriverLocation() {
   mapState.centerLat = fallback.lat;
   mapState.centerLng = fallback.lng;
   currentProfile = { ...(currentProfile || {}), lat: fallback.lat, lng: fallback.lng };
+  setGpsStatus(stored ? 'Acquiring GPS... using last known location.' : 'Acquiring GPS... waiting for live location.', { loading: true });
   queueMapRender();
 }
 
@@ -2376,6 +2764,7 @@ async function loadAvailableRideRequests() {
   }
 
   renderAvailableRideRequests();
+  scheduleRouteRefresh();
 }
 
 function renderRideHistory() {
@@ -2514,7 +2903,7 @@ function renderRideDetailsModal(ride) {
   modal.setAttribute('aria-hidden', 'false');
   // Refresh route data for this ride
   routeCache.cachedAt = 0;
-  recalculateRouteData().catch(() => {});
+  scheduleRouteRefresh({ force: true, fitRoute: true });
   queueMapRender();
 }
 
@@ -2525,6 +2914,8 @@ function closeRideDetailsModal() {
   document.getElementById('ride-fare-breakdown').textContent = '';
   document.getElementById('rider-rating-controls').classList.add('d-none');
   selectedRideForDetails = null;
+  routeCache.cachedAt = 0;
+  scheduleRouteRefresh({ force: true });
   queueMapRender();
 }
 
@@ -3146,11 +3537,26 @@ function setupMapControls() {
     mapState.updateFrequencyMs = Number(event.target.value) || 3000;
     routeCache.cachedAt = 0;
     refreshTrackingFrequency().catch(() => {});
+    scheduleRouteRefresh({ force: true });
     showAlert('info', `GPS update interval set to ${mapState.updateFrequencyMs / 1000}s.`);
   });
 
   // GPS simulation
   document.getElementById('simulate-gps-button').addEventListener('click', toggleGpsSimulation);
+  document.getElementById('refresh-route-button')?.addEventListener('click', () => {
+    routeCache.cachedAt = 0;
+    scheduleRouteRefresh({ force: true, fitRoute: true });
+    showAlert('info', 'Refreshing live route…');
+  });
+  document.getElementById('route-visibility-button')?.addEventListener('click', () => {
+    mapState.routeVisible = !mapState.routeVisible;
+    if (mapState.routeVisible) {
+      mapState.routeFitPending = true;
+    }
+    updateMapboxRoute();
+    updateMapboxMarkers();
+    updateMapUiReadouts();
+  });
   document.getElementById('mapbox-token-save')?.addEventListener('click', () => {
     const input = document.getElementById('mapbox-token-input');
     const token = String(input?.value || '').trim();
@@ -3160,7 +3566,7 @@ function setupMapControls() {
     showMapTokenOverlay(false);
     initializeMapbox().then(() => {
       routeCache.cachedAt = 0;
-      recalculateRouteData().catch(() => {});
+      scheduleRouteRefresh({ force: true, fitRoute: true });
       queueMapRender();
     });
   });
@@ -3253,7 +3659,7 @@ window.addEventListener('load', async () => {
     if (document.visibilityState === 'visible') {
       requestWakeLock();
       routeCache.cachedAt = 0;
-      recalculateRouteData().catch(() => {});
+      scheduleRouteRefresh({ force: true });
       navigator.geolocation?.getCurrentPosition(handlePositionUpdate, handleGeoError, getGeolocationOptions());
     }
   });
@@ -3263,6 +3669,7 @@ window.addEventListener('load', async () => {
     stopLocationTracking();
     if (gpsSimulationIntervalId !== null) window.clearInterval(gpsSimulationIntervalId);
     if (rideRequestCountdownIntervalId !== null) window.clearInterval(rideRequestCountdownIntervalId);
+    if (routeRefreshTimeoutId !== null) window.clearTimeout(routeRefreshTimeoutId);
     if (wakeLockSentinel && typeof wakeLockSentinel.release === 'function') wakeLockSentinel.release().catch(() => {});
   });
 
@@ -3286,8 +3693,7 @@ window.addEventListener('load', async () => {
   });
   window.addEventListener('beforeunload', () => {
     clearRealtimeConnections();
-    if (geolocationWatchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(geolocationWatchId);
-    geolocationWatchId = null;
+    stopLocationTracking();
   });
   renderMap();
 });
