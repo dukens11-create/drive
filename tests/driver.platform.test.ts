@@ -6,6 +6,8 @@ import * as drivers from '../src/services/drivers.service';
 import * as kyc from '../src/services/kyc.service';
 import * as rides from '../src/services/rides.service';
 
+const WAIT_TIMEOUT_MS = 6 * 60 * 1000;
+
 function resetDriverData() {
   store.drivers.clear();
   store.rides.clear();
@@ -81,9 +83,8 @@ test('ride request auto-assigns an eligible online driver and releases on comple
   assert.equal(request.dispatch.selected?.driverId, 'driver_dispatch');
   assert.equal(store.drivers.get('driver_dispatch')?.availabilityStatus, 'assigned');
 
-  // start() accepts both 'accepted' and 'arrived_at_pickup' for backward compat;
-  // this test exercises the direct accepted → started path.
-  await rides.start({ rideId: request.ride.id, driverId: 'driver_dispatch' });
+  await rides.arrive({ rideId: request.ride.id, driverId: 'driver_dispatch' });
+  await rides.start({ rideId: request.ride.id, driverId: 'driver_dispatch', riderConfirmed: true });
   const complete = await rides.complete({ rideId: request.ride.id, driverId: 'driver_dispatch' });
   assert.equal(complete.ok, true);
   assert.equal(store.drivers.get('driver_dispatch')?.availabilityStatus, 'online');
@@ -128,7 +129,8 @@ test('driver can send trip chat and rate passenger after completion', async () =
   assert.equal(tripMessage.ok, true);
   assert.equal(tripMessage.message.type, 'chat_message');
 
-  await rides.start({ rideId: request.ride.id, driverId: 'driver_feedback' });
+  await rides.arrive({ rideId: request.ride.id, driverId: 'driver_feedback' });
+  await rides.start({ rideId: request.ride.id, driverId: 'driver_feedback', riderConfirmed: true });
   await rides.complete({ rideId: request.ride.id, driverId: 'driver_feedback' });
 
   const passengerRating = await rides.ratePassenger({
@@ -139,6 +141,10 @@ test('driver can send trip chat and rate passenger after completion', async () =
   });
   assert.equal(passengerRating.ok, true);
   assert.equal(passengerRating.rating, 5);
+
+  const riderRating = await rides.rate({ rideId: request.ride.id, riderId: 'rider_feedback', rating: 5, review: 'Great ride.' });
+  assert.equal(riderRating.ok, true);
+  assert.equal(store.rides.get(request.ride.id)?.lifecycleState, 'rated');
 });
 
 async function setupVerifiedDriver(userId: string, lat: number, lng: number) {
@@ -196,9 +202,10 @@ test('full lifecycle: accepted → arrived_at_pickup → started → completed',
   const arrived = await rides.arrive({ rideId: request.ride.id, driverId: 'driver_full' });
   assert.equal(arrived.ride.status, 'arrived_at_pickup');
 
-  const started = await rides.start({ rideId: request.ride.id, driverId: 'driver_full' });
+  const started = await rides.start({ rideId: request.ride.id, driverId: 'driver_full', riderConfirmed: true });
   assert.equal(started.ok, true);
   assert.equal(started.ride.status, 'started');
+  assert.equal(started.ride.lifecycleState, 'in_progress');
 
   const complete = await rides.complete({ rideId: request.ride.id, driverId: 'driver_full' });
   assert.equal(complete.ok, true);
@@ -212,11 +219,13 @@ test('driver reports rider no-show: ride canceled with rider_no_show reason', as
   const request = await rides.request({ riderId: 'rider_noshow', pickupLat: 23.01, pickupLng: 23.01, miles: 2, minutes: 5 });
   await rides.arrive({ rideId: request.ride.id, driverId: 'driver_noshow' });
 
-  const noShow = await rides.noShow({ rideId: request.ride.id, driverId: 'driver_noshow' });
+  const noShow = await rides.noShow({ rideId: request.ride.id, driverId: 'driver_noshow', manual: true });
   assert.equal(noShow.ok, true);
   assert.equal(noShow.ride.status, 'canceled');
+  assert.equal(noShow.ride.lifecycleState, 'no_show');
   assert.equal(noShow.ride.cancellationReason, 'rider_no_show');
   assert.equal(noShow.ride.cancellationActorRole, 'driver');
+  assert.equal(noShow.cancellation.cancellationFeeCents, 500);
   assert.ok(noShow.ride.noShowReportedAt, 'noShowReportedAt should be set');
   assert.equal(store.drivers.get('driver_noshow')?.availabilityStatus, 'online');
 });
@@ -230,6 +239,24 @@ test('no-show requires arrived_at_pickup status first', async () => {
 
   const noShowEarly = await rides.noShow({ rideId: request.ride.id, driverId: 'driver_noshow_early' });
   assert.ok(noShowEarly.error, 'no-show should be blocked before arriving at pickup');
+});
+
+test('auto no-show requires wait timer expiration unless driver confirms manually', async () => {
+  resetDriverData();
+  await setupVerifiedDriver('driver_noshow_timer', 24.5, 24.5);
+
+  const request = await rides.request({ riderId: 'rider_noshow_timer', pickupLat: 24.51, pickupLng: 24.51, miles: 2, minutes: 5 });
+  await rides.arrive({ rideId: request.ride.id, driverId: 'driver_noshow_timer' });
+
+  const tooSoon = await rides.noShow({ rideId: request.ride.id, driverId: 'driver_noshow_timer' });
+  assert.equal(tooSoon.error, 'wait timer must expire before automatic no-show');
+
+  const ride = store.rides.get(request.ride.id);
+  assert.ok(ride);
+  ride.waitingSince = new Date(Date.now() - WAIT_TIMEOUT_MS).toISOString();
+
+  const autoNoShow = await rides.noShow({ rideId: request.ride.id, driverId: 'driver_noshow_timer' });
+  assert.equal(autoNoShow.ok, true);
 });
 
 test('driver cancels trip with reason before pickup', async () => {
@@ -252,7 +279,8 @@ test('driver cancel is blocked once trip has started', async () => {
   await setupVerifiedDriver('driver_cancel_started', 26, 26);
 
   const request = await rides.request({ riderId: 'rider_cancel_started', pickupLat: 26.01, pickupLng: 26.01, miles: 2, minutes: 5 });
-  await rides.start({ rideId: request.ride.id, driverId: 'driver_cancel_started' });
+  await rides.arrive({ rideId: request.ride.id, driverId: 'driver_cancel_started' });
+  await rides.start({ rideId: request.ride.id, driverId: 'driver_cancel_started', riderConfirmed: true });
 
   const canceled = await rides.driverCancel({ rideId: request.ride.id, driverId: 'driver_cancel_started' });
   assert.ok(canceled.error, 'cancel should be blocked after trip started');

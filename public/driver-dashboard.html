@@ -2077,6 +2077,20 @@
             </div>
             <div id="ride-details-content" class="modal-lite-content"></div>
             <div id="ride-fare-breakdown" class="modal-lite-content pt-0 text-muted small"></div>
+            <div id="ride-action-confirmation" class="modal-lite-content pt-0 d-none" aria-live="polite">
+                <div class="fw-semibold mb-2" id="ride-action-confirmation-title">Confirm Action</div>
+                <div id="ride-action-confirmation-message" class="text-muted small mb-2"></div>
+                <div id="ride-action-confirmation-fields" class="row g-2 d-none">
+                    <div class="col-12">
+                        <label for="ride-action-confirmation-input" id="ride-action-confirmation-label" class="form-label">Details</label>
+                        <input id="ride-action-confirmation-input" class="form-control" type="text" maxlength="200" placeholder="">
+                    </div>
+                </div>
+                <div class="d-flex gap-2 mt-2">
+                    <button id="ride-action-confirm-button" class="primary-action" type="button">Confirm</button>
+                    <button id="ride-action-dismiss-button" class="secondary-action" type="button">Cancel</button>
+                </div>
+            </div>
             <div id="rider-rating-controls" class="modal-lite-content pt-0 d-none">
                 <div class="fw-semibold mb-2">Rider Rating</div>
                 <div class="row g-2">
@@ -2103,6 +2117,8 @@
                 <button id="arrived-button" class="secondary-action" type="button"><i class="bi bi-geo-alt-fill"></i> Arrived at Pickup</button>
                 <button id="start-trip-button" class="secondary-action" type="button"><i class="bi bi-play-fill"></i> Start Trip</button>
                 <button id="end-trip-button" class="secondary-action" type="button"><i class="bi bi-flag-fill"></i> End Trip</button>
+                <button id="mark-no-show-button" class="secondary-action" type="button"><i class="bi bi-person-x-fill"></i> Mark No-Show</button>
+                <button id="cancel-trip-button" class="secondary-action" type="button"><i class="bi bi-x-octagon-fill"></i> Cancel Trip</button>
                 <button id="pickup-directions-button" class="secondary-action" type="button"><i class="bi bi-sign-turn-right"></i> Navigate to Pickup</button>
                 <button id="dropoff-directions-button" class="primary-action" type="button"><i class="bi bi-geo"></i> Navigate to Dropoff</button>
             </div>

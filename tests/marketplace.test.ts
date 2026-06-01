@@ -158,7 +158,8 @@ test('flat promo discount reduces rider charge on ride completion', async () => 
   assert.equal(req.discountCents, 100);
 
   const rideId = req.ride.id;
-  await rides.start({ rideId, driverId: 'driver_promo_1' });
+  await rides.arrive({ rideId, driverId: 'driver_promo_1' });
+  await rides.start({ rideId, driverId: 'driver_promo_1', riderConfirmed: true });
   const done = await rides.complete({ rideId, driverId: 'driver_promo_1' });
   assert.equal(done.ok, true);
   assert.equal(done.discountCents, 100);
@@ -290,7 +291,8 @@ test('referral bonus is credited to referrer on referred user first completed ri
   await marketplace.register_referral({ actor: { id: 'referred_rider' }, referralCode: refCode.referralCode });
 
   const req = await rides.request({ riderId: 'referred_rider', pickupLat: 10.01, pickupLng: 10.01, miles: 4, minutes: 8 });
-  await rides.start({ rideId: req.ride.id, driverId: 'driver_ref_bonus' });
+  await rides.arrive({ rideId: req.ride.id, driverId: 'driver_ref_bonus' });
+  await rides.start({ rideId: req.ride.id, driverId: 'driver_ref_bonus', riderConfirmed: true });
   await rides.complete({ rideId: req.ride.id, driverId: 'driver_ref_bonus' });
 
   // Referral event should now be paid
@@ -317,13 +319,15 @@ test('referral bonus is not paid twice on second completed ride', async () => {
 
   // First ride - pays bonus
   const req1 = await rides.request({ riderId: 'referred_once', pickupLat: 10.01, pickupLng: 10.01, miles: 3, minutes: 6 });
-  await rides.start({ rideId: req1.ride.id, driverId: 'driver_ref_once_1' });
+  await rides.arrive({ rideId: req1.ride.id, driverId: 'driver_ref_once_1' });
+  await rides.start({ rideId: req1.ride.id, driverId: 'driver_ref_once_1', riderConfirmed: true });
   await rides.complete({ rideId: req1.ride.id, driverId: 'driver_ref_once_1' });
 
   await setupVerifiedDriver('driver_ref_once_2');
   // Second ride - no bonus
   const req2 = await rides.request({ riderId: 'referred_once', pickupLat: 10.01, pickupLng: 10.01, miles: 3, minutes: 6 });
-  await rides.start({ rideId: req2.ride.id, driverId: 'driver_ref_once_2' });
+  await rides.arrive({ rideId: req2.ride.id, driverId: 'driver_ref_once_2' });
+  await rides.start({ rideId: req2.ride.id, driverId: 'driver_ref_once_2', riderConfirmed: true });
   await rides.complete({ rideId: req2.ride.id, driverId: 'driver_ref_once_2' });
 
   const referrerTxs = store.walletTx.filter(tx => tx.userId === 'referrer_once' && tx.reason.startsWith('referral:'));
@@ -343,7 +347,8 @@ test('list_referrals returns referral events and total paid bonus for referrer',
   assert.equal(beforeRide.totalBonusCents, 0);
 
   const req = await rides.request({ riderId: 'referred_list', pickupLat: 10.01, pickupLng: 10.01, miles: 3, minutes: 6 });
-  await rides.start({ rideId: req.ride.id, driverId: 'driver_list_ref' });
+  await rides.arrive({ rideId: req.ride.id, driverId: 'driver_list_ref' });
+  await rides.start({ rideId: req.ride.id, driverId: 'driver_list_ref', riderConfirmed: true });
   await rides.complete({ rideId: req.ride.id, driverId: 'driver_list_ref' });
 
   const afterRide = await marketplace.list_referrals({ actor: { id: 'referrer_list' } });
@@ -369,7 +374,8 @@ test('driver earnings returns per-ride breakdown after completing rides', async 
   });
 
   const req = await rides.request({ riderId: 'rider_earn_1', pickupLat: 10.01, pickupLng: 10.01, miles: 5, minutes: 10 });
-  await rides.start({ rideId: req.ride.id, driverId: 'driver_earn_1' });
+  await rides.arrive({ rideId: req.ride.id, driverId: 'driver_earn_1' });
+  await rides.start({ rideId: req.ride.id, driverId: 'driver_earn_1', riderConfirmed: true });
   await rides.complete({ rideId: req.ride.id, driverId: 'driver_earn_1' });
 
   const result = await drivers.earnings({ userId: 'driver_earn_1' });
@@ -389,13 +395,15 @@ test('driver earnings accumulates across multiple rides', async () => {
   await setupVerifiedDriver('driver_earn_multi');
 
   const req1 = await rides.request({ riderId: 'rider_em1', pickupLat: 10.01, pickupLng: 10.01, miles: 3, minutes: 6 });
-  await rides.start({ rideId: req1.ride.id, driverId: 'driver_earn_multi' });
+  await rides.arrive({ rideId: req1.ride.id, driverId: 'driver_earn_multi' });
+  await rides.start({ rideId: req1.ride.id, driverId: 'driver_earn_multi', riderConfirmed: true });
   await rides.complete({ rideId: req1.ride.id, driverId: 'driver_earn_multi' });
 
   await drivers.availability({ userId: 'driver_earn_multi', status: 'online' });
 
   const req2 = await rides.request({ riderId: 'rider_em2', pickupLat: 10.01, pickupLng: 10.01, miles: 4, minutes: 8 });
-  await rides.start({ rideId: req2.ride.id, driverId: 'driver_earn_multi' });
+  await rides.arrive({ rideId: req2.ride.id, driverId: 'driver_earn_multi' });
+  await rides.start({ rideId: req2.ride.id, driverId: 'driver_earn_multi', riderConfirmed: true });
   await rides.complete({ rideId: req2.ride.id, driverId: 'driver_earn_multi' });
 
   const result = await drivers.earnings({ userId: 'driver_earn_multi' });

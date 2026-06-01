@@ -27,6 +27,18 @@ export type RefreshTokenSession = {
 
 export type RideStatus = 'requested' | 'accepted' | 'arrived_at_pickup' | 'started' | 'completed' | 'canceled';
 
+export type RideLifecycleState =
+  | 'requested'
+  | 'accepted'
+  | 'arriving'
+  | 'arrived'
+  | 'waiting'
+  | 'no_show'
+  | 'in_progress'
+  | 'completed'
+  | 'cancelled'
+  | 'rated';
+
 export type RideEvent = {
   id: string;
   type: string;
@@ -35,6 +47,25 @@ export type RideEvent = {
   actorId?: string;
   actorRole?: string;
   createdAt: string;
+};
+
+export type RideFareDetails = {
+  currency: string;
+  baseFare: number;
+  distanceFare: number;
+  timeFare: number;
+  meterFare: number;
+  surgeMultiplier: number;
+  surgeFare: number;
+  serviceFeePercent: number;
+  serviceFee: number;
+  taxes: number;
+  tolls: number;
+  discounts: number;
+  tips: number;
+  subtotal: number;
+  total: number;
+  driverEarnings: number;
 };
 
 export type Ride = {
@@ -52,6 +83,7 @@ export type Ride = {
   promoId?: string;
   discountCents?: number;
   status: RideStatus;
+  lifecycleState?: RideLifecycleState;
   rating?: number;
   review?: string;
   ratedAt?: string;
@@ -60,10 +92,19 @@ export type Ride = {
   passengerRatedAt?: string;
   arrivedAt?: string;
   waitingSince?: string;
+  waitTimeoutAt?: string;
+  startConfirmationAt?: string;
+  startedAt?: string;
+  completedAt?: string;
   noShowReportedAt?: string;
+  noShowFeeCents?: number;
+  photoEvidenceUrl?: string;
   canceledAt?: string;
   cancellationReason?: string;
   cancellationActorRole?: 'rider' | 'driver' | 'system';
+  cancellationFeeCents?: number;
+  paymentStatus?: string;
+  fareDetails?: RideFareDetails;
   events?: RideEvent[];
   createdAt: string;
   updatedAt: string;

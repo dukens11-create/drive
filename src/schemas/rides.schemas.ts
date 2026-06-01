@@ -69,7 +69,7 @@ export const rideLookupSchema = z.object({
 
 export const rideHistorySchema = z.object({
   limit: z.number().int().min(1).max(100).optional(),
-  status: z.enum(['requested', 'accepted', 'started', 'completed', 'canceled']).optional()
+  status: z.enum(['requested', 'accepted', 'arrived_at_pickup', 'started', 'completed', 'canceled']).optional()
 }).passthrough();
 
 export const rideNotificationsSchema = z.object({

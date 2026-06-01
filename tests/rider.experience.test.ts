@@ -134,7 +134,12 @@ test('rider-facing trip history, detail, receipt, notification, cancellation, an
     assert.equal(secondRide.ok, true);
     assert.equal(secondRide.ride.status, 'accepted');
 
-    const startResponse = await postJson(baseUrl, '/api/rides/start', { rideId: secondRide.ride.id }, driver.accessToken);
+    const arriveResponse = await postJson(baseUrl, '/api/rides/arrive', { rideId: secondRide.ride.id }, driver.accessToken);
+    const arriveBody = await arriveResponse.json();
+    assert.equal(arriveBody.ok, true);
+    assert.equal(arriveBody.ride.status, 'arrived_at_pickup');
+
+    const startResponse = await postJson(baseUrl, '/api/rides/start', { rideId: secondRide.ride.id, riderConfirmed: true }, driver.accessToken);
     const startBody = await startResponse.json();
     assert.equal(startBody.ok, true);
     assert.equal(startBody.ride.status, 'started');
@@ -160,6 +165,22 @@ test('rider-facing trip history, detail, receipt, notification, cancellation, an
     assert.equal(ratingBody.rating, 5);
     assert.equal(ratingBody.review, 'Smooth pickup and great communication.');
     assert.equal(ratingBody.driverRating, 5);
+
+    const thirdRideRequest = await postJson(
+      baseUrl,
+      '/api/rides/request',
+      { pickupLat: 37.7, pickupLng: -122.4, dropoffLat: 37.77, dropoffLng: -122.47, miles: 2, minutes: 8 },
+      rider.accessToken
+    );
+    const thirdRide = await thirdRideRequest.json();
+    assert.equal(thirdRide.ok, true);
+    await postJson(baseUrl, '/api/rides/arrive', { rideId: thirdRide.ride.id }, driver.accessToken);
+
+    const lateCancelResponse = await postJson(baseUrl, '/api/rides/cancel', { rideId: thirdRide.ride.id, reason: 'late_cancel' }, rider.accessToken);
+    const lateCancelBody = await lateCancelResponse.json();
+    assert.equal(lateCancelBody.ok, true);
+    assert.equal(lateCancelBody.cancellation.cancellationFeeCents, 400);
+    assert.equal(lateCancelBody.receipt.totalCents, 400);
 
     const historyAfterCompleteResponse = await postJson(baseUrl, '/api/rides/history', { limit: 10 }, rider.accessToken);
     const historyAfterComplete = await historyAfterCompleteResponse.json();
