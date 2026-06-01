@@ -1,5 +1,5 @@
 import type { Server } from 'socket.io';
-import { makeId, store, timestamp, type DispatchEvent, type Ride, type RideEvent } from '../database/data.store';
+import { makeId, store, timestamp, type DispatchEvent, type Ride, type RideEvent, type RideRequest } from '../database/data.store';
 
 type DriverRealtimeLocation = {
   lat: number;
@@ -94,18 +94,18 @@ function getDriverRealtimeLocation(driverId: string): DriverRealtimeLocation | n
 }
 
 function getDriverRealtimeRides(driverId: string): DriverRealtimeRide[] {
-  const activeRequestByRideId = new Map(
-    Array.from(store.rideRequests.values())
-      .filter(request => request.status === 'broadcasting')
-      .map(request => [request.rideId, request] as const)
-  );
+  const activeRequestByRideId = new Map<string, RideRequest>();
+  const nowMs = Date.now();
+  for (const request of store.rideRequests.values()) {
+    if (request.status === 'broadcasting') activeRequestByRideId.set(request.rideId, request);
+  }
   return Array.from(store.rides.values())
     .filter(ride => {
       if (ride.driverId === driverId) return true;
       if (ride.status !== 'requested' || ride.driverId) return false;
       const request = activeRequestByRideId.get(ride.id);
       if (!request) return false;
-      if (new Date(request.expiresAt).getTime() <= Date.now()) return false;
+      if (new Date(request.expiresAt).getTime() <= nowMs) return false;
       return request.broadcastedDrivers.includes(driverId);
     })
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
@@ -113,9 +113,15 @@ function getDriverRealtimeRides(driverId: string): DriverRealtimeRide[] {
 }
 
 function getRealtimeRequestDriverIds(rideId: string) {
-  const request = Array.from(store.rideRequests.values()).find(entry => entry.rideId === rideId);
+  let request: RideRequest | undefined;
+  for (const entry of store.rideRequests.values()) {
+    if (entry.rideId === rideId) {
+      request = entry;
+      break;
+    }
+  }
   if (!request) return [];
-  return Array.from(new Set([...(request.broadcastedDrivers || []), request.acceptedDriverId].filter(Boolean) as string[]));
+  return Array.from(new Set([...(request.broadcastedDrivers || []), request.acceptedDriverId].filter((value): value is string => typeof value === 'string' && value.length > 0)));
 }
 
 function getRiderRealtimeProfile(riderId: string): RiderRealtimeProfile | null {

@@ -130,7 +130,10 @@ export function PassengerPortalPage({ section, rideId }: { section: PortalSectio
     });
     const upsertRide = (nextRide: RideSummary) => {
       setRides((current) => [nextRide, ...current.filter((ride) => ride.id !== nextRide.id)]);
-      setSelectedRide((current) => (current?.id === nextRide.id ? { ...current, ...nextRide } : current));
+      setSelectedRide((current) => {
+        if (!current || current.id !== nextRide.id) return current;
+        return { ...current, ...nextRide };
+      });
     };
 
     socket.emit('ride:join', { rideId: selectedRide.id });
@@ -139,12 +142,15 @@ export function PassengerPortalPage({ section, rideId }: { section: PortalSectio
     });
     socket.on('ride:status', (payload) => {
       if (!payload?.rideId || payload.rideId !== selectedRide.id) return;
-      setSelectedRide((current) => ({
-        ...current,
-        status: payload.status,
-        driverId: payload.driverId,
-        updatedAt: payload.updatedAt || current.updatedAt,
-      }));
+      setSelectedRide((current) => {
+        if (!current || current.id !== payload.rideId) return current;
+        return {
+          ...current,
+          status: payload.status,
+          driverId: payload.driverId,
+          updatedAt: payload.updatedAt || current.updatedAt,
+        };
+      });
       setRides((current) => current.map((ride) => (ride.id === payload.rideId
         ? { ...ride, status: payload.status, driverId: payload.driverId, updatedAt: payload.updatedAt || ride.updatedAt }
         : ride)));
