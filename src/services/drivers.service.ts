@@ -1,4 +1,18 @@
-import { markStoreDirty, store, type DriverProfile } from '../database/data.store';
+import { randomUUID } from 'crypto';
+import { markStoreDirty, store, timestamp, type DriverProfile, type DriverVerificationDocument } from '../database/data.store';
+
+type DriverDocumentInput = string | {
+  id?: string;
+  type?: string;
+  fileName?: string;
+  expiryDate?: string;
+  documentNumber?: string;
+  extractedText?: string;
+  selfieMatchScore?: number;
+};
+
+const SELFIE_DOCUMENT_TYPE = 'Selfie Photo';
+const LICENSE_DOCUMENT_TYPE = 'Driver License';
 
 function getProfile(userId: string) {
   return store.drivers.get(userId);
@@ -15,7 +29,15 @@ function createDefaultDriverProfile(userId: string): DriverProfile {
     acceptanceRate: 1,
     cancellationRate: 0,
     earningsCents: 0,
-    documents: []
+    documents: [],
+    verificationDocuments: [],
+    selfieVerification: {
+      status: 'missing',
+      score: 0
+    },
+    verificationReview: {
+      status: 'pending_review'
+    }
   };
 }
 
@@ -31,16 +53,151 @@ function getOrCreateProfile(userId: string, role?: string): DriverProfile | unde
   return undefined;
 }
 
+function toTitleCase(value: string) {
+  return value
+    .toLowerCase()
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function normalizeDocumentType(type: unknown) {
+  const normalized = String(type || '').trim().toLowerCase();
+  if (!normalized) return 'Document';
+  if (normalized === 'license' || normalized === 'driver license' || normalized === 'license scan') return LICENSE_DOCUMENT_TYPE;
+  if (normalized === 'selfie' || normalized === 'selfie photo' || normalized === 'face verification') return SELFIE_DOCUMENT_TYPE;
+  if (normalized === 'insurance') return 'Insurance';
+  if (normalized === 'vehicle registration' || normalized === 'registration') return 'Vehicle Registration';
+  return toTitleCase(normalized);
+}
+
+function buildFallbackLicenseNumber(userId: string) {
+  const compact = String(userId || '')
+    .replace(/[^a-z0-9]/gi, '')
+    .toUpperCase()
+    .slice(-8);
+  return `DL-${compact || '00000000'}`;
+}
+
+function buildLicenseOcrText(userId: string, document: { expiryDate?: string; documentNumber?: string; extractedText?: string }) {
+  if (document.extractedText?.trim()) return document.extractedText.trim();
+  const user = store.users.get(userId);
+  const holderName = user?.email?.split('@')[0]?.replace(/[._-]+/g, ' ') || userId;
+  const licenseNumber = document.documentNumber?.trim() || buildFallbackLicenseNumber(userId);
+  return [
+    'DRIVER LICENSE',
+    `Name: ${holderName}`,
+    `License Number: ${licenseNumber}`,
+    `Expiry Date: ${document.expiryDate || 'Not provided'}`
+  ].join('\n');
+}
+
+function scoreSelfieVerification(score: unknown) {
+  const numeric = Number(score);
+  // Treat 0.75+ as a strong automated match, 0.5-0.74 as needing manual review,
+  // and anything lower as a failed comparison that should block approval.
+  if (!Number.isFinite(numeric)) return { score: 0, status: 'pending_review' as const };
+  if (numeric >= 0.75) return { score: numeric, status: 'matched' as const };
+  if (numeric >= 0.5) return { score: numeric, status: 'pending_review' as const };
+  return { score: Math.max(0, numeric), status: 'failed' as const };
+}
+
+function parseLegacyDocument(input: string) {
+  const [rawType, rawExpiryDate, rawFileName] = input.split(':');
+  return {
+    id: undefined,
+    type: normalizeDocumentType(rawType || input),
+    expiryDate: rawExpiryDate || undefined,
+    fileName: rawFileName || `${String(rawType || input || 'document').trim().toLowerCase().replace(/[^a-z0-9]+/gi, '-') || 'document'}.jpg`,
+    documentNumber: undefined,
+    extractedText: undefined,
+    selfieMatchScore: undefined
+  };
+}
+
+function ensureVerificationData(profile: DriverProfile) {
+  if (!Array.isArray(profile.verificationDocuments)) {
+    profile.verificationDocuments = [];
+  }
+  if (!profile.selfieVerification) {
+    profile.selfieVerification = {
+      status: 'missing',
+      score: 0
+    };
+  }
+  if (!profile.verificationReview) {
+    profile.verificationReview = {
+      status: 'pending_review'
+    };
+  }
+  if (!Array.isArray(profile.documents)) {
+    profile.documents = [];
+  }
+
+  const now = timestamp();
+  if (!profile.verificationDocuments.length && profile.documents.length) {
+    profile.verificationDocuments = profile.documents.map((documentValue, index) => {
+      const legacy = parseLegacyDocument(documentValue);
+      const normalizedDocument: DriverVerificationDocument = {
+        id: `legacy_${profile.userId}_${index + 1}`,
+        type: legacy.type,
+        fileName: legacy.fileName,
+        expiryDate: legacy.expiryDate,
+        uploadedAt: now,
+        verificationStatus: 'pending_review'
+      };
+      if (legacy.type === LICENSE_DOCUMENT_TYPE) {
+        normalizedDocument.ocrText = buildLicenseOcrText(profile.userId, legacy);
+        normalizedDocument.extractedFields = {
+          licenseNumber: buildFallbackLicenseNumber(profile.userId),
+          expiryDate: legacy.expiryDate
+        };
+      }
+      return normalizedDocument;
+    });
+  }
+
+  const selfieDocument = profile.verificationDocuments.find(document => document.type === SELFIE_DOCUMENT_TYPE);
+  if (selfieDocument && profile.selfieVerification.status === 'missing') {
+    profile.selfieVerification = {
+      status: 'pending_review',
+      score: 0,
+      fileName: selfieDocument.fileName,
+      checkedAt: selfieDocument.uploadedAt
+    };
+  }
+}
+
+function serializeDocuments(profile: DriverProfile) {
+  ensureVerificationData(profile);
+  profile.documents = profile.verificationDocuments!.map(document => [
+    document.type,
+    document.expiryDate,
+    document.fileName
+  ].filter(Boolean).join(':'));
+}
+
+function hasCompletedVerificationUploads(profile: DriverProfile) {
+  ensureVerificationData(profile);
+  const hasLicense = profile.verificationDocuments!.some(document => document.type === LICENSE_DOCUMENT_TYPE);
+  const selfieStatus = profile.selfieVerification?.status || 'missing';
+  return hasLicense && selfieStatus !== 'missing' && selfieStatus !== 'failed';
+}
+
 function syncProfileState(profile: any) {
-  if (profile.status === 'rejected') {
+  ensureVerificationData(profile);
+  serializeDocuments(profile);
+
+  if (profile.verificationReview?.status === 'rejected' || profile.status === 'rejected') {
     profile.verificationState = 'rejected';
-  } else if (profile.status === 'approved') {
-    profile.verificationState = 'verified';
-  } else if ((profile.documents || []).length < 2) {
+  } else if (!hasCompletedVerificationUploads(profile)) {
     profile.verificationState = 'documents_pending';
   } else {
     const kyc = store.kycStatus.get(profile.userId);
-    if (kyc === 'verified') profile.verificationState = 'verified';
+    if (kyc === 'verified') {
+      profile.verificationState = profile.verificationReview?.status === 'approved' ? 'verified' : 'review_pending';
+    }
     else if (kyc === 'rejected') profile.verificationState = 'rejected';
     else profile.verificationState = 'kyc_pending';
   }
@@ -117,13 +274,23 @@ export async function apply(body: any, _params?: any, _query?: any) {
 
   const existing = getProfile(userId);
   if (existing) {
+    ensureVerificationData(existing);
     existing.lat = body?.lat ?? existing.lat;
     existing.lng = body?.lng ?? existing.lng;
     if (existing.status === 'rejected') {
       existing.status = 'pending';
       existing.documents = [];
+      existing.verificationDocuments = [];
+      existing.selfieVerification = {
+        status: 'missing',
+        score: 0
+      };
+      existing.verificationReview = {
+        status: 'pending_review'
+      };
       existing.available = false;
     }
+    syncProfileState(existing);
     markStoreDirty();
     return { module: 'drivers', action: 'apply', ok: true, profile: existing };
   }
@@ -140,7 +307,15 @@ export async function apply(body: any, _params?: any, _query?: any) {
     acceptanceRate: 1,
     cancellationRate: 0,
     earningsCents: 0,
-    documents: [] as string[]
+    documents: [] as string[],
+    verificationDocuments: [] as DriverVerificationDocument[],
+    selfieVerification: {
+      status: 'missing' as const,
+      score: 0
+    },
+    verificationReview: {
+      status: 'pending_review' as const
+    }
   };
   store.drivers.set(userId, profile);
   return { module: 'drivers', action: 'apply', ok: true, profile };
@@ -234,8 +409,69 @@ export async function documents(body: any, _params?: any, _query?: any) {
   const userId = body?.actor?.id || body?.userId;
   const profile = getProfile(userId);
   if (!profile) return { module: 'drivers', action: 'documents', error: 'driver not found' };
-  const docs = Array.isArray(body?.documents) ? body.documents : [];
-  profile.documents = [...new Set([...profile.documents, ...docs])];
+  ensureVerificationData(profile);
+  const docs = Array.isArray(body?.documents) ? body.documents as DriverDocumentInput[] : [];
+  const now = timestamp();
+
+  docs.forEach((documentInput, index) => {
+    const parsed = typeof documentInput === 'string' ? parseLegacyDocument(documentInput) : {
+      id: documentInput?.id,
+      type: normalizeDocumentType(documentInput?.type),
+      fileName: documentInput?.fileName || `driver-document-${index + 1}.jpg`,
+      expiryDate: documentInput?.expiryDate || undefined,
+      documentNumber: documentInput?.documentNumber || undefined,
+      extractedText: documentInput?.extractedText || undefined,
+      selfieMatchScore: documentInput?.selfieMatchScore
+    };
+
+    const verificationDocument: DriverVerificationDocument = {
+      id: parsed.id || randomUUID(),
+      type: parsed.type,
+      fileName: parsed.fileName,
+      expiryDate: parsed.expiryDate,
+      uploadedAt: now,
+      verificationStatus: 'pending_review'
+    };
+
+    if (parsed.type === LICENSE_DOCUMENT_TYPE) {
+      verificationDocument.ocrText = buildLicenseOcrText(userId, parsed);
+      verificationDocument.extractedFields = {
+        fullName: store.users.get(userId)?.email?.split('@')[0] || userId,
+        licenseNumber: parsed.documentNumber || buildFallbackLicenseNumber(userId),
+        expiryDate: parsed.expiryDate
+      };
+    }
+
+    if (parsed.type === SELFIE_DOCUMENT_TYPE) {
+      const selfie = scoreSelfieVerification(parsed.selfieMatchScore);
+      profile.selfieVerification = {
+        status: selfie.status,
+        score: Number(selfie.score.toFixed(2)),
+        fileName: parsed.fileName,
+        checkedAt: now
+      };
+      verificationDocument.verificationStatus = selfie.status === 'matched' ? 'auto_verified' : 'pending_review';
+    }
+
+    const existingIndex = profile.verificationDocuments!.findIndex(existingDocument => {
+      if (verificationDocument.type === SELFIE_DOCUMENT_TYPE) {
+        return existingDocument.type === SELFIE_DOCUMENT_TYPE;
+      }
+      return existingDocument.type === verificationDocument.type && existingDocument.fileName === verificationDocument.fileName;
+    });
+
+    if (existingIndex >= 0) profile.verificationDocuments!.splice(existingIndex, 1);
+    profile.verificationDocuments!.unshift(verificationDocument);
+  });
+
+  if (docs.length) {
+    profile.verificationReview = {
+      status: 'pending_review',
+      notes: profile.verificationReview?.status === 'rejected' ? 'Driver resubmitted verification documents for another review.' : profile.verificationReview?.notes
+    };
+  }
+
+  serializeDocuments(profile);
   syncProfileState(profile);
   markStoreDirty();
   return { module: 'drivers', action: 'documents', ok: true, profile };

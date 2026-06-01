@@ -94,7 +94,15 @@ function createDefaultDriverProfile(userId: string): DriverProfile {
     acceptanceRate: 1,
     cancellationRate: 0,
     earningsCents: 0,
-    documents: []
+    documents: [],
+    verificationDocuments: [],
+    selfieVerification: {
+      status: 'missing',
+      score: 0
+    },
+    verificationReview: {
+      status: 'pending_review'
+    }
   };
 }
 

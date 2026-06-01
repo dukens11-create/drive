@@ -111,10 +111,40 @@ export type MarketConfig = {
   updatedAt: string;
 };
 
+export type DriverVerificationDocument = {
+  id: string;
+  type: string;
+  fileName: string;
+  expiryDate?: string;
+  uploadedAt: string;
+  ocrText?: string;
+  extractedFields?: {
+    fullName?: string;
+    licenseNumber?: string;
+    expiryDate?: string;
+  };
+  verificationStatus: 'pending_review' | 'approved' | 'rejected' | 'auto_verified';
+};
+
+export type DriverSelfieVerification = {
+  status: 'missing' | 'pending_review' | 'matched' | 'failed';
+  score: number;
+  fileName?: string;
+  checkedAt?: string;
+};
+
+export type DriverVerificationReview = {
+  status: 'pending_review' | 'approved' | 'rejected';
+  notes?: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  checklist?: string[];
+};
+
 export type DriverProfile = {
   userId: string;
   status: 'pending' | 'approved' | 'rejected';
-  verificationState: 'documents_pending' | 'kyc_pending' | 'verified' | 'rejected';
+  verificationState: 'documents_pending' | 'kyc_pending' | 'review_pending' | 'verified' | 'rejected';
   availabilityStatus: 'offline' | 'online' | 'assigned' | 'unavailable';
   available: boolean;
   lat?: number;
@@ -124,6 +154,9 @@ export type DriverProfile = {
   cancellationRate: number;
   earningsCents: number;
   documents: string[];
+  verificationDocuments?: DriverVerificationDocument[];
+  selfieVerification?: DriverSelfieVerification;
+  verificationReview?: DriverVerificationReview;
 };
 
 export type Payment = {
@@ -562,10 +595,39 @@ export type ChatMessage = {
   attachmentUrl?: string;
   attachmentType?: string;
   location?: { lat: number; lng: number; label?: string };
+  voiceNoteUrl?: string;
+  voiceNoteDurationSecs?: number;
+  transcription?: string;
+  translations?: Record<string, string>;
   reactions: ChatReaction[];
   readBy: ChatReadReceipt[];
   editedAt?: string;
   deletedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type QuickReplyTemplate = {
+  id: string;
+  ownerId: string;
+  label: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CallSessionStatus = 'initiated' | 'ringing' | 'active' | 'ended' | 'missed' | 'declined';
+
+export type CallSession = {
+  id: string;
+  rideId?: string;
+  callerId: string;
+  calleeId: string;
+  status: CallSessionStatus;
+  callType: 'voip' | 'native';
+  startedAt?: string;
+  endedAt?: string;
+  durationSecs?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -594,6 +656,11 @@ export type NotificationPreference = {
   frequency: 'instant' | 'hourly' | 'daily' | 'weekly';
   categories: string[];
   timezone: string;
+  quietHours?: {
+    enabled: boolean;
+    start: string;
+    end: string;
+  };
   updatedAt: string;
 };
 
@@ -663,6 +730,8 @@ type PersistedStore = {
   chatConversations: Array<[string, ChatConversation]>;
   chatParticipants: ChatParticipant[];
   chatMessages: ChatMessage[];
+  quickReplyTemplates: QuickReplyTemplate[];
+  callSessions: CallSession[];
   notificationLogs: NotificationLog[];
   notificationPreferences: Array<[string, NotificationPreference]>;
   deviceTokens: DeviceToken[];
@@ -768,6 +837,8 @@ export const store = {
   chatConversations: new PersistentMap<string, ChatConversation>(),
   chatParticipants: createPersistentArray<ChatParticipant>(),
   chatMessages: createPersistentArray<ChatMessage>(),
+  quickReplyTemplates: createPersistentArray<QuickReplyTemplate>(),
+  callSessions: createPersistentArray<CallSession>(),
   notificationLogs: createPersistentArray<NotificationLog>(),
   notificationPreferences: new PersistentMap<string, NotificationPreference>(),
   deviceTokens: createPersistentArray<DeviceToken>()
@@ -814,6 +885,8 @@ function toSerializableStore(): PersistedStore {
     chatConversations: Array.from(store.chatConversations.entries()),
     chatParticipants: [...store.chatParticipants],
     chatMessages: [...store.chatMessages],
+    quickReplyTemplates: [...store.quickReplyTemplates],
+    callSessions: [...store.callSessions],
     notificationLogs: [...store.notificationLogs],
     notificationPreferences: Array.from(store.notificationPreferences.entries()),
     deviceTokens: [...store.deviceTokens]
@@ -902,6 +975,8 @@ function hydrateStore() {
     for (const [id, conversation] of parsed.chatConversations || []) store.chatConversations.set(id, conversation);
     for (const participant of parsed.chatParticipants || []) store.chatParticipants.push(participant);
     for (const message of parsed.chatMessages || []) store.chatMessages.push(message);
+    for (const template of parsed.quickReplyTemplates || []) store.quickReplyTemplates.push(template);
+    for (const call of parsed.callSessions || []) store.callSessions.push(call);
     for (const log of parsed.notificationLogs || []) store.notificationLogs.push(log);
     for (const [userId, preference] of parsed.notificationPreferences || []) store.notificationPreferences.set(userId, preference);
     for (const deviceToken of parsed.deviceTokens || []) store.deviceTokens.push(deviceToken);

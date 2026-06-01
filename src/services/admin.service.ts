@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'crypto';
 import * as authService from './auth.service';
 import * as restaurantsService from './restaurants.service';
+import { syncDriverVerificationState } from './drivers.service';
 import {
   appendAuditLog,
   getActiveSurgeMultiplier,
@@ -35,6 +36,25 @@ function sanitizeUser(user: (User & { suspended?: boolean }) | undefined): SafeU
 function sanitizeApiKey(apiKey: AdminApiKey) {
   const { keyHash, ...safe } = apiKey;
   return safe;
+}
+
+function buildDriverReviewChecklist(profile: any) {
+  const checklist: string[] = [];
+  if (Array.isArray(profile?.verificationDocuments) && profile.verificationDocuments.some((document: { type?: string }) => document.type === 'Driver License')) {
+    checklist.push('License scan reviewed');
+  }
+  if (profile?.selfieVerification?.status === 'matched') {
+    checklist.push('Selfie verification matched');
+  } else if (profile?.selfieVerification?.status) {
+    checklist.push(`Selfie status: ${profile.selfieVerification.status}`);
+  }
+  if (Array.isArray(profile?.verificationDocuments) && profile.verificationDocuments.some((document: { ocrText?: string }) => document.ocrText)) {
+    checklist.push('OCR text extracted');
+  }
+  if (store.kycStatus.get(profile?.userId) === 'verified') {
+    checklist.push('KYC verified');
+  }
+  return checklist;
 }
 
 function safeNumber(rawValue: unknown, fallback = 0) {
@@ -723,23 +743,38 @@ export async function drivers_pending(_body: any, _params?: any, _query?: any) {
 export async function approve_driver(body: any, _params?: any, _query?: any) {
   const profile = store.drivers.get(body?.userId);
   if (!profile) return { module: 'admin', action: 'approve-driver', error: 'driver profile not found' };
-  const newStatus = body?.approved === false ? 'rejected' : 'approved';
-  profile.status = newStatus;
-  if (newStatus === 'rejected') {
-    profile.verificationState = 'rejected';
-    profile.availabilityStatus = 'unavailable';
-    profile.available = false;
-  } else {
-    profile.verificationState = 'verified';
-    if (!profile.availabilityStatus || profile.availabilityStatus === 'unavailable') profile.availabilityStatus = 'offline';
-    profile.available = profile.availabilityStatus === 'online';
-  }
-  markStoreDirty();
   const actor = body?.__actor;
-  if (actor) {
-    appendAuditLog(actor.sub || actor.id, actor.role, `driver_${newStatus}`, body.userId, 'driver', { approved: body?.approved });
+  const approved = body?.approved !== false;
+  const newStatus = approved ? 'approved' : 'rejected';
+  profile.verificationReview = {
+    status: approved ? 'approved' : 'rejected',
+    notes: typeof body?.notes === 'string' && body.notes.trim() ? body.notes.trim() : approved
+      ? 'Approved after reviewing driver documents, OCR text, and selfie verification.'
+      : 'Rejected after document review. Driver must resubmit verification documents.',
+    reviewedAt: timestamp(),
+    reviewedBy: actor?.sub || actor?.id,
+    checklist: Array.isArray(body?.checklist) && body.checklist.length
+      ? body.checklist.map((item: unknown) => String(item).trim()).filter(Boolean).slice(0, 10)
+      : buildDriverReviewChecklist(profile)
+  };
+  if (Array.isArray(profile.verificationDocuments)) {
+    profile.verificationDocuments = profile.verificationDocuments.map(document => ({
+      ...document,
+      verificationStatus: approved
+        ? (document.type === 'Selfie Photo' && profile.selfieVerification?.status === 'matched' ? 'auto_verified' : 'approved')
+        : 'rejected'
+    }));
   }
-  return { module: 'admin', action: 'approve-driver', ok: true, profile };
+  const syncedProfile = syncDriverVerificationState(body?.userId) || profile;
+  markStoreDirty();
+  if (actor) {
+    appendAuditLog(actor.sub || actor.id, actor.role, `driver_${newStatus}`, body.userId, 'driver', {
+      approved: body?.approved,
+      notes: profile.verificationReview.notes,
+      checklist: profile.verificationReview.checklist
+    });
+  }
+  return { module: 'admin', action: 'approve-driver', ok: true, profile: syncedProfile };
 }
 
 export async function live_rides(_body: any, _params?: any, _query?: any) {

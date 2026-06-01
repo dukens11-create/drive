@@ -3,11 +3,15 @@ import {
   markStoreDirty,
   store,
   timestamp,
+  type CallSession,
+  type CallSessionStatus,
   type ChatConversation,
   type ChatConversationType,
   type ChatMessage,
-  type ChatParticipant
+  type ChatParticipant,
+  type QuickReplyTemplate
 } from '../database/data.store';
+import { isSupportedLocale, SUPPORTED_LOCALES } from '../i18n';
 
 const typingState = new Map<string, Map<string, string>>();
 
@@ -128,8 +132,12 @@ export async function sendMessage(body: any, params?: any) {
     ? { lat: Number(body.location.lat), lng: Number(body.location.lng), label: body.location.label }
     : undefined;
 
-  if (!content && !body?.attachmentUrl && !location) {
-    return { module: 'chat', action: 'send-message', error: 'content, attachmentUrl, or location is required' };
+  const voiceNoteUrl = typeof body?.voiceNoteUrl === 'string' ? body.voiceNoteUrl.trim() || undefined : undefined;
+  const voiceNoteDurationSecs = Number.isFinite(Number(body?.voiceNoteDurationSecs)) ? Number(body.voiceNoteDurationSecs) : undefined;
+  const transcription = typeof body?.transcription === 'string' ? body.transcription.trim() || undefined : undefined;
+
+  if (!content && !body?.attachmentUrl && !location && !voiceNoteUrl) {
+    return { module: 'chat', action: 'send-message', error: 'content, attachmentUrl, location, or voiceNoteUrl is required' };
   }
 
   const now = timestamp();
@@ -141,6 +149,9 @@ export async function sendMessage(body: any, params?: any) {
     attachmentUrl: body?.attachmentUrl || undefined,
     attachmentType: body?.attachmentType || undefined,
     location,
+    voiceNoteUrl,
+    voiceNoteDurationSecs,
+    transcription,
     reactions: [],
     readBy: [{ userId: actorId, readAt: now }],
     createdAt: now,
@@ -293,4 +304,179 @@ export async function reactToMessage(body: any, params?: any) {
   message.updatedAt = timestamp();
   markStoreDirty();
   return { module: 'chat', action: 'react-message', ok: true, message };
+}
+
+// ─── Quick Reply Templates ─────────────────────────────────────────────────
+
+export async function listQuickReplies(body: any) {
+  const actorId = getActorId(body);
+  if (!actorId) return { module: 'chat', action: 'list-quick-replies', error: 'userId required' };
+
+  const templates = store.quickReplyTemplates.filter(template => template.ownerId === actorId);
+  return { module: 'chat', action: 'list-quick-replies', ok: true, templates };
+}
+
+export async function createQuickReply(body: any) {
+  const actorId = getActorId(body);
+  if (!actorId) return { module: 'chat', action: 'create-quick-reply', error: 'userId required' };
+
+  const label = typeof body?.label === 'string' ? body.label.trim() : '';
+  const content = typeof body?.content === 'string' ? body.content.trim() : '';
+  if (!label) return { module: 'chat', action: 'create-quick-reply', error: 'label is required' };
+  if (!content) return { module: 'chat', action: 'create-quick-reply', error: 'content is required' };
+
+  const now = timestamp();
+  const template: QuickReplyTemplate = {
+    id: makeId('qr'),
+    ownerId: actorId,
+    label,
+    content,
+    createdAt: now,
+    updatedAt: now
+  };
+  store.quickReplyTemplates.push(template);
+  markStoreDirty();
+  return { module: 'chat', action: 'create-quick-reply', ok: true, template };
+}
+
+export async function deleteQuickReply(body: any, params?: any) {
+  const actorId = getActorId(body);
+  const templateId = params?.id || body?.templateId;
+  if (!actorId || !templateId) return { module: 'chat', action: 'delete-quick-reply', error: 'templateId required' };
+
+  const index = store.quickReplyTemplates.findIndex(
+    template => template.id === templateId && template.ownerId === actorId
+  );
+  if (index === -1) {
+    const exists = store.quickReplyTemplates.some(template => template.id === templateId);
+    return { module: 'chat', action: 'delete-quick-reply', error: exists ? 'forbidden' : 'template not found' };
+  }
+  store.quickReplyTemplates.splice(index, 1);
+  markStoreDirty();
+  return { module: 'chat', action: 'delete-quick-reply', ok: true };
+}
+
+// ─── Call Sessions ─────────────────────────────────────────────────────────
+
+export async function initiateCall(body: any) {
+  const actorId = getActorId(body);
+  if (!actorId) return { module: 'chat', action: 'initiate-call', error: 'userId required' };
+
+  const calleeId = typeof body?.calleeId === 'string' ? body.calleeId.trim() : '';
+  if (!calleeId) return { module: 'chat', action: 'initiate-call', error: 'calleeId is required' };
+  if (!store.users.has(calleeId)) return { module: 'chat', action: 'initiate-call', error: 'callee not found' };
+
+  const callType: 'voip' | 'native' = body?.callType === 'native' ? 'native' : 'voip';
+  const now = timestamp();
+  const call: CallSession = {
+    id: makeId('call'),
+    rideId: typeof body?.rideId === 'string' ? body.rideId : undefined,
+    callerId: actorId,
+    calleeId,
+    status: 'ringing',
+    callType,
+    createdAt: now,
+    updatedAt: now
+  };
+  store.callSessions.push(call);
+  markStoreDirty();
+  return { module: 'chat', action: 'initiate-call', ok: true, call };
+}
+
+export async function getCall(body: any, params?: any) {
+  const actorId = getActorId(body);
+  const callId = params?.id || body?.callId;
+  if (!actorId || !callId) return { module: 'chat', action: 'get-call', error: 'callId required' };
+
+  const call = store.callSessions.find(c => c.id === callId);
+  if (!call) return { module: 'chat', action: 'get-call', error: 'call not found' };
+  if (call.callerId !== actorId && call.calleeId !== actorId) {
+    return { module: 'chat', action: 'get-call', error: 'forbidden' };
+  }
+  return { module: 'chat', action: 'get-call', ok: true, call };
+}
+
+export async function updateCallStatus(body: any, params?: any) {
+  const actorId = getActorId(body);
+  const callId = params?.id || body?.callId;
+  if (!actorId || !callId) return { module: 'chat', action: 'update-call', error: 'callId required' };
+
+  const call = store.callSessions.find(c => c.id === callId);
+  if (!call) return { module: 'chat', action: 'update-call', error: 'call not found' };
+  if (call.callerId !== actorId && call.calleeId !== actorId) {
+    return { module: 'chat', action: 'update-call', error: 'forbidden' };
+  }
+
+  const allowed: CallSessionStatus[] = ['active', 'ended', 'declined', 'missed'];
+  const status: CallSessionStatus = allowed.includes(body?.status) ? body.status : 'ended';
+
+  const now = timestamp();
+  if (status === 'active' && !call.startedAt) call.startedAt = now;
+  if ((status === 'ended' || status === 'declined' || status === 'missed') && !call.endedAt) {
+    call.endedAt = now;
+    if (call.startedAt) {
+      call.durationSecs = Math.round((new Date(now).getTime() - new Date(call.startedAt).getTime()) / 1000);
+    }
+  }
+  call.status = status;
+  call.updatedAt = now;
+  markStoreDirty();
+  return { module: 'chat', action: 'update-call', ok: true, call };
+}
+
+// ─── Message Translation ───────────────────────────────────────────────────
+
+const TRANSLATION_TABLE: Record<string, Record<string, string>> = {
+  'I am on my way': { es: 'Estoy en camino', fr: 'Je suis en route', de: 'Ich bin auf dem Weg', pt: 'Estou a caminho', ru: 'Я в пути', zh: '我在路上', ja: '向かっています', ar: 'أنا في الطريق', hi: 'मैं रास्ते में हूँ', ko: '가고 있습니다' },
+  'I will arrive soon': { es: 'Llegaré pronto', fr: "J'arriverai bientôt", de: 'Ich komme bald an', pt: 'Vou chegar em breve', ru: 'Я скоро прибуду', zh: '我很快就到', ja: 'もうすぐ到着します', ar: 'سأصل قريباً', hi: 'मैं जल्द ही पहुंचूंगा', ko: '곧 도착합니다' },
+  'Please wait for me': { es: 'Por favor espérame', fr: 'Veuillez m\'attendre', de: 'Bitte warten Sie auf mich', pt: 'Por favor, espere por mim', ru: 'Пожалуйста, подождите меня', zh: '请等我一下', ja: '待っていてください', ar: 'من فضلك انتظرني', hi: 'कृपया मेरा इंतजार करें', ko: '기다려 주세요' },
+  'I have arrived': { es: 'He llegado', fr: 'Je suis arrivé', de: 'Ich bin angekommen', pt: 'Cheguei', ru: 'Я приехал', zh: '我到了', ja: '到着しました', ar: 'لقد وصلت', hi: 'मैं पहुंच गया', ko: '도착했습니다' },
+};
+
+/**
+ * mockTranslate provides a simple lookup-based translation for a small set of
+ * common phrases. This is a development/testing placeholder — replace with a
+ * real translation API (e.g. Google Translate, DeepL) in production.
+ */
+function mockTranslate(text: string, targetLocale: string): string {
+  const langCode = targetLocale.split('-')[0];
+  for (const [source, translations] of Object.entries(TRANSLATION_TABLE)) {
+    if (text.toLowerCase().includes(source.toLowerCase())) {
+      const translated = translations[langCode] || translations[targetLocale];
+      if (translated) return text.replace(new RegExp(source, 'i'), translated);
+    }
+  }
+  return `[${targetLocale}] ${text}`;
+}
+
+export async function translateMessage(body: any, params?: any) {
+  const actorId = getActorId(body);
+  const messageId = params?.id || body?.messageId;
+  const targetLocale = typeof body?.targetLocale === 'string' ? body.targetLocale.trim() : '';
+
+  if (!actorId || !messageId) return { module: 'chat', action: 'translate-message', error: 'messageId required' };
+  if (!targetLocale) return { module: 'chat', action: 'translate-message', error: 'targetLocale required' };
+  if (!isSupportedLocale(targetLocale)) {
+    return {
+      module: 'chat', action: 'translate-message',
+      error: `unsupported locale: ${targetLocale}. Supported: ${SUPPORTED_LOCALES.join(', ')}`
+    };
+  }
+
+  const message = store.chatMessages.find(entry => entry.id === messageId);
+  if (!message) return { module: 'chat', action: 'translate-message', error: 'message not found' };
+
+  const lookup = getConversationForUser(message.conversationId, actorId);
+  if ('error' in lookup) return { module: 'chat', action: 'translate-message', error: lookup.error };
+
+  if (!message.translations) message.translations = {};
+  if (!message.translations[targetLocale]) {
+    message.translations[targetLocale] = mockTranslate(message.content, targetLocale);
+    message.updatedAt = timestamp();
+    markStoreDirty();
+  }
+  return {
+    module: 'chat', action: 'translate-message', ok: true,
+    messageId, targetLocale, translatedContent: message.translations[targetLocale]
+  };
 }

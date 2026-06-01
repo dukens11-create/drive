@@ -1,4 +1,6 @@
 import { appendAuditLog, makeId, markStoreDirty, store, timestamp } from '../database/data.store';
+import { sendRealtimePushEvent } from './notifications.service';
+import { logger } from '../utils/logger';
 
 export async function create_ticket(body: any, _params?: any, _query?: any) {
   const ticket = {
@@ -53,6 +55,23 @@ export async function reply_ticket(body: any, _params?: any, _query?: any) {
   }
   ticket.updatedAt = timestamp();
   markStoreDirty();
+  if (
+    ticket.userId &&
+    ticket.userId !== reply.authorId &&
+    (reply.authorRole === 'admin' || reply.authorRole === 'support')
+  ) {
+    try {
+      await sendRealtimePushEvent({
+        userId: ticket.userId,
+        category: 'support_replies',
+        title: 'New support reply',
+        body: 'Support has replied to your ticket. Open the app to review the response.',
+        template: 'support_reply'
+      });
+    } catch (error: any) {
+      logger.warn('Support reply notification failed', { ticketId: ticket.id, userId: ticket.userId, error: error?.message });
+    }
+  }
   return { module: 'support', action: 'reply-ticket', ok: true, reply, ticket };
 }
 

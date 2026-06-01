@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { store } from '../src/database/data.store';
+import * as admin from '../src/services/admin.service';
 import * as marketplace from '../src/services/marketplace.service';
 import * as rides from '../src/services/rides.service';
 import * as drivers from '../src/services/drivers.service';
 import * as kyc from '../src/services/kyc.service';
+import * as notifications from '../src/services/notifications.service';
 
 function resetStores() {
   store.rides.clear();
@@ -17,12 +19,27 @@ function resetStores() {
   store.referralCodes.clear();
   store.referralEvents.splice(0, store.referralEvents.length);
   store.markets.clear();
+  store.notificationLogs.splice(0, store.notificationLogs.length);
+  store.notificationPreferences.clear();
+  store.deviceTokens.splice(0, store.deviceTokens.length);
 }
 
 async function setupVerifiedDriver(driverId: string) {
   await drivers.apply({ userId: driverId });
-  await drivers.documents({ userId: driverId, documents: ['license', 'insurance'] });
+  await drivers.documents({
+    userId: driverId,
+    documents: [
+      { type: 'Driver License', fileName: `${driverId}-license.jpg`, expiryDate: '2030-08-31' },
+      { type: 'Selfie Photo', fileName: `${driverId}-selfie.jpg`, selfieMatchScore: 0.9 }
+    ]
+  });
   await kyc.webhook({ userId: driverId, status: 'verified' });
+  const approval = await admin.approve_driver({
+    userId: driverId,
+    approved: true,
+    __actor: { id: 'admin_test', sub: 'admin_test', role: 'admin' }
+  });
+  assert.equal(approval.ok, true);
   await drivers.location({ userId: driverId, lat: 10, lng: 10 });
   await drivers.availability({ userId: driverId, status: 'online' });
 }
@@ -262,6 +279,12 @@ test('register_referral rejects duplicate referral for same user', async () => {
 test('referral bonus is credited to referrer on referred user first completed ride', async () => {
   resetStores();
   await setupVerifiedDriver('driver_ref_bonus');
+  await notifications.registerDeviceToken({ userId: 'referrer_bonus', token: 'referrer-bonus-token', platform: 'ios' });
+  await notifications.upsertNotificationPreferences({
+    userId: 'referrer_bonus',
+    categories: ['bonuses'],
+    quietHours: { enabled: false, start: '22:00', end: '07:00' }
+  });
 
   const refCode = await marketplace.get_referral_code({ actor: { id: 'referrer_bonus' } });
   await marketplace.register_referral({ actor: { id: 'referred_rider' }, referralCode: refCode.referralCode });
@@ -280,6 +303,9 @@ test('referral bonus is credited to referrer on referred user first completed ri
   assert.equal(referrerTxs.length, 1);
   assert.equal(referrerTxs[0].amountCents, 500); // $5.00 bonus
   assert.ok(referrerTxs[0].reason.startsWith('referral:'));
+  const bonusPush = store.notificationLogs.find(log => log.userId === 'referrer_bonus' && log.template === 'bonus_referral');
+  assert.ok(bonusPush);
+  assert.equal(bonusPush!.status, 'sent');
 });
 
 test('referral bonus is not paid twice on second completed ride', async () => {
@@ -329,6 +355,18 @@ test('list_referrals returns referral events and total paid bonus for referrer',
 test('driver earnings returns per-ride breakdown after completing rides', async () => {
   resetStores();
   await setupVerifiedDriver('driver_earn_1');
+  await notifications.registerDeviceToken({ userId: 'driver_earn_1', token: 'driver-earnings-token', platform: 'android' });
+  await notifications.registerDeviceToken({ userId: 'rider_earn_1', token: 'rider-trip-token', platform: 'ios' });
+  await notifications.upsertNotificationPreferences({
+    userId: 'driver_earn_1',
+    categories: ['new_rides', 'earnings'],
+    quietHours: { enabled: false, start: '22:00', end: '07:00' }
+  });
+  await notifications.upsertNotificationPreferences({
+    userId: 'rider_earn_1',
+    categories: ['trip_updates'],
+    quietHours: { enabled: false, start: '22:00', end: '07:00' }
+  });
 
   const req = await rides.request({ riderId: 'rider_earn_1', pickupLat: 10.01, pickupLng: 10.01, miles: 5, minutes: 10 });
   await rides.start({ rideId: req.ride.id, driverId: 'driver_earn_1' });
@@ -341,6 +379,9 @@ test('driver earnings returns per-ride breakdown after completing rides', async 
   assert.equal(result.rideEarnings.length, 1);
   assert.equal(result.rideEarnings[0].rideId, req.ride.id);
   assert.equal(result.rideEarnings[0].amountCents > 0, true);
+  assert.equal(store.notificationLogs.some(log => log.userId === 'driver_earn_1' && log.template === 'new_ride_assigned' && log.status === 'sent'), true);
+  assert.equal(store.notificationLogs.some(log => log.userId === 'driver_earn_1' && log.template === 'earnings_ride_payout' && log.status === 'sent'), true);
+  assert.equal(store.notificationLogs.some(log => log.userId === 'rider_earn_1' && log.template === 'trip_update_completed' && log.status === 'sent'), true);
 });
 
 test('driver earnings accumulates across multiple rides', async () => {

@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { createApp } from '../src/app';
+import { env } from '../src/config/env';
 
 async function withServer(run: (baseUrl: string) => Promise<void>) {
   const { httpServer } = createApp();
@@ -49,6 +50,17 @@ async function signup(baseUrl: string, role: 'rider' | 'driver' | 'merchant' = '
   const body = await response.json();
   assert.equal(body.ok, true);
   return body as { user: { id: string }; accessToken: string; refreshToken: string };
+}
+
+async function loginAdmin(baseUrl: string) {
+  const response = await postJson(baseUrl, '/api/auth/login', {
+    email: 'admin@drive.com',
+    password: env.adminSeedPassword
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(typeof body.accessToken, 'string');
+  return body.accessToken as string;
 }
 
 const BASE32_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -134,7 +146,7 @@ test('GET / serves the professional dashboard login page', async () => {
 
       const body = await response.text();
       assert.match(body, /<script src="\/driver-dashboard\.js"><\/script>/);
-      ['toggle-availability-button', 'Ride History', 'Real-time Map', 'Performance Stats', 'Support \/ Help'].forEach(label => {
+      ['toggle-availability-button', 'Ride History', 'Real-time Map', 'Performance Stats', 'Support \/ Help', 'Follow Driver: ON', 'Simulate GPS', 'ETA Pickup', 'Selfie Photo', 'Verification Status'].forEach(label => {
         assert.match(body, new RegExp(label));
       });
       assert.doesNotMatch(body, /\s(onclick|onsubmit)=/);
@@ -345,14 +357,48 @@ test('ride and driver core flow enforces auth boundaries and status transitions'
     const applyBody = await applyResponse.json();
     assert.equal(applyBody.ok, true);
 
-    const documentsResponse = await postJson(baseUrl, '/api/drivers/documents', { documents: ['license', 'insurance'] }, driver.accessToken);
+    const documentsResponse = await postJson(baseUrl, '/api/drivers/documents', {
+      documents: [
+        {
+          type: 'Driver License',
+          fileName: 'license-front.jpg',
+          expiryDate: '2030-08-31',
+          documentNumber: 'D-123-456-789'
+        },
+        {
+          type: 'Selfie Photo',
+          fileName: 'driver-selfie.jpg',
+          selfieMatchScore: 0.93
+        }
+      ]
+    }, driver.accessToken);
     const documentsBody = await documentsResponse.json();
     assert.equal(documentsBody.profile.status, 'pending');
     assert.equal(documentsBody.profile.verificationState, 'kyc_pending');
+    assert.equal(documentsBody.profile.verificationDocuments.length, 2);
+    const licenseDocument = documentsBody.profile.verificationDocuments.find((document: { type: string }) => document.type === 'Driver License');
+    assert.match(licenseDocument.ocrText, /License Number: D-123-456-789/);
+    assert.equal(documentsBody.profile.selfieVerification.status, 'matched');
 
     const kycWebhookResponse = await postJson(baseUrl, '/api/kyc/webhook', { userId: driver.user.id, status: 'verified' });
     const kycWebhookBody = await kycWebhookResponse.json();
     assert.equal(kycWebhookBody.ok, true);
+
+    const reviewPendingResponse = await getJson(baseUrl, '/api/drivers/me', driver.accessToken);
+    const reviewPendingBody = await reviewPendingResponse.json();
+    assert.equal(reviewPendingBody.profile.verificationState, 'review_pending');
+
+    const adminToken = await loginAdmin(baseUrl);
+    const approveResponse = await postJson(baseUrl, '/api/admin/approve-driver', {
+      userId: driver.user.id,
+      approved: true,
+      notes: 'Looks good after OCR and selfie review.',
+      checklist: ['License scan reviewed', 'Selfie verification matched', 'OCR text extracted']
+    }, adminToken);
+    const approveBody = await approveResponse.json();
+    assert.equal(approveBody.ok, true);
+    assert.equal(approveBody.profile.verificationReview.status, 'approved');
+    assert.equal(approveBody.profile.verificationState, 'verified');
 
     const locationResponse = await postJson(baseUrl, '/api/drivers/location', { lat: 37.72, lng: -122.41 }, driver.accessToken);
     const locationBody = await locationResponse.json();

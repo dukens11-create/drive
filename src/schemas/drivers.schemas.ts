@@ -19,6 +19,16 @@ export const locationSchema = z.object({
   lng: z.number()
 }).passthrough();
 
+const driverDocumentSchema = z.object({
+  id: z.string().min(1).optional(),
+  type: z.string().min(1),
+  fileName: z.string().min(1),
+  expiryDate: z.string().min(1).optional(),
+  documentNumber: z.string().min(1).optional(),
+  extractedText: z.string().min(1).optional(),
+  selfieMatchScore: z.number().min(0).max(1).optional()
+}).passthrough();
+
 export const documentsSchema = z.object({
-  documents: z.array(z.string().min(1)).min(1)
+  documents: z.array(z.union([z.string().min(1), driverDocumentSchema])).min(1)
 }).passthrough();

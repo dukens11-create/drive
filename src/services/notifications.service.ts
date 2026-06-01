@@ -14,15 +14,87 @@ import {
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
 
-const DEFAULT_CATEGORIES = ['rides', 'orders', 'promotions', 'system'];
+const PUSH_CATEGORIES = ['new_rides', 'trip_updates', 'earnings', 'bonuses', 'support_replies', 'system'] as const;
+type PushCategory = typeof PUSH_CATEGORIES[number];
+const LEGACY_CATEGORY_MAP: Record<string, PushCategory | undefined> = {
+  rides: 'trip_updates',
+  orders: 'trip_updates',
+  promotions: 'bonuses',
+  system: 'system'
+};
+
+const DEFAULT_CATEGORIES: PushCategory[] = [...PUSH_CATEGORIES];
+const DEFAULT_QUIET_HOURS = { enabled: false, start: '22:00', end: '07:00' };
 
 function getActorId(body: any) {
   return body?.actor?.id || body?.userId;
 }
 
+function normalizePushCategory(value: any): PushCategory {
+  const raw = String(value || '').trim();
+  if (PUSH_CATEGORIES.includes(raw as PushCategory)) return raw as PushCategory;
+  return LEGACY_CATEGORY_MAP[raw] || 'system';
+}
+
+function normalizeCategories(categories: any, fallback: string[]) {
+  if (!Array.isArray(categories) || categories.length === 0) return fallback;
+  const normalized = categories
+    .map((category: any) => normalizePushCategory(category))
+    .filter(Boolean);
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : fallback;
+}
+
+function parseMinutes(value: string) {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  return (hour * 60) + minute;
+}
+
+function isQuietHours(preferences: NotificationPreference, now = new Date()) {
+  const quietHours = preferences.quietHours || DEFAULT_QUIET_HOURS;
+  if (!quietHours.enabled) return false;
+  const start = parseMinutes(quietHours.start);
+  const end = parseMinutes(quietHours.end);
+  if (start == null || end == null) return false;
+
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: preferences.timezone || 'UTC',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    const parts = formatter.formatToParts(now);
+    const hour = Number(parts.find(part => part.type === 'hour')?.value || 0);
+    const minute = Number(parts.find(part => part.type === 'minute')?.value || 0);
+    const current = (hour * 60) + minute;
+
+    // When start equals end (e.g. 00:00 === 00:00), it is treated as an all-day quiet-hours window.
+    if (start === end) return true;
+    if (start < end) return current >= start && current < end;
+    return current >= start || current < end;
+  } catch {
+    return false;
+  }
+}
+
+function isCategoryAllowed(preferences: NotificationPreference, category: PushCategory) {
+  return preferences.categories.length === 0 || preferences.categories.includes(category);
+}
+
 function getNotificationPreferencesForUser(userId: string): NotificationPreference {
   const existing = store.notificationPreferences.get(userId);
-  if (existing) return existing;
+  if (existing) {
+    const normalized: NotificationPreference = {
+      ...existing,
+      categories: normalizeCategories(existing.categories, DEFAULT_CATEGORIES),
+      quietHours: existing.quietHours || { ...DEFAULT_QUIET_HOURS }
+    };
+    store.notificationPreferences.set(userId, normalized);
+    return normalized;
+  }
   const created: NotificationPreference = {
     userId,
     emailOptIn: true,
@@ -31,6 +103,7 @@ function getNotificationPreferencesForUser(userId: string): NotificationPreferen
     frequency: 'instant',
     categories: DEFAULT_CATEGORIES,
     timezone: 'UTC',
+    quietHours: { ...DEFAULT_QUIET_HOURS },
     updatedAt: timestamp()
   };
   store.notificationPreferences.set(userId, created);
@@ -205,12 +278,78 @@ export async function upsertNotificationPreferences(body: any) {
     smsOptIn: body?.smsOptIn ?? current.smsOptIn,
     pushOptIn: body?.pushOptIn ?? current.pushOptIn,
     frequency: body?.frequency || current.frequency,
-    categories: Array.isArray(body?.categories) && body.categories.length > 0 ? Array.from(new Set(body.categories)) : current.categories,
+    categories: normalizeCategories(body?.categories, current.categories),
     timezone: body?.timezone || current.timezone,
+    quietHours: body?.quietHours
+      ? {
+          enabled: !!body.quietHours.enabled,
+          start: String(body.quietHours.start || DEFAULT_QUIET_HOURS.start),
+          end: String(body.quietHours.end || DEFAULT_QUIET_HOURS.end)
+        }
+      : current.quietHours || { ...DEFAULT_QUIET_HOURS },
     updatedAt: timestamp()
   };
   store.notificationPreferences.set(userId, preferences);
   return { module: 'notifications', action: 'preferences', ok: true, preferences };
+}
+
+async function deliverPushToUser(
+  userId: string,
+  title: string,
+  messageBody: string,
+  category: PushCategory,
+  template: string
+) {
+  const preferences = getNotificationPreferencesForUser(userId);
+  if (!preferences.pushOptIn) return { ok: false, error: 'push disabled for user', delivered: 0, queued: 0 };
+  const categoryAllowed = isCategoryAllowed(preferences, category);
+  if (!categoryAllowed) {
+    return { ok: false, error: `category ${category} disabled for user`, delivered: 0, queued: 0 };
+  }
+
+  const targets = Array.from(new Map(
+    store.deviceTokens
+      .filter(entry => entry.userId === userId)
+      .map(target => [target.token, target])
+  ).values());
+  if (targets.length === 0) return { ok: false, error: 'no target devices found', delivered: 0, queued: 0 };
+
+  if (isQuietHours(preferences)) {
+    for (const target of targets) {
+      store.notificationLogs.push({
+        id: makeId('notif'),
+        userId,
+        channel: 'push',
+        recipient: target.token,
+        template,
+        status: 'queued',
+        provider: 'fcm',
+        errorMessage: 'queued_due_to_quiet_hours',
+        createdAt: timestamp()
+      });
+    }
+    return { ok: true, delivered: 0, queued: targets.length, quietHours: true };
+  }
+
+  for (const target of targets) {
+    await recordAndSend('push', target.token, template, 'fcm', () => sendViaFCM(target.token, title, messageBody), userId);
+  }
+  return { ok: true, delivered: targets.length, queued: 0, quietHours: false };
+}
+
+export async function sendRealtimePushEvent(body: any) {
+  const userId = String(body?.userId || '').trim();
+  const title = String(body?.title || '').trim();
+  const messageBody = String(body?.body || '').trim();
+  if (!userId || !title || !messageBody) return { module: 'notifications', action: 'realtime-push', error: 'userId, title and body are required' };
+  const category = normalizePushCategory(body?.category);
+  const template = String(body?.template || category).trim();
+  return {
+    module: 'notifications',
+    action: 'realtime-push',
+    category,
+    ...(await deliverPushToUser(userId, title, messageBody, category, template))
+  };
 }
 
 export async function registerDeviceToken(body: any) {
@@ -245,6 +384,8 @@ export async function sendPush(body: any) {
   const messageBody = String(body?.body || '').trim();
   const actorId = body?.actor?.id;
   const targetUserId = body?.userId || actorId;
+  const category = normalizePushCategory(body?.category);
+  const template = String(body?.template || `manual_${category}`).trim();
   if (!title || !messageBody) return { module: 'notifications', action: 'push', error: 'title and body are required' };
   if (body?.userId && body?.actor?.role !== 'admin' && body.userId !== actorId) {
     return { module: 'notifications', action: 'push', error: 'forbidden' };
@@ -259,21 +400,27 @@ export async function sendPush(body: any) {
   } else if (body?.topic) {
     targets = store.deviceTokens.filter(entry => entry.topics.includes(body.topic));
   } else if (targetUserId) {
-    const preferences = getNotificationPreferencesForUser(targetUserId);
-    if (!preferences.pushOptIn) return { module: 'notifications', action: 'push', error: 'push disabled for user' };
-    targets = store.deviceTokens.filter(entry => entry.userId === targetUserId);
+    const delivery = await deliverPushToUser(targetUserId, title, messageBody, category, template);
+    return { module: 'notifications', action: 'push', category, ...delivery };
   }
 
   if (targets.length === 0) {
     return { module: 'notifications', action: 'push', error: 'no target devices found' };
   }
 
-  const uniqueTargets = Array.from(new Map(targets.map(target => [target.token, target])).values());
+  const uniqueTargets = Array.from(new Map(targets.map(target => [target.token, target])).values())
+    .filter(target => {
+      if (!target.userId) return true;
+      const preferences = getNotificationPreferencesForUser(target.userId);
+      const categoryAllowed = isCategoryAllowed(preferences, category);
+      return preferences.pushOptIn && categoryAllowed && !isQuietHours(preferences);
+    });
   for (const target of uniqueTargets) {
-    await sendPushNotification(target.token, title, messageBody, target.userId);
+    await recordAndSend('push', target.token, template, 'fcm', () => sendViaFCM(target.token, title, messageBody), target.userId);
   }
 
-  return { module: 'notifications', action: 'push', ok: true, delivered: uniqueTargets.length };
+  if (uniqueTargets.length === 0) return { module: 'notifications', action: 'push', category, error: 'no target devices found' };
+  return { module: 'notifications', action: 'push', ok: true, category, delivered: uniqueTargets.length, queued: 0 };
 }
 
 export async function sendEmailNotification(body: any) {

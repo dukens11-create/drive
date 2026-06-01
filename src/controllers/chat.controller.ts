@@ -70,3 +70,51 @@ export async function reactToMessage(req: any, res: any) {
   if (result?.error) return sendError(res, result);
   res.json(result.message);
 }
+
+// ─── Quick Reply Templates ─────────────────────────────────────────────────
+
+export async function listQuickReplies(req: any, res: any) {
+  const result = await service.listQuickReplies({ actor: req.user });
+  if (result?.error) return sendError(res, result);
+  res.json(result.templates);
+}
+
+export async function createQuickReply(req: any, res: any) {
+  const result = await service.createQuickReply({ ...req.body, actor: req.user });
+  if (result?.error) return sendError(res, result);
+  res.status(201).json(result.template);
+}
+
+export async function deleteQuickReply(req: any, res: any) {
+  const result = await service.deleteQuickReply({ actor: req.user }, req.params);
+  if (result?.error) return sendError(res, result);
+  res.json(result);
+}
+
+// ─── Call Sessions ─────────────────────────────────────────────────────────
+
+export async function initiateCall(req: any, res: any) {
+  const result = await service.initiateCall({ ...req.body, actor: req.user });
+  if (result?.error) return sendError(res, result);
+  res.status(201).json(result.call);
+}
+
+export async function getCall(req: any, res: any) {
+  const result = await service.getCall({ actor: req.user }, req.params);
+  if (result?.error) return sendError(res, result);
+  res.json(result.call);
+}
+
+export async function updateCallStatus(req: any, res: any) {
+  const result = await service.updateCallStatus({ ...req.body, actor: req.user }, req.params);
+  if (result?.error) return sendError(res, result);
+  res.json(result.call);
+}
+
+// ─── Message Translation ───────────────────────────────────────────────────
+
+export async function translateMessage(req: any, res: any) {
+  const result = await service.translateMessage({ ...req.body, actor: req.user }, req.params);
+  if (result?.error) return sendError(res, result);
+  res.json(result);
+}

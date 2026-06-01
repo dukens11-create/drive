@@ -334,6 +334,14 @@ export function AdminSectionPage({ section }: { section: SectionKey }) {
   const exportJobs = overview?.exportJobs || [];
   const importJobs = overview?.importJobs || [];
   const bulkJobs = overview?.bulkJobs || [];
+  const verificationQueue = drivers.filter(driver => driver.verificationState === 'review_pending');
+
+  function submitDriverReview(driver: DriverSummary, approved: boolean) {
+    const notes = approved
+      ? 'Approved after reviewing uploaded driver documents, OCR output, and selfie verification.'
+      : 'Rejected after document review. Request resubmission of the verification package.';
+    void approveDriver(driver.userId, approved, notes);
+  }
 
   if (!overview && loading) {
     return <div className="flex min-h-[50vh] items-center justify-center text-sm text-[var(--muted)]">Loading dashboard data…</div>;
@@ -413,7 +421,7 @@ export function AdminSectionPage({ section }: { section: SectionKey }) {
                       <p className="mt-1 text-sm text-[var(--muted)]">{driver.tripCount} trips • {driver.incidentsCount} incidents • rating {driver.rating.toFixed(1)}</p>
                     </div>
                     <div className="flex gap-2">
-                      <button className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm" onClick={() => { void approveDriver(driver.userId, true); }} type="button">Approve</button>
+                      <button className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm" onClick={() => { submitDriverReview(driver, true); }} type="button">Approve</button>
                       <button className="rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white" onClick={() => { void suspendUser(driver.userId, true); }} type="button">Suspend</button>
                     </div>
                   </div>
@@ -498,12 +506,51 @@ export function AdminSectionPage({ section }: { section: SectionKey }) {
                         <Badge tone={driver.status === 'approved' ? 'success' : driver.status === 'pending' ? 'warning' : 'danger'}>{driver.status}</Badge>
                         <Badge>{driver.verificationState}</Badge>
                         <Badge>{driver.availabilityStatus}</Badge>
+                        <Badge tone={driver.selfieVerification?.status === 'matched' ? 'success' : driver.selfieVerification?.status === 'failed' ? 'danger' : 'warning'}>
+                          selfie {driver.selfieVerification?.status || 'missing'}
+                        </Badge>
                       </div>
                       <p className="mt-3 text-sm text-[var(--muted)]">{driver.documents.length} documents • {driver.tripCount} trips • {formatCurrency(driver.earningsCents)} earnings • {driver.incidentsCount} safety flags</p>
+                      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                        {(driver.verificationDocuments || []).slice(0, 4).map(document => (
+                          <div key={document.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="font-medium">{document.type}</p>
+                              <Badge tone={document.verificationStatus === 'approved' || document.verificationStatus === 'auto_verified' ? 'success' : document.verificationStatus === 'rejected' ? 'danger' : 'warning'}>
+                                {document.verificationStatus}
+                              </Badge>
+                            </div>
+                            <p className="mt-2 text-[var(--muted)]">{document.fileName}</p>
+                            <p className="mt-1 text-[var(--muted)]">Expiry {document.expiryDate || 'Not required'}</p>
+                            {document.extractedFields?.licenseNumber ? (
+                              <p className="mt-1 text-[var(--muted)]">OCR license #{document.extractedFields.licenseNumber}</p>
+                            ) : null}
+                            {document.ocrText ? (
+                              <pre className="mt-2 overflow-x-auto rounded-xl bg-[var(--card)] p-3 text-xs text-[var(--muted)] whitespace-pre-wrap">{document.ocrText}</pre>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm text-[var(--muted)]">
+                        <p className="font-medium text-[var(--foreground)]">Review summary</p>
+                        <p
+                          className="mt-2"
+                          aria-label={driver.selfieVerification ? `Selfie verification confidence score ${Math.round((driver.selfieVerification.score || 0) * 100)} percent` : 'Selfie verification confidence score not available'}
+                        >
+                          Selfie match score: {driver.selfieVerification ? `${Math.round((driver.selfieVerification.score || 0) * 100)}%` : 'Not available'}
+                        </p>
+                        <p className="mt-1">Admin review: {driver.verificationReview?.status || 'pending_review'}</p>
+                        {driver.verificationReview?.notes ? <p className="mt-1">{driver.verificationReview.notes}</p> : null}
+                        {driver.verificationReview?.checklist?.length ? (
+                          <ul className="mt-2 list-disc space-y-1 pl-5">
+                            {driver.verificationReview.checklist.map(item => <li key={item}>{item}</li>)}
+                          </ul>
+                        ) : null}
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <button className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm" onClick={() => { void approveDriver(driver.userId, true); }} type="button">Approve</button>
-                      <button className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm" onClick={() => { void approveDriver(driver.userId, false); }} type="button">Reject</button>
+                      <button className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm" onClick={() => { submitDriverReview(driver, true); }} type="button">Approve</button>
+                      <button className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm" onClick={() => { submitDriverReview(driver, false); }} type="button">Reject</button>
                       <button className="rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white" onClick={() => { void suspendUser(driver.userId, true); }} type="button">Deactivate</button>
                     </div>
                   </div>
@@ -511,11 +558,33 @@ export function AdminSectionPage({ section }: { section: SectionKey }) {
               ))}
             </div>
           </SectionCard>
-          <SectionCard title="Bulk driver actions" description="Run targeted operations on the riskiest accounts.">
-            <div className="space-y-3 text-sm">
-              <button className="w-full rounded-2xl border border-[var(--border)] px-4 py-3" onClick={() => { void bulkOperation({ targetType: 'drivers', action: 'suspend', ids: flaggedDrivers.slice(0, 3).map(driver => driver.userId) }); }} type="button">Suspend top 3 flagged drivers</button>
-              <button className="w-full rounded-2xl border border-[var(--border)] px-4 py-3" onClick={() => { void bulkOperation({ targetType: 'drivers', action: 'approve', ids: drivers.filter(driver => driver.status === 'pending').slice(0, 3).map(driver => driver.userId) }); }} type="button">Approve first 3 pending drivers</button>
-              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--muted)]">Messaging is surfaced through audit-ready support replies and account actions while dedicated broadcast messaging is implemented on the backend.</div>
+          <SectionCard title="Verification review queue" description="Review license OCR, selfie verification, and approval workflow before activation.">
+           <div className="space-y-3 text-sm">
+             {verificationQueue.slice(0, 5).map(driver => (
+               <div key={driver.userId} className="rounded-2xl border border-[var(--border)] p-4">
+                 <div className="flex items-start justify-between gap-3">
+                   <div>
+                     <p className="font-semibold">{driver.user?.email || driver.userId}</p>
+                     <p className="mt-1 text-[var(--muted)]">{driver.verificationDocuments?.length || 0} upload(s) • selfie {driver.selfieVerification?.status || 'missing'} • review {driver.verificationReview?.status || 'pending_review'}</p>
+                   </div>
+                   <Badge tone={driver.verificationState === 'review_pending' ? 'warning' : 'default'}>{driver.verificationState}</Badge>
+                 </div>
+                 {(driver.verificationDocuments || []).slice(0, 2).map(document => (
+                   <div key={document.id} className="mt-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                     <p className="font-medium">{document.type}</p>
+                     <p className="mt-1 text-[var(--muted)]">{document.fileName}</p>
+                     {document.ocrText ? <p className="mt-2 text-xs text-[var(--muted)]">{document.ocrText.split('\n').slice(0, 2).join(' • ')}</p> : null}
+                   </div>
+                 ))}
+                 <div className="mt-3 flex gap-2">
+                   <button className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm" onClick={() => { submitDriverReview(driver, true); }} type="button">Approve docs</button>
+                   <button className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm" onClick={() => { submitDriverReview(driver, false); }} type="button">Reject docs</button>
+                 </div>
+               </div>
+             ))}
+             <button className="w-full rounded-2xl border border-[var(--border)] px-4 py-3" onClick={() => { void bulkOperation({ targetType: 'drivers', action: 'suspend', ids: flaggedDrivers.slice(0, 3).map(driver => driver.userId) }); }} type="button">Suspend top 3 flagged drivers</button>
+             <button className="w-full rounded-2xl border border-[var(--border)] px-4 py-3" onClick={() => { void bulkOperation({ targetType: 'drivers', action: 'approve', ids: drivers.filter(driver => driver.status === 'pending').slice(0, 3).map(driver => driver.userId) }); }} type="button">Approve first 3 pending drivers</button>
+             <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--muted)]">Messaging is surfaced through audit-ready support replies and account actions while dedicated broadcast messaging is implemented on the backend.</div>
               {bulkJobs.filter(job => job.targetType === 'drivers').slice(0, 2).map(job => (
                 <div key={job.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--muted)]">
                   {job.action} • {job.succeeded}/{job.total} complete • {formatDate(job.requestedAt)}

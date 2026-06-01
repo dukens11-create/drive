@@ -135,3 +135,23 @@ test('adminApi retries retryable failures before returning a successful response
   assert.equal(attempts, 3);
   assert.equal(response.ok, true);
 });
+
+test('adminApi.approveDriver sends review notes and checklist payload', async () => {
+  let requestBody = '';
+
+  globalThis.fetch = async (_input, init) => {
+    requestBody = String(init?.body || '');
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: {
+        'content-type': 'application/json'
+      }
+    });
+  };
+
+  await adminApi.approveDriver('admin-token', 'driver-1', true, 'Approved after review', ['License scan reviewed', 'Selfie verification matched']);
+
+  assert.match(requestBody, /"userId":"driver-1"/);
+  assert.match(requestBody, /"notes":"Approved after review"/);
+  assert.match(requestBody, /"checklist":\["License scan reviewed","Selfie verification matched"\]/);
+});

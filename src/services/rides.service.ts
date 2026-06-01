@@ -14,11 +14,22 @@ import {
   type Ride
 } from '../database/data.store';
 import { markDriverAssigned, releaseDriverFromRide } from './drivers.service';
+import { sendRealtimePushEvent } from './notifications.service';
+import { logger } from '../utils/logger';
 
 const BASE_FARE = 2.5;
 const DISTANCE_RATE = 1.9;
 const TIME_RATE = 0.25;
 const CURRENCY = 'USD';
+
+async function pushRideNotification(userId: string | undefined, category: string, title: string, body: string, template: string) {
+  if (!userId) return;
+  try {
+    await sendRealtimePushEvent({ userId, category, title, body, template });
+  } catch (error: any) {
+    logger.warn('Ride notification push failed', { userId, category, template, error: error?.message });
+  }
+}
 
 function getRide(id: string) {
   const ride = store.rides.get(id);
@@ -255,6 +266,20 @@ export async function request(body: any, _params?: any, _query?: any) {
         'system',
         assigned.profile.userId
       );
+      await pushRideNotification(
+        assigned.profile.userId,
+        'new_rides',
+        'New ride assigned',
+        'A rider has been matched to you. Open the app for trip details.',
+        'new_ride_assigned'
+      );
+      await pushRideNotification(
+        ride.riderId,
+        'trip_updates',
+        'Driver assigned',
+        'A driver is on the way to your pickup location.',
+        'trip_update_driver_assigned'
+      );
     }
   }
   return { module: 'rides', action: 'request', ok: true, ride, dispatch, discountCents, availableActions: getRideAvailableActions(ride) };
@@ -353,6 +378,13 @@ export async function accept(body: any, _params?: any, _query?: any) {
   ride.driverId = driverId;
   ride.status = 'accepted';
   appendRideEvent(ride, 'driver_assigned', 'Pickup approaching', 'Driver is heading to your pickup point now.', 'driver', driverId);
+  await pushRideNotification(
+    ride.riderId,
+    'trip_updates',
+    'Driver accepted your ride',
+    'Your driver is heading to your pickup location.',
+    'trip_update_accepted'
+  );
   return { module: 'rides', action: 'accept', ok: true, ride };
 }
 
@@ -364,6 +396,13 @@ export async function start(body: any, _params?: any, _query?: any) {
   if (ride.status !== 'accepted') return { module: 'rides', action: 'start', error: 'ride not accepted' };
   ride.status = 'started';
   appendRideEvent(ride, 'passenger_onboard', 'Passenger onboard', 'Passenger has been picked up and the trip is now in progress.', 'driver', driverId);
+  await pushRideNotification(
+    ride.riderId,
+    'trip_updates',
+    'Trip started',
+    'Your trip is now in progress.',
+    'trip_update_started'
+  );
   return { module: 'rides', action: 'start', ok: true, ride };
 }
 
@@ -376,13 +415,30 @@ export async function complete(body: any, _params?: any, _query?: any) {
 
   ride.status = 'completed';
   appendRideEvent(ride, 'ride_completed', 'Ride completed', 'Your trip is complete and receipt details are ready.', 'driver', driverId);
+  await pushRideNotification(
+    ride.riderId,
+    'trip_updates',
+    'Trip completed',
+    'Your ride is complete and receipt details are ready.',
+    'trip_update_completed'
+  );
   if (ride.driverId) releaseDriverFromRide(ride.driverId);
 
   const grossCents = Math.round(ride.fareEstimate * 100);
   const discountCents = ride.discountCents || 0;
   const amountCents = Math.max(0, grossCents - discountCents);
   if (ride.riderId) pushWalletTx(ride.riderId, 'debit', amountCents, `ride:${ride.id}:fare`);
-  if (ride.driverId) pushWalletTx(ride.driverId, 'credit', Math.round(amountCents * 0.8), `ride:${ride.id}:payout`);
+  const driverPayoutCents = Math.round(amountCents * 0.8);
+  if (ride.driverId) {
+    pushWalletTx(ride.driverId, 'credit', driverPayoutCents, `ride:${ride.id}:payout`);
+    await pushRideNotification(
+      ride.driverId,
+      'earnings',
+      'Earnings updated',
+      `You earned $${(driverPayoutCents / 100).toFixed(2)} from your latest trip.`,
+      'earnings_ride_payout'
+    );
+  }
 
   // Process referral bonus on rider's first completed ride
   if (ride.riderId) {
@@ -394,6 +450,13 @@ export async function complete(body: any, _params?: any, _query?: any) {
         referral.rideId = ride.id;
         markStoreDirty();
         pushWalletTx(referral.referrerUserId, 'credit', referral.bonusCents, `referral:${referral.id}:bonus`);
+        await pushRideNotification(
+          referral.referrerUserId,
+          'bonuses',
+          'Referral bonus earned',
+          `You received $${(referral.bonusCents / 100).toFixed(2)} for a completed referral ride.`,
+          'bonus_referral'
+        );
       }
     }
   }
@@ -413,6 +476,13 @@ export async function cancel(body: any, _params?: any, _query?: any) {
   ride.canceledAt = timestamp();
   ride.cancellationReason = body?.reason || 'canceled_by_rider';
   appendRideEvent(ride, 'ride_canceled', 'Ride canceled', 'Your ride was canceled before pickup.', 'rider', riderId, ride.canceledAt);
+  await pushRideNotification(
+    ride.riderId,
+    'trip_updates',
+    'Trip canceled',
+    'Your ride request was canceled.',
+    'trip_update_canceled'
+  );
   if (ride.driverId) releaseDriverFromRide(ride.driverId);
   return {
     module: 'rides',

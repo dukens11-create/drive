@@ -10,7 +10,12 @@ const preferencesSchema = z.object({
   pushOptIn: z.boolean().optional(),
   frequency: z.enum(['instant', 'hourly', 'daily', 'weekly']).optional(),
   categories: z.array(z.string().min(1)).optional(),
-  timezone: z.string().min(1).max(120).optional()
+  timezone: z.string().min(1).max(120).optional(),
+  quietHours: z.object({
+    enabled: z.boolean(),
+    start: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/),
+    end: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/)
+  }).optional()
 });
 
 const deviceTokenSchema = z.object({
@@ -23,6 +28,7 @@ const pushSchema = z.object({
   userId: z.string().optional(),
   deviceToken: z.string().optional(),
   topic: z.string().optional(),
+  category: z.enum(['new_rides', 'trip_updates', 'earnings', 'bonuses', 'support_replies', 'system']).optional(),
   title: z.string().min(1).max(200),
   body: z.string().min(1).max(1000)
 }).refine(value => !!value.userId || !!value.deviceToken || !!value.topic, {
