@@ -596,6 +596,16 @@ function calculateFareBreakdown(ride) {
   return { baseFare, distanceFare, timeFare, calculatedFare, fare };
 }
 
+function hasPassengerRating(ride) {
+  return ride?.passengerRating != null && Number.isFinite(Number(ride.passengerRating));
+}
+
+function getRefreshedRideOrFallback(previousRide, apiRide, fallbackPatch) {
+  if (!previousRide?.id && !apiRide) return null;
+  if (!previousRide?.id) return normalizeRide(apiRide || fallbackPatch || {}, 0);
+  return getRideById(previousRide.id) || normalizeRide(apiRide || { ...previousRide, ...(fallbackPatch || {}) }, 0);
+}
+
 function getLastKnownLocation() {
   try {
     const raw = localStorage.getItem(LAST_KNOWN_LOCATION_KEY);
@@ -617,6 +627,7 @@ function normalizeRide(ride, index) {
   const pickupLng = Number(ride.pickupLng ?? ride.startLng);
   const dropoffLat = Number(ride.dropoffLat ?? ride.endLat);
   const dropoffLng = Number(ride.dropoffLng ?? ride.endLng);
+  const passengerRating = Number(ride.passengerRating);
   return {
     id: ride.id || `ride_mock_${index + 1}`,
     status: ride.status || 'requested',
@@ -627,7 +638,7 @@ function normalizeRide(ride, index) {
     miles: Number(ride.miles || 0),
     fareEstimate: Number(ride.fareEstimate || 0),
     minutes: Number(ride.minutes || 18),
-    passengerRating: Number.isFinite(Number(ride.passengerRating)) ? Number(ride.passengerRating) : null,
+    passengerRating: Number.isFinite(passengerRating) ? passengerRating : null,
     passengerReview: ride.passengerReview || '',
     passengerName: ride.passengerName || `Passenger ${index + 1}`,
     completedAt: ride.completedAt || ride.updatedAt || new Date().toISOString()
@@ -1580,9 +1591,9 @@ function renderRideFlowControls() {
   const fareBreakdownDiv = document.getElementById('ride-fare-breakdown');
 
   if (!ride) {
-    [arrivedButton, startTripButton, endTripButton, pickupDirectionsButton, dropoffDirectionsButton].forEach(button => button.classList.add('d-none'));
-    riderRatingControls.classList.add('d-none');
-    fareBreakdownDiv.textContent = '';
+    [arrivedButton, startTripButton, endTripButton, pickupDirectionsButton, dropoffDirectionsButton].filter(Boolean).forEach(button => button.classList.add('d-none'));
+    if (riderRatingControls) riderRatingControls.classList.add('d-none');
+    if (fareBreakdownDiv) fareBreakdownDiv.textContent = '';
     return;
   }
 
@@ -1603,7 +1614,7 @@ function renderRideFlowControls() {
   endTripButton.classList.toggle('d-none', !isStarted);
   pickupDirectionsButton.classList.toggle('d-none', isStarted || isCompleted);
   dropoffDirectionsButton.classList.toggle('d-none', !(isStarted || isCompleted));
-  riderRatingControls.classList.toggle('d-none', !(isCompleted && !Number.isFinite(Number(ride.passengerRating))));
+  riderRatingControls.classList.toggle('d-none', !(isCompleted && !hasPassengerRating(ride)));
 }
 
 function renderRideDetailsModal(ride) {
@@ -1611,9 +1622,11 @@ function renderRideDetailsModal(ride) {
   selectedRideForDetails = ride;
   const modal = document.getElementById('ride-details-modal');
   const content = document.getElementById('ride-details-content');
+  const passengerRating = Number(ride.passengerRating);
+  const passengerRatingText = Number.isFinite(passengerRating) ? `${passengerRating.toFixed(1)} ★` : 'N/A';
   content.innerHTML = `
     <div><strong>Passenger:</strong> ${escapeHtml(ride.passengerName || 'Guest Rider')}</div>
-    <div><strong>Passenger Rating:</strong> ${Number.isFinite(Number(ride.passengerRating)) ? `${Number(ride.passengerRating).toFixed(1)} ★` : 'N/A'}</div>
+    <div><strong>Passenger Rating:</strong> ${passengerRatingText}</div>
     <div><strong>Ride Status:</strong> ${escapeHtml(formatRideStatus(ride.status))}</div>
     <div><strong>Pickup:</strong> ${escapeHtml(formatCoordinate(ride.pickupLat, ride.pickupLng))}</div>
     <div><strong>Dropoff:</strong> ${escapeHtml(formatCoordinate(ride.dropoffLat, ride.dropoffLng))}</div>
@@ -1660,7 +1673,12 @@ async function performRideFlowAction(actionPath, successMessage) {
       return;
     }
     await Promise.all([loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
-    const refreshedRide = getRideById(ride.id) || normalizeRide(data.ride || { ...ride, status: data?.ride?.status || ride.status }, 0);
+    const refreshedRide = getRefreshedRideOrFallback(ride, data.ride, { status: data?.ride?.status || ride.status });
+    if (!refreshedRide) {
+      showAlert('warning', 'Ride updated, but details are unavailable. Refreshing dashboard.');
+      closeRideDetailsModal();
+      return;
+    }
     renderRideDetailsModal(refreshedRide);
     showAlert('success', successMessage);
   } catch (_error) {
@@ -1707,7 +1725,12 @@ async function handleSubmitRiderRating() {
       return;
     }
     await Promise.all([loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
-    const refreshedRide = getRideById(ride.id) || normalizeRide(data.ride || { ...ride, passengerRating: rating, passengerReview: comment }, 0);
+    const refreshedRide = getRefreshedRideOrFallback(ride, data.ride, { passengerRating: rating, passengerReview: comment });
+    if (!refreshedRide) {
+      showAlert('warning', 'Rating submitted, but details are unavailable. Refreshing dashboard.');
+      closeRideDetailsModal();
+      return;
+    }
     renderRideDetailsModal(refreshedRide);
     showAlert('success', 'Rider rating submitted.');
   } catch (_error) {
@@ -1720,6 +1743,7 @@ async function handleAcceptRide(event) {
   const rideIdInput = document.getElementById('ride-id-input');
   const rideId = rideIdInput.value.trim();
   if (!rideId) return;
+  const queuedRide = getRideById(rideId);
   try {
     const { data } = await fetchJson(`${API_BASE_URL}/api/rides/accept`, {
       method: 'POST',
@@ -1734,7 +1758,7 @@ async function handleAcceptRide(event) {
       return;
     }
     await Promise.all([loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
-    const acceptedRide = getRideById(rideId) || normalizeRide(data.ride || { id: rideId, status: 'accepted' }, 0);
+    const acceptedRide = getRideById(rideId) || normalizeRide(data.ride || { ...queuedRide, id: rideId, status: 'accepted' }, 0);
     renderRideDetailsModal(acceptedRide);
     showAlert('success', `Ride ${rideId} accepted.`);
     event.target.reset();
