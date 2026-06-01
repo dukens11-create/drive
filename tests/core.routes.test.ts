@@ -156,7 +156,35 @@ test('GET / serves the professional dashboard login page', async () => {
       assert.match(body, /api\.mapbox\.com\/mapbox-gl-js/);
       assert.match(body, /id="mapbox"/);
       assert.match(body, /id="mapbox-token-save"/);
-      ['toggle-availability-button', 'Driver mode', 'Professional control center', 'Ride History', 'Real-time Map', 'Performance Stats', 'Support \/ Help', 'Driver dashboard navigation', 'Follow Driver: ON', 'Simulate GPS', 'ETA Pickup', 'Average Speed', 'Max Speed', 'Status:', 'Position:', 'Selfie Photo', 'Verification Status', 'Arrived at Pickup', 'Start Trip', 'End Trip', 'Rider Rating', 'countdown-pill', 'passenger-photo', 'swipe-accept-track', 'sheet-handle', 'bottom-sheet', 'driver-marker-speed'].forEach(label => {
+      [
+        'toggle-availability-button',
+        'Driver mode',
+        'Professional control center',
+        'Ride History',
+        'Real-time Map',
+        'Performance Stats',
+        'Support \/ Help',
+        'Driver dashboard navigation',
+        'Follow Driver: ON',
+        'Simulate GPS',
+        'ETA Pickup',
+        'Average Speed',
+        'Max Speed',
+        'Status:',
+        'Position:',
+        'Selfie Photo',
+        'Verification Status',
+        'Arrived at Pickup',
+        'Start Trip',
+        'End Trip',
+        'Rider Rating',
+        'countdown-pill',
+        'passenger-photo',
+        'swipe-accept-track',
+        'sheet-handle',
+        'bottom-sheet',
+        'driver-marker-speed'
+      ].forEach(label => {
         assert.match(body, new RegExp(label));
       });
       assert.doesNotMatch(body, /\s(onclick|onsubmit)=/);

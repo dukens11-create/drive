@@ -49,6 +49,7 @@ const CAMERA_AHEAD_DISTANCE_KM = 0.08;
 const BASE_FARE = 2.5;
 const DISTANCE_RATE = 1.9;
 const TIME_RATE = 0.25;
+const KMH_TO_MPH_FACTOR = 0.621371;
 
 // Map projection constants
 const BASE_PROJECTION_SCALE = 190;    // %/degree at reference zoom
@@ -815,12 +816,15 @@ function getMapDisplayPosition() {
 function calculateAnimationDuration(distanceKm, speedKmh) {
   const speed = Math.max(speedKmh || 0, 12);
   const estimatedMs = (distanceKm / speed) * 60 * 60 * 1000;
+  const updateFrequencyMs = Number.isFinite(mapState.updateFrequencyMs) && mapState.updateFrequencyMs > 0
+    ? mapState.updateFrequencyMs
+    : 3000;
   const maxDurationMs = Math.max(
     MARKER_ANIMATION_MIN_MS,
-    Math.min(MARKER_ANIMATION_MAX_MS, mapState.updateFrequencyMs * 1.1)
+    Math.min(MARKER_ANIMATION_MAX_MS, updateFrequencyMs * 1.1)
   );
   return clamp(
-    Number.isFinite(estimatedMs) && estimatedMs > 0 ? estimatedMs : mapState.updateFrequencyMs * 0.92,
+    Number.isFinite(estimatedMs) && estimatedMs > 0 ? estimatedMs : updateFrequencyMs * 0.92,
     MARKER_ANIMATION_MIN_MS,
     maxDurationMs
   );
@@ -986,6 +990,16 @@ function isLikelyGpsJump(previousPosition, nextPosition, distanceKm, elapsedMs) 
     + (nextPosition.accuracy / 1000)
     + GPS_JITTER_TOLERANCE_KM;
   return distanceKm > Math.max(expectedDistanceKm * 2.5, 0.3);
+}
+
+function calculateSpeedKmh(rawSpeed, distanceKm, elapsedMs, previousSpeedKmh) {
+  if (Number.isFinite(rawSpeed) && rawSpeed >= 0) {
+    return rawSpeed * 3.6;
+  }
+  if (Number.isFinite(distanceKm) && Number.isFinite(elapsedMs) && elapsedMs > 0) {
+    return distanceKm / (elapsedMs / (60 * 60 * 1000));
+  }
+  return previousSpeedKmh ?? 0;
 }
 
 /**
@@ -1181,12 +1195,19 @@ function createPassengerMarkerElement() {
 function createDriverMarkerElement() {
   const el = document.createElement('div');
   el.className = 'driver-marker';
-  el.innerHTML = `
-    <div class="driver-marker-speed">0 km/h</div>
-    <div class="driver-marker-body">
-      <span class="driver-marker-arrow">▲</span>
-    </div>
-  `;
+  const speedBadge = document.createElement('div');
+  speedBadge.className = 'driver-marker-speed';
+  speedBadge.textContent = '0 km/h';
+
+  const markerBody = document.createElement('div');
+  markerBody.className = 'driver-marker-body';
+
+  const arrow = document.createElement('span');
+  arrow.className = 'driver-marker-arrow';
+  arrow.textContent = '▲';
+
+  markerBody.appendChild(arrow);
+  el.append(speedBadge, markerBody);
   return el;
 }
 
@@ -1200,7 +1221,7 @@ function updateDriverMarkerVisuals(position) {
   }
   if (speedBadge) {
     const speedKmh = Math.max(0, Number(position.speed) || 0);
-    const speedMph = speedKmh * 0.621371;
+    const speedMph = speedKmh * KMH_TO_MPH_FACTOR;
     speedBadge.textContent = speedKmh < STOPPED_SPEED_THRESHOLD_KMH
       ? 'Stopped'
       : `${Math.round(speedKmh)} km/h · ${Math.round(speedMph)} mph`;
@@ -1569,7 +1590,7 @@ function updateMapUiReadouts() {
   const speedEl = document.getElementById('gps-speed');
   if (speedEl) {
     const kmh = pos?.speed ?? 0;
-    const mph = kmh * 0.621371;
+    const mph = kmh * KMH_TO_MPH_FACTOR;
     speedEl.textContent = `${kmh.toFixed(1)} km/h · ${mph.toFixed(1)} mph`;
   }
 
@@ -1753,11 +1774,7 @@ async function handlePositionUpdate(positionLike, options = {}) {
     : 0;
   const elapsedMs = previousPosition ? Math.max(0, timestamp - previousPosition.timestamp) : NaN;
 
-  let speedKmh = (Number.isFinite(rawSpeed) && rawSpeed >= 0) ? rawSpeed * 3.6 : NaN;
-  if (!Number.isFinite(speedKmh) && previousPosition && Number.isFinite(elapsedMs) && elapsedMs > 0) {
-    speedKmh = (distanceKm / (elapsedMs / (60 * 60 * 1000)));
-  }
-  if (!Number.isFinite(speedKmh)) speedKmh = previousPosition?.speed ?? 0;
+  let speedKmh = calculateSpeedKmh(rawSpeed, distanceKm, elapsedMs, previousPosition?.speed ?? 0);
 
   let heading = (Number.isFinite(rawHeading) && rawHeading >= 0 && speedKmh > STOPPED_SPEED_THRESHOLD_KMH) ? rawHeading : null;
   if (heading === null && previousPosition) {
@@ -1777,7 +1794,7 @@ async function handlePositionUpdate(positionLike, options = {}) {
     timestamp
   };
   if (isLikelyGpsJump(previousPosition, nextPosition, distanceKm, elapsedMs)) {
-    console.warn('Discarding noisy GPS jump', { previousPosition, nextPosition, distanceKm, elapsedMs });
+    console.warn('Discarding noisy GPS update', { previousPosition, nextPosition, distanceKm, elapsedMs });
     return;
   }
   commitPositionUpdate(nextPosition, options);
