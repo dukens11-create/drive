@@ -1,8 +1,25 @@
+// ─── Constants ────────────────────────────────────────────────────────────────
 const API_BASE_URL = '';
 const REJECTED_RIDES_KEY = 'driverRejectedRideIds';
 const DRIVER_DOCS_KEY = 'driverDashboardDocs';
 const DRIVER_SUPPORT_KEY = 'driverDashboardSupportLog';
+const GPS_LOG_KEY = 'driverGpsLog';
+const LAST_KNOWN_LOCATION_KEY = 'driverLastKnownLocation';
+const MAX_GPS_LOG_ENTRIES = 200;
+const ROUTE_CACHE_TTL_MS = 30000;
 
+const DEFAULT_FALLBACK_LAT = 37.7749;
+const DEFAULT_FALLBACK_LNG = -122.4194;
+const DEFAULT_LOCATION_ACCURACY_M = 80;
+const DEFAULT_LOCATION_SPEED_KMH = 40;
+
+// Map projection constants
+const BASE_PROJECTION_SCALE = 190;    // %/degree at reference zoom
+const REFERENCE_ZOOM_LEVEL = 15;
+const MIN_SCALE_MULTIPLIER = 0.25;
+const MAX_SCALE_MULTIPLIER = 64;
+
+// ─── Mock Data ────────────────────────────────────────────────────────────────
 const MOCK_COMPLETED_RIDES = [
   { id: 'ride_hist_101', pickupLat: 37.775, pickupLng: -122.418, dropoffLat: 37.789, dropoffLng: -122.401, fareEstimate: 24.5, minutes: 21, passengerRating: 4.9, completedAt: '2026-05-31T10:12:00.000Z' },
   { id: 'ride_hist_102', pickupLat: 37.764, pickupLng: -122.431, dropoffLat: 37.752, dropoffLng: -122.447, fareEstimate: 18.75, minutes: 16, passengerRating: 4.7, completedAt: '2026-05-30T18:42:00.000Z' },
@@ -13,6 +30,23 @@ const MOCK_NEARBY_REQUESTS = [
   { id: 'ride_live_202', pickupLat: 37.771, pickupLng: -122.414, dropoffLat: 37.759, dropoffLng: -122.436, fareEstimate: 17.35, minutes: 14, status: 'requested', passengerName: 'Liam R.', passengerRating: 4.6 }
 ];
 
+// Simulation waypoints (San Francisco loop)
+const SIMULATION_WAYPOINTS = [
+  { lat: 37.7749, lng: -122.4194 },
+  { lat: 37.7761, lng: -122.4180 },
+  { lat: 37.7775, lng: -122.4165 },
+  { lat: 37.7790, lng: -122.4148 },
+  { lat: 37.7805, lng: -122.4130 },
+  { lat: 37.7820, lng: -122.4110 },
+  { lat: 37.7808, lng: -122.4090 },
+  { lat: 37.7792, lng: -122.4075 },
+  { lat: 37.7776, lng: -122.4088 },
+  { lat: 37.7762, lng: -122.4105 },
+  { lat: 37.7749, lng: -122.4120 },
+  { lat: 37.7749, lng: -122.4194 },
+];
+
+// ─── App State ────────────────────────────────────────────────────────────────
 let currentUser = null;
 let accessToken = null;
 let currentProfile = null;
@@ -20,6 +54,33 @@ let nearbyRideRequests = [];
 let completedRideHistory = [];
 let selectedRideForDetails = null;
 
+let mapState = {
+  zoom: 15,
+  centerLat: NaN,
+  centerLng: NaN,
+  panX: 0,
+  panY: 0,
+  followMode: true,
+  satelliteView: false,
+  lastPosition: null,   // { lat, lng, accuracy, heading, speed, timestamp }
+  prevPosition: null,   // previous fix for heading calculation
+  locationPermissionState: 'prompt',
+  updateFrequencyMs: 3000,
+  lastUpdateAt: null,
+  renderPending: false,
+  isDragging: false,
+  dragStartX: 0,
+  dragStartY: 0,
+};
+
+let gpsWatchId = null;
+let gpsPollIntervalId = null;
+let gpsSimulationIntervalId = null;
+let gpsSimulationIndex = 0;
+let wakeLockSentinel = null;
+let routeCache = { pickupEta: null, dropoffEta: null, pickupDistKm: null, dropoffDistKm: null, cachedAt: 0 };
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
 function showAlert(kind, message) {
   const alertDiv = document.getElementById('driver-alert');
   alertDiv.className = `alert alert-${kind}`;
@@ -78,6 +139,22 @@ function formatCoordinate(lat, lng) {
   return `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`;
 }
 
+function getLastKnownLocation() {
+  try {
+    const raw = localStorage.getItem(LAST_KNOWN_LOCATION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Number.isFinite(parsed?.lat) && Number.isFinite(parsed?.lng)) return parsed;
+  } catch (_e) { /* ignore */ }
+  return null;
+}
+
+function saveLastKnownLocation(lat, lng, accuracy) {
+  try {
+    localStorage.setItem(LAST_KNOWN_LOCATION_KEY, JSON.stringify({ lat, lng, accuracy, savedAt: Date.now() }));
+  } catch (_e) { /* ignore */ }
+}
+
 function normalizeRide(ride, index) {
   const pickupLat = Number(ride.pickupLat ?? ride.startLat);
   const pickupLng = Number(ride.pickupLng ?? ride.startLng);
@@ -86,10 +163,10 @@ function normalizeRide(ride, index) {
   return {
     id: ride.id || `ride_mock_${index + 1}`,
     status: ride.status || 'requested',
-    pickupLat: Number.isFinite(pickupLat) ? pickupLat : 37.7749,
-    pickupLng: Number.isFinite(pickupLng) ? pickupLng : -122.4194,
-    dropoffLat: Number.isFinite(dropoffLat) ? dropoffLat : 37.7849,
-    dropoffLng: Number.isFinite(dropoffLng) ? dropoffLng : -122.4094,
+    pickupLat: Number.isFinite(pickupLat) ? pickupLat : DEFAULT_FALLBACK_LAT,
+    pickupLng: Number.isFinite(pickupLng) ? pickupLng : DEFAULT_FALLBACK_LNG,
+    dropoffLat: Number.isFinite(dropoffLat) ? dropoffLat : DEFAULT_FALLBACK_LAT + 0.01,
+    dropoffLng: Number.isFinite(dropoffLng) ? dropoffLng : DEFAULT_FALLBACK_LNG + 0.01,
     fareEstimate: Number(ride.fareEstimate || 0),
     minutes: Number(ride.minutes || 18),
     passengerRating: Number(ride.passengerRating || 4.8),
@@ -98,6 +175,624 @@ function normalizeRide(ride, index) {
   };
 }
 
+// Minimum distance moved (km) before recalculating heading from GPS movement.
+// Below this threshold (~3 m) the fix is considered stationary to prevent jitter.
+const MIN_MOVEMENT_DISTANCE_KM = 0.003;
+/**
+ * Haversine great-circle distance in kilometres.
+ */
+function calculateDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const toRad = deg => deg * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Bearing (0–360°) from point A to point B.
+ */
+function calculateHeading(lat1, lng1, lat2, lng2) {
+  const toRad = deg => deg * Math.PI / 180;
+  const toDeg = rad => rad * 180 / Math.PI;
+  const dLng = toRad(lng2 - lng1);
+  const y = Math.sin(dLng) * Math.cos(toRad(lat2));
+  const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLng);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+/**
+ * ETA in minutes given distance (km) and speed (km/h, defaults to 40 km/h).
+ */
+function calculateETA(distanceKm, speedKmh) {
+  const speed = (Number.isFinite(speedKmh) && speedKmh > 2) ? speedKmh : DEFAULT_LOCATION_SPEED_KMH;
+  return (distanceKm / speed) * 60;
+}
+
+function formatEta(minutes) {
+  if (!Number.isFinite(minutes) || minutes < 0) return '--';
+  if (minutes < 1) return '< 1 min';
+  const mins = Math.round(minutes);
+  if (mins >= 60) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${h}h ${m}m`;
+  }
+  return `${mins} min`;
+}
+
+function formatDistance(km) {
+  if (!Number.isFinite(km)) return '--';
+  const miles = km * 0.621371;
+  if (km < 1) return `${Math.round(km * 1000)} m / ${(miles * 5280).toFixed(0)} ft`;
+  return `${km.toFixed(2)} km / ${miles.toFixed(2)} mi`;
+}
+
+function headingToCardinal(degrees) {
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW', 'N'];
+  return dirs[Math.round(degrees / 45) % 8];
+}
+
+function getGeolocationOptions() {
+  return { enableHighAccuracy: true, timeout: 8000, maximumAge: mapState.updateFrequencyMs };
+}
+
+// ─── GPS Log ──────────────────────────────────────────────────────────────────
+function appendGpsLogEntry(lat, lng, accuracy, heading, speed) {
+  const now = new Date().toISOString();
+  const entry = { lat: +lat.toFixed(6), lng: +lng.toFixed(6), accuracy: Math.round(accuracy || 0), heading: Math.round(heading || 0), speed: +(speed || 0).toFixed(1), ts: now };
+  // In-memory log display
+  const logDiv = document.getElementById('gps-log');
+  if (logDiv) {
+    const line = document.createElement('div');
+    line.textContent = `${now.slice(11, 19)} | ${lat.toFixed(5)},${lng.toFixed(5)} | acc:${Math.round(accuracy || 0)}m | hdg:${Math.round(heading || 0)}° | ${(speed || 0).toFixed(1)} km/h`;
+    logDiv.prepend(line);
+    // Keep at most 50 lines visible
+    while (logDiv.children.length > 50) logDiv.lastChild.remove();
+  }
+  // Persist to localStorage
+  try {
+    const log = getStoredList(GPS_LOG_KEY);
+    log.unshift(entry);
+    if (log.length > MAX_GPS_LOG_ENTRIES) log.length = MAX_GPS_LOG_ENTRIES;
+    setStoredList(GPS_LOG_KEY, log);
+  } catch (_e) { /* quota exceeded – ignore */ }
+}
+
+// ─── Route Estimation ─────────────────────────────────────────────────────────
+async function fetchRouteEstimate(originLat, originLng, destLat, destLng) {
+  // Attempt Google Maps Directions API (requires API key exposed in env).
+  // Falls back to haversine estimate without network call.
+  const apiKey = typeof window !== 'undefined' && window.GOOGLE_MAPS_API_KEY;
+  if (apiKey) {
+    try {
+      const origin = `${originLat},${originLng}`;
+      const dest = `${destLat},${destLng}`;
+      // NOTE: Google Maps Directions API keys used here are browser-restricted
+      // (HTTP referrer rules) and only read public map data. For stricter
+      // environments, proxy this request through /api/route-estimate instead.
+      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(dest)}&mode=driving&key=${encodeURIComponent(apiKey)}`;
+      const { data } = await fetchJson(url, {});
+      if (data?.routes?.[0]?.legs?.[0]) {
+        const leg = data.routes[0].legs[0];
+        const distKm = (leg.distance?.value || 0) / 1000;
+        const durMin = (leg.duration?.value || 0) / 60;
+        return { distKm, etaMin: durMin };
+      }
+    } catch (_e) { /* fall through to haversine */ }
+  }
+  const distKm = calculateDistance(originLat, originLng, destLat, destLng);
+  const speedKmh = mapState.lastPosition?.speed > 2 ? mapState.lastPosition.speed : DEFAULT_LOCATION_SPEED_KMH;
+  return { distKm, etaMin: calculateETA(distKm, speedKmh) };
+}
+
+async function recalculateRouteData() {
+  const driverLat = mapState.lastPosition?.lat ?? Number(currentProfile?.lat);
+  const driverLng = mapState.lastPosition?.lng ?? Number(currentProfile?.lng);
+  if (!Number.isFinite(driverLat) || !Number.isFinite(driverLng)) return;
+
+  const now = Date.now();
+  if (now - routeCache.cachedAt < ROUTE_CACHE_TTL_MS) {
+    updateMapUiReadouts();
+    return;
+  }
+
+  const trackedRide = selectedRideForDetails || nearbyRideRequests[0] || null;
+  if (!trackedRide) {
+    routeCache = { pickupEta: null, dropoffEta: null, pickupDistKm: null, dropoffDistKm: null, cachedAt: now };
+    updateMapUiReadouts();
+    return;
+  }
+
+  try {
+    const pickupResult = await fetchRouteEstimate(driverLat, driverLng, trackedRide.pickupLat, trackedRide.pickupLng);
+    routeCache.pickupDistKm = pickupResult.distKm;
+    routeCache.pickupEta = pickupResult.etaMin;
+
+    const dropoffResult = await fetchRouteEstimate(trackedRide.pickupLat, trackedRide.pickupLng, trackedRide.dropoffLat, trackedRide.dropoffLng);
+    routeCache.dropoffDistKm = dropoffResult.distKm;
+    routeCache.dropoffEta = dropoffResult.etaMin;
+
+    routeCache.cachedAt = Date.now();
+  } catch (_e) {
+    // Keep previous cache values
+  }
+  updateMapUiReadouts();
+}
+
+// ─── Map UI Readouts ──────────────────────────────────────────────────────────
+function updateMapUiReadouts() {
+  const pos = mapState.lastPosition;
+
+  // Speed
+  const speedEl = document.getElementById('gps-speed');
+  if (speedEl) {
+    const kmh = pos?.speed ?? 0;
+    speedEl.textContent = `${kmh.toFixed(1)} km/h`;
+  }
+
+  // Accuracy
+  const accEl = document.getElementById('gps-accuracy');
+  if (accEl) {
+    const acc = pos?.accuracy;
+    if (Number.isFinite(acc)) {
+      accEl.textContent = `±${Math.round(acc)} m`;
+    } else {
+      accEl.textContent = '--';
+    }
+  }
+
+  // GPS Signal
+  const sigEl = document.getElementById('gps-signal');
+  if (sigEl && pos) {
+    const acc = pos.accuracy || 999;
+    if (acc <= 10) { sigEl.textContent = 'Excellent'; sigEl.className = 'gps-good'; }
+    else if (acc <= 30) { sigEl.textContent = 'Good'; sigEl.className = 'gps-good'; }
+    else if (acc <= 80) { sigEl.textContent = 'Fair'; sigEl.className = 'gps-medium'; }
+    else { sigEl.textContent = 'Poor'; sigEl.className = 'gps-poor'; }
+  } else if (sigEl) {
+    sigEl.textContent = mapState.locationPermissionState === 'denied' ? 'Denied' : 'Waiting…';
+    sigEl.className = '';
+  }
+
+  // Last update
+  const updEl = document.getElementById('last-update');
+  if (updEl && mapState.lastUpdateAt) {
+    const secs = Math.round((Date.now() - mapState.lastUpdateAt) / 1000);
+    updEl.textContent = secs < 5 ? 'Just now' : `${secs}s ago`;
+  }
+
+  // ETA
+  const etaPickupEl = document.getElementById('eta-pickup');
+  if (etaPickupEl) etaPickupEl.textContent = formatEta(routeCache.pickupEta);
+
+  const etaDropoffEl = document.getElementById('eta-dropoff');
+  if (etaDropoffEl) etaDropoffEl.textContent = formatEta(routeCache.dropoffEta);
+
+  // Distance
+  const distPickupEl = document.getElementById('distance-pickup');
+  if (distPickupEl) distPickupEl.textContent = formatDistance(routeCache.pickupDistKm);
+
+  const distDropoffEl = document.getElementById('distance-dropoff');
+  if (distDropoffEl) distDropoffEl.textContent = formatDistance(routeCache.dropoffDistKm);
+
+  // Heading / Compass
+  const heading = pos?.heading;
+  const compassEl = document.getElementById('compass-indicator');
+  const headingTextEl = document.getElementById('heading-text');
+  if (compassEl && Number.isFinite(heading)) {
+    compassEl.textContent = headingToCardinal(heading);
+    compassEl.style.transform = `rotate(${heading}deg)`;
+  }
+  if (headingTextEl) {
+    headingTextEl.textContent = Number.isFinite(heading) ? `Heading: ${Math.round(heading)}°` : 'Heading: --°';
+  }
+}
+
+// ─── Map Rendering ────────────────────────────────────────────────────────────
+function roundCoord(value) {
+  return Math.round(Number(value) * 1e5) / 1e5;
+}
+
+function queueMapRender() {
+  if (mapState.renderPending) return;
+  mapState.renderPending = true;
+  requestAnimationFrame(() => {
+    mapState.renderPending = false;
+    renderMap();
+  });
+}
+
+function renderMap() {
+  const mapShell = document.getElementById('map-shell');
+  const caption = document.getElementById('map-caption');
+  const routeLayer = document.getElementById('map-route-layer');
+  if (!mapShell || !caption || !routeLayer) return;
+
+  // Satellite toggle class
+  mapShell.classList.toggle('satellite-view', mapState.satelliteView);
+
+  // Clear dynamic DOM elements and SVG route paths
+  mapShell.querySelectorAll('.map-dynamic').forEach(node => node.remove());
+  routeLayer.innerHTML = '';
+
+  const driverLat = Number(mapState.lastPosition?.lat ?? currentProfile?.lat);
+  const driverLng = Number(mapState.lastPosition?.lng ?? currentProfile?.lng);
+  const hasDriverLocation = Number.isFinite(driverLat) && Number.isFinite(driverLng);
+
+  // Initialise map centre on first render
+  if (!Number.isFinite(mapState.centerLat) || !Number.isFinite(mapState.centerLng)) {
+    const fallback = getLastKnownLocation() || { lat: DEFAULT_FALLBACK_LAT, lng: DEFAULT_FALLBACK_LNG };
+    mapState.centerLat = hasDriverLocation ? driverLat : fallback.lat;
+    mapState.centerLng = hasDriverLocation ? driverLng : fallback.lng;
+  }
+
+  // Follow mode: keep driver centred
+  if (hasDriverLocation && mapState.followMode) {
+    mapState.centerLat = driverLat;
+    mapState.centerLng = driverLng;
+    mapState.panX = 0;
+    mapState.panY = 0;
+  }
+
+  // Projection helper: lat/lng → {left%, top%}
+  // 50% is the map centre; -5/105 allow markers to render just outside the
+  // visible area so they don't abruptly appear/disappear at the edge.
+  const MAP_CENTER_PCT = 50;
+  const MAP_OVERFLOW_MIN = -5;
+  const MAP_OVERFLOW_MAX = 105;
+  const scale = BASE_PROJECTION_SCALE * Math.max(MIN_SCALE_MULTIPLIER, Math.min(MAX_SCALE_MULTIPLIER, 2 ** (mapState.zoom - REFERENCE_ZOOM_LEVEL)));
+  function project(lat, lng) {
+    const left = MAP_CENTER_PCT + ((Number(lng) - mapState.centerLng) * scale) + mapState.panX;
+    const top = MAP_CENTER_PCT - ((Number(lat) - mapState.centerLat) * scale) + mapState.panY;
+    return { left: Math.max(MAP_OVERFLOW_MIN, Math.min(MAP_OVERFLOW_MAX, left)), top: Math.max(MAP_OVERFLOW_MIN, Math.min(MAP_OVERFLOW_MAX, top)) };
+  }
+
+  const trackedRide = selectedRideForDetails || nearbyRideRequests[0] || null;
+
+  // ── Draw route polylines ──────────────────────────────────────────────────
+  if (hasDriverLocation && trackedRide) {
+    const driverPt = project(driverLat, driverLng);
+    const pickupPt = project(trackedRide.pickupLat, trackedRide.pickupLng);
+    const dropoffPt = project(trackedRide.dropoffLat, trackedRide.dropoffLng);
+
+    // Driver → Pickup (blue)
+    const toPickup = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    toPickup.setAttribute('x1', `${driverPt.left}%`);
+    toPickup.setAttribute('y1', `${driverPt.top}%`);
+    toPickup.setAttribute('x2', `${pickupPt.left}%`);
+    toPickup.setAttribute('y2', `${pickupPt.top}%`);
+    toPickup.setAttribute('stroke', '#0d6efd');
+    toPickup.setAttribute('stroke-width', '2.5');
+    toPickup.setAttribute('stroke-dasharray', '6 4');
+    toPickup.setAttribute('stroke-linecap', 'round');
+    routeLayer.appendChild(toPickup);
+
+    // Pickup → Dropoff (green)
+    const toDropoff = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    toDropoff.setAttribute('x1', `${pickupPt.left}%`);
+    toDropoff.setAttribute('y1', `${pickupPt.top}%`);
+    toDropoff.setAttribute('x2', `${dropoffPt.left}%`);
+    toDropoff.setAttribute('y2', `${dropoffPt.top}%`);
+    toDropoff.setAttribute('stroke', '#198754');
+    toDropoff.setAttribute('stroke-width', '2.5');
+    toDropoff.setAttribute('stroke-linecap', 'round');
+    routeLayer.appendChild(toDropoff);
+  }
+
+  // ── Accuracy circle ───────────────────────────────────────────────────────
+  const accuracy = mapState.lastPosition?.accuracy;
+  if (hasDriverLocation && Number.isFinite(accuracy) && accuracy > 0) {
+    const driverPt = project(driverLat, driverLng);
+    // accuracy in metres → degrees → scaled percentage
+    const accDeg = accuracy / 111000;
+    const accPct = accDeg * scale * 2; // diameter in %
+    const circle = document.createElement('div');
+    circle.className = 'accuracy-circle map-dynamic';
+    circle.style.left = `${driverPt.left}%`;
+    circle.style.top = `${driverPt.top}%`;
+    circle.style.width = `${accPct}%`;
+    circle.style.height = `${accPct}%`;
+    mapShell.appendChild(circle);
+  }
+
+  // ── Driver marker ─────────────────────────────────────────────────────────
+  const driverPt = project(
+    hasDriverLocation ? driverLat : DEFAULT_FALLBACK_LAT,
+    hasDriverLocation ? driverLng : DEFAULT_FALLBACK_LNG
+  );
+  const driverDot = document.createElement('div');
+  driverDot.className = 'point-driver map-dynamic';
+  driverDot.title = hasDriverLocation ? `You: ${formatCoordinate(driverLat, driverLng)}` : 'Your location (estimated)';
+  driverDot.style.left = `${driverPt.left}%`;
+  driverDot.style.top = `${driverPt.top}%`;
+  mapShell.appendChild(driverDot);
+
+  // Direction arrow (rotated to show heading)
+  const heading = mapState.lastPosition?.heading;
+  if (Number.isFinite(heading)) {
+    const arrow = document.createElement('div');
+    arrow.className = 'driver-arrow map-dynamic';
+    // Position arrow just above the driver dot
+    arrow.style.left = `${driverPt.left}%`;
+    arrow.style.top = `${driverPt.top}%`;
+    arrow.style.transform = `translate(-50%, calc(-100% - 10px)) rotate(${heading}deg)`;
+    mapShell.appendChild(arrow);
+  }
+
+  // ── Pickup pin ────────────────────────────────────────────────────────────
+  if (trackedRide) {
+    const pickupPt = project(trackedRide.pickupLat, trackedRide.pickupLng);
+    const pickupPin = document.createElement('div');
+    pickupPin.className = 'point-pickup map-dynamic';
+    pickupPin.title = `Pickup: ${formatCoordinate(trackedRide.pickupLat, trackedRide.pickupLng)}`;
+    pickupPin.style.left = `${pickupPt.left}%`;
+    pickupPin.style.top = `${pickupPt.top}%`;
+    mapShell.appendChild(pickupPin);
+
+    const pickupLabel = document.createElement('div');
+    pickupLabel.className = 'map-label map-dynamic';
+    pickupLabel.textContent = 'Pickup';
+    pickupLabel.style.left = `${pickupPt.left}%`;
+    pickupLabel.style.top = `${pickupPt.top - 4}%`;
+    mapShell.appendChild(pickupLabel);
+
+    // ── Dropoff pin ─────────────────────────────────────────────────────────
+    const dropoffPt = project(trackedRide.dropoffLat, trackedRide.dropoffLng);
+    const dropoffPin = document.createElement('div');
+    dropoffPin.className = 'point-dropoff map-dynamic';
+    dropoffPin.title = `Dropoff: ${formatCoordinate(trackedRide.dropoffLat, trackedRide.dropoffLng)}`;
+    dropoffPin.style.left = `${dropoffPt.left}%`;
+    dropoffPin.style.top = `${dropoffPt.top}%`;
+    mapShell.appendChild(dropoffPin);
+
+    const dropoffLabel = document.createElement('div');
+    dropoffLabel.className = 'map-label map-dynamic';
+    dropoffLabel.textContent = 'Dropoff';
+    dropoffLabel.style.left = `${dropoffPt.left}%`;
+    dropoffLabel.style.top = `${dropoffPt.top - 4}%`;
+    mapShell.appendChild(dropoffLabel);
+  }
+
+  // ── Nearby ride request dots ───────────────────────────────────────────────
+  const rejected = new Set(getRejectedRideIds());
+  nearbyRideRequests
+    .filter(ride => !rejected.has(ride.id) && ride !== trackedRide)
+    .slice(0, 8)
+    .forEach(ride => {
+      const pt = project(ride.pickupLat, ride.pickupLng);
+      if (pt.left < -4 || pt.left > 104 || pt.top < -4 || pt.top > 104) return;
+      const dot = document.createElement('div');
+      dot.className = 'point-nearby map-dynamic';
+      dot.title = `${ride.id} • ${formatCoordinate(ride.pickupLat, ride.pickupLng)}`;
+      dot.style.left = `${pt.left}%`;
+      dot.style.top = `${pt.top}%`;
+      mapShell.appendChild(dot);
+    });
+
+  // ── Caption ───────────────────────────────────────────────────────────────
+  if (hasDriverLocation) {
+    caption.textContent = `Driver at ${formatCoordinate(roundCoord(driverLat), roundCoord(driverLng))} · ${nearbyRideRequests.length} nearby request(s) · Zoom ${mapState.zoom}`;
+  } else {
+    caption.textContent = `Location pending · ${nearbyRideRequests.length} nearby request(s) (mock data)`;
+  }
+}
+
+// ─── GPS Tracking ─────────────────────────────────────────────────────────────
+async function handlePositionUpdate(positionLike) {
+  const lat = Number(positionLike.coords?.latitude ?? positionLike.lat);
+  const lng = Number(positionLike.coords?.longitude ?? positionLike.lng);
+  const accuracy = Number(positionLike.coords?.accuracy ?? positionLike.accuracy ?? DEFAULT_LOCATION_ACCURACY_M);
+  const rawSpeed = positionLike.coords?.speed;  // m/s or null
+  const rawHeading = positionLike.coords?.heading; // degrees or null
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+  // Speed in km/h
+  const speedKmh = (Number.isFinite(rawSpeed) && rawSpeed >= 0) ? rawSpeed * 3.6 : (mapState.lastPosition?.speed ?? 0);
+
+  // Heading: prefer native GPS heading when moving, else calculate from movement
+  let heading = (Number.isFinite(rawHeading) && rawHeading >= 0 && speedKmh > 1) ? rawHeading : null;
+  if (heading === null && mapState.lastPosition) {
+    const prev = mapState.lastPosition;
+    const dist = calculateDistance(prev.lat, prev.lng, lat, lng);
+    if (dist > MIN_MOVEMENT_DISTANCE_KM) {
+      heading = calculateHeading(prev.lat, prev.lng, lat, lng);
+    } else {
+      heading = prev.heading;
+    }
+  }
+
+  mapState.prevPosition = mapState.lastPosition;
+  mapState.lastPosition = { lat, lng, accuracy, heading: heading ?? 0, speed: speedKmh, timestamp: Date.now() };
+  mapState.lastUpdateAt = Date.now();
+  mapState.locationPermissionState = 'granted';
+
+  // Persist for offline fallback
+  saveLastKnownLocation(lat, lng, accuracy);
+
+  // Update profile coords
+  currentProfile = { ...(currentProfile || {}), lat, lng };
+
+  // Log the fix
+  appendGpsLogEntry(lat, lng, accuracy, heading ?? 0, speedKmh);
+
+  // Sync location to backend (fire-and-forget)
+  syncDriverLocation(lat, lng, accuracy).catch(() => {});
+
+  // Recalculate route / ETA (respects cache TTL)
+  recalculateRouteData().catch(() => {});
+
+  // Re-render map
+  queueMapRender();
+  updateMapUiReadouts();
+}
+
+function handleGeoError(error) {
+  if (error?.code === 1) {
+    mapState.locationPermissionState = 'denied';
+    showAlert('warning', 'Location permission denied. Enable GPS permissions to track rides.');
+    return;
+  }
+  if (error?.code === 2) {
+    showAlert('warning', 'GPS position unavailable. Retrying…');
+  } else {
+    showAlert('warning', 'GPS signal lost. Retrying location updates…');
+  }
+  // Fall back to last known location for map display
+  const fallback = getLastKnownLocation();
+  if (fallback && !mapState.lastPosition) {
+    mapState.lastPosition = { lat: fallback.lat, lng: fallback.lng, accuracy: fallback.accuracy ?? DEFAULT_LOCATION_ACCURACY_M, heading: 0, speed: 0, timestamp: Date.now() };
+    queueMapRender();
+  }
+}
+
+async function startLocationTracking() {
+  if (!navigator.geolocation) {
+    showAlert('warning', 'Geolocation is unavailable on this browser.');
+    return;
+  }
+  if (gpsWatchId !== null) return; // already tracking
+
+  // Check/request permission
+  try {
+    if (navigator.permissions?.query) {
+      const perm = await navigator.permissions.query({ name: 'geolocation' });
+      mapState.locationPermissionState = perm.state;
+      perm.onchange = () => {
+        mapState.locationPermissionState = perm.state;
+        if (perm.state === 'denied') {
+          showAlert('warning', 'Location access denied. Tracking paused.');
+          stopLocationTracking();
+        } else if (perm.state === 'granted') {
+          startLocationTracking();
+        }
+      };
+    }
+  } catch (_e) {
+    mapState.locationPermissionState = 'prompt';
+  }
+
+  // Primary: continuous watchPosition
+  gpsWatchId = navigator.geolocation.watchPosition(handlePositionUpdate, handleGeoError, getGeolocationOptions());
+
+  // Secondary: polling interval for browsers that throttle watchPosition
+  gpsPollIntervalId = window.setInterval(() => {
+    navigator.geolocation.getCurrentPosition(handlePositionUpdate, handleGeoError, getGeolocationOptions());
+  }, mapState.updateFrequencyMs);
+}
+
+function stopLocationTracking() {
+  if (gpsWatchId !== null) {
+    navigator.geolocation.clearWatch(gpsWatchId);
+    gpsWatchId = null;
+  }
+  if (gpsPollIntervalId !== null) {
+    window.clearInterval(gpsPollIntervalId);
+    gpsPollIntervalId = null;
+  }
+}
+
+async function refreshTrackingFrequency() {
+  if (gpsWatchId === null) return;
+  stopLocationTracking();
+  await startLocationTracking();
+}
+
+async function ensureDriverLocation() {
+  // If we already have a live position, nothing to do
+  if (mapState.lastPosition) return;
+
+  // Try last known from storage
+  const stored = getLastKnownLocation();
+  const fallback = stored || { lat: DEFAULT_FALLBACK_LAT, lng: DEFAULT_FALLBACK_LNG, accuracy: DEFAULT_LOCATION_ACCURACY_M };
+
+  // One-shot current position with short timeout
+  if (navigator.geolocation) {
+    try {
+      const coords = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+          p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
+          err => {
+            if (err?.code === 1) mapState.locationPermissionState = 'denied';
+            reject(err);
+          },
+          { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 }
+        );
+      });
+      await handlePositionUpdate({ coords: { latitude: coords.lat, longitude: coords.lng, accuracy: coords.accuracy, speed: null, heading: null } });
+      return;
+    } catch (_e) { /* fall through to fallback */ }
+  }
+
+  // Use fallback coords so map renders immediately
+  mapState.centerLat = fallback.lat;
+  mapState.centerLng = fallback.lng;
+  currentProfile = { ...(currentProfile || {}), lat: fallback.lat, lng: fallback.lng };
+  queueMapRender();
+}
+
+// ─── GPS Simulation ───────────────────────────────────────────────────────────
+function toggleGpsSimulation() {
+  const btn = document.getElementById('simulate-gps-button');
+  if (gpsSimulationIntervalId !== null) {
+    window.clearInterval(gpsSimulationIntervalId);
+    gpsSimulationIntervalId = null;
+    gpsSimulationIndex = 0;
+    if (btn) { btn.innerHTML = '<i class="bi bi-play-circle"></i> Simulate GPS'; btn.classList.replace('btn-warning', 'btn-outline-warning'); }
+    showAlert('info', 'GPS simulation stopped.');
+    return;
+  }
+
+  showAlert('info', 'GPS simulation started — driving through San Francisco.');
+  if (btn) { btn.innerHTML = '<i class="bi bi-stop-circle"></i> Stop Simulation'; btn.classList.replace('btn-outline-warning', 'btn-warning'); }
+
+  gpsSimulationIntervalId = window.setInterval(() => {
+    const wp = SIMULATION_WAYPOINTS[gpsSimulationIndex % SIMULATION_WAYPOINTS.length];
+    const next = SIMULATION_WAYPOINTS[(gpsSimulationIndex + 1) % SIMULATION_WAYPOINTS.length];
+    gpsSimulationIndex++;
+
+    // Interpolate partway towards next waypoint for smoother movement
+    const lat = wp.lat + (next.lat - wp.lat) * 0.5;
+    const lng = wp.lng + (next.lng - wp.lng) * 0.5;
+    const accuracy = 5 + Math.random() * 10;
+    const speed = 25 + Math.random() * 20; // 25–45 km/h
+    const heading = calculateHeading(wp.lat, wp.lng, next.lat, next.lng);
+
+    handlePositionUpdate({
+      coords: {
+        latitude: lat, longitude: lng, accuracy,
+        speed: speed / 3.6, // m/s
+        heading
+      }
+    });
+  }, mapState.updateFrequencyMs);
+}
+
+// ─── Wake Lock ────────────────────────────────────────────────────────────────
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    if (wakeLockSentinel && !wakeLockSentinel.released) return;
+    wakeLockSentinel = await navigator.wakeLock.request('screen');
+    wakeLockSentinel.addEventListener('release', () => { wakeLockSentinel = null; });
+  } catch (_e) { /* not critical */ }
+}
+
+// ─── Backend Sync ─────────────────────────────────────────────────────────────
+async function syncDriverLocation(lat, lng, accuracy) {
+  if (!accessToken) return;
+  await fetchJson(`${API_BASE_URL}/api/drivers/location`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + accessToken },
+    body: JSON.stringify({ lat, lng, accuracy })
+  });
+}
+
+// ─── Profile & Availability ───────────────────────────────────────────────────
 function getCurrentAvailability() {
   return currentProfile?.availabilityStatus || 'offline';
 }
@@ -132,42 +827,6 @@ function renderProfile() {
   `;
 }
 
-async function ensureDriverLocation() {
-  if (Number.isFinite(Number(currentProfile?.lat)) && Number.isFinite(Number(currentProfile?.lng))) return;
-  const fallback = { lat: 37.7749, lng: -122.4194 };
-  let coords = fallback;
-
-  if (navigator.geolocation) {
-    try {
-      coords = await new Promise(resolve => {
-        navigator.geolocation.getCurrentPosition(
-          position => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
-          () => resolve(fallback),
-          { enableHighAccuracy: true, timeout: 4000 }
-        );
-      });
-    } catch (_error) {
-      coords = fallback;
-    }
-  }
-
-  try {
-    const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/location`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + accessToken
-      },
-      body: JSON.stringify(coords)
-    });
-    if (data?.ok && data?.profile) {
-      currentProfile = data.profile;
-    }
-  } catch (_error) {
-    currentProfile = { ...(currentProfile || {}), ...coords };
-  }
-}
-
 async function loadDriverProfile() {
   try {
     const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/me`, {
@@ -187,41 +846,7 @@ async function loadDriverProfile() {
   }
 }
 
-function renderMap() {
-  const mapShell = document.getElementById('map-shell');
-  const caption = document.getElementById('map-caption');
-  const existingPoints = mapShell.querySelectorAll('.map-point');
-  existingPoints.forEach(point => point.remove());
-
-  const driverLat = Number(currentProfile?.lat);
-  const driverLng = Number(currentProfile?.lng);
-  const hasDriverLocation = Number.isFinite(driverLat) && Number.isFinite(driverLng);
-
-  const driverPoint = document.createElement('span');
-  driverPoint.className = 'map-point point-driver';
-  driverPoint.style.left = '50%';
-  driverPoint.style.top = '50%';
-  mapShell.appendChild(driverPoint);
-
-  nearbyRideRequests.slice(0, 10).forEach((ride, index) => {
-    const point = document.createElement('span');
-    point.className = 'map-point point-ride';
-    const latDelta = (ride.pickupLat - (hasDriverLocation ? driverLat : 37.7749)) * 230;
-    const lngDelta = (ride.pickupLng - (hasDriverLocation ? driverLng : -122.4194)) * 230;
-    const left = Math.max(6, Math.min(94, 50 + lngDelta));
-    const top = Math.max(8, Math.min(92, 50 - latDelta));
-    point.style.left = `${left}%`;
-    point.style.top = `${top}%`;
-    point.title = `${ride.id} • ${formatCoordinate(ride.pickupLat, ride.pickupLng)}`;
-    mapShell.appendChild(point);
-    if (index === 0) point.style.boxShadow = '0 0 0 3px rgba(25, 135, 84, 0.15)';
-  });
-
-  caption.textContent = hasDriverLocation
-    ? `Driver at ${formatCoordinate(driverLat, driverLng)} • ${nearbyRideRequests.length} nearby ride request(s)`
-    : `Location pending • ${nearbyRideRequests.length} nearby ride request(s) shown from mock data`;
-}
-
+// ─── Ride Rendering ───────────────────────────────────────────────────────────
 function renderAvailableRideRequests() {
   const listDiv = document.getElementById('available-rides');
   const rejected = new Set(getRejectedRideIds());
@@ -229,7 +854,7 @@ function renderAvailableRideRequests() {
 
   if (!rides.length) {
     listDiv.innerHTML = '<div class="text-muted">No available ride requests right now.</div>';
-    renderMap();
+    queueMapRender();
     return;
   }
 
@@ -253,7 +878,7 @@ function renderAvailableRideRequests() {
     });
   });
 
-  renderMap();
+  queueMapRender();
 }
 
 async function loadAvailableRideRequests() {
@@ -362,12 +987,18 @@ function renderRideDetailsModal(ride) {
   `;
   modal.classList.add('show');
   modal.setAttribute('aria-hidden', 'false');
+  // Refresh route data for this ride
+  routeCache.cachedAt = 0;
+  recalculateRouteData().catch(() => {});
+  queueMapRender();
 }
 
 function closeRideDetailsModal() {
   const modal = document.getElementById('ride-details-modal');
   modal.classList.remove('show');
   modal.setAttribute('aria-hidden', 'true');
+  selectedRideForDetails = null;
+  queueMapRender();
 }
 
 async function handleAcceptRide(event) {
@@ -411,6 +1042,7 @@ function handleRejectRide() {
   renderAvailableRideRequests();
 }
 
+// ─── Earnings ─────────────────────────────────────────────────────────────────
 async function loadEarnings() {
   const earningsDiv = document.getElementById('earnings-info');
   try {
@@ -433,6 +1065,7 @@ async function loadEarnings() {
   }
 }
 
+// ─── Documents ────────────────────────────────────────────────────────────────
 function getDocumentStatus(expiryDate) {
   const now = new Date();
   const expiry = new Date(expiryDate);
@@ -514,6 +1147,7 @@ async function handleDocumentSubmit(event) {
   showAlert('success', `${type} uploaded and tracked.`);
 }
 
+// ─── Support ──────────────────────────────────────────────────────────────────
 function renderSupportLog() {
   const log = getStoredList(DRIVER_SUPPORT_KEY);
   const container = document.getElementById('support-log');
@@ -547,12 +1181,19 @@ function handleSupportSubmit(event) {
   showAlert('info', 'Support request sent.');
 }
 
+// ─── Availability ─────────────────────────────────────────────────────────────
 async function toggleAvailability() {
   const current = getCurrentAvailability();
   const next = current === 'online' ? 'offline' : 'online';
 
   try {
-    if (next === 'online') await ensureDriverLocation();
+    if (next === 'online') {
+      await ensureDriverLocation();
+      await startLocationTracking();
+      await requestWakeLock();
+    } else {
+      stopLocationTracking();
+    }
     const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/availability`, {
       method: 'POST',
       headers: {
@@ -574,6 +1215,7 @@ async function toggleAvailability() {
   }
 }
 
+// ─── Navigation Directions ────────────────────────────────────────────────────
 function openDirections(kind) {
   if (!selectedRideForDetails) {
     showAlert('warning', 'Accept a ride first to open navigation.');
@@ -595,13 +1237,109 @@ function openDirections(kind) {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
+// ─── Logout ───────────────────────────────────────────────────────────────────
 function handleLogout() {
+  stopLocationTracking();
+  if (gpsSimulationIntervalId !== null) { window.clearInterval(gpsSimulationIntervalId); gpsSimulationIntervalId = null; }
+  if (wakeLockSentinel && typeof wakeLockSentinel.release === 'function') wakeLockSentinel.release().catch(() => {});
   ['accessToken', 'refreshToken', 'user', 'drive.accessToken', 'drive.refreshToken', 'drive.user'].forEach(key => {
     localStorage.removeItem(key);
   });
   window.location.href = '/index.html';
 }
 
+// ─── Map Controls ─────────────────────────────────────────────────────────────
+function setupMapControls() {
+  // Follow mode toggle
+  document.getElementById('follow-mode-button').addEventListener('click', () => {
+    mapState.followMode = !mapState.followMode;
+    const btn = document.getElementById('follow-mode-button');
+    if (mapState.followMode) {
+      btn.innerHTML = '<i class="bi bi-geo-alt-fill"></i> Follow: ON';
+      btn.classList.replace('btn-outline-primary', 'btn-primary');
+      mapState.panX = 0;
+      mapState.panY = 0;
+    } else {
+      btn.innerHTML = '<i class="bi bi-geo-alt"></i> Follow: OFF';
+      btn.classList.replace('btn-primary', 'btn-outline-primary');
+    }
+    queueMapRender();
+  });
+
+  // Satellite toggle
+  document.getElementById('satellite-toggle-button').addEventListener('click', () => {
+    mapState.satelliteView = !mapState.satelliteView;
+    const btn = document.getElementById('satellite-toggle-button');
+    btn.classList.toggle('btn-secondary', mapState.satelliteView);
+    btn.classList.toggle('btn-outline-secondary', !mapState.satelliteView);
+    queueMapRender();
+  });
+
+  // Zoom in
+  document.getElementById('zoom-in-button').addEventListener('click', () => {
+    mapState.zoom = Math.min(20, mapState.zoom + 1);
+    queueMapRender();
+  });
+
+  // Zoom out
+  document.getElementById('zoom-out-button').addEventListener('click', () => {
+    mapState.zoom = Math.max(10, mapState.zoom - 1);
+    queueMapRender();
+  });
+
+  // Mouse wheel zoom on map
+  document.getElementById('map-shell').addEventListener('wheel', event => {
+    event.preventDefault();
+    mapState.zoom = Math.max(10, Math.min(20, mapState.zoom + (event.deltaY < 0 ? 1 : -1)));
+    queueMapRender();
+  }, { passive: false });
+
+  // Pan by dragging
+  const shell = document.getElementById('map-shell');
+  shell.addEventListener('mousedown', event => {
+    mapState.isDragging = true;
+    mapState.dragStartX = event.clientX;
+    mapState.dragStartY = event.clientY;
+    shell.style.cursor = 'grabbing';
+    mapState.followMode = false;
+    const btn = document.getElementById('follow-mode-button');
+    btn.innerHTML = '<i class="bi bi-geo-alt"></i> Follow: OFF';
+    btn.classList.replace('btn-primary', 'btn-outline-primary');
+  });
+  window.addEventListener('mousemove', event => {
+    if (!mapState.isDragging) return;
+    mapState.panX += event.clientX - mapState.dragStartX;
+    mapState.panY += event.clientY - mapState.dragStartY;
+    mapState.dragStartX = event.clientX;
+    mapState.dragStartY = event.clientY;
+    queueMapRender();
+  });
+  window.addEventListener('mouseup', () => {
+    mapState.isDragging = false;
+    shell.style.cursor = 'grab';
+  });
+
+  // Update frequency
+  document.getElementById('update-frequency-input').addEventListener('change', event => {
+    mapState.updateFrequencyMs = Number(event.target.value) || 3000;
+    routeCache.cachedAt = 0;
+    refreshTrackingFrequency().catch(() => {});
+    showAlert('info', `GPS update interval set to ${mapState.updateFrequencyMs / 1000}s.`);
+  });
+
+  // GPS simulation
+  document.getElementById('simulate-gps-button').addEventListener('click', toggleGpsSimulation);
+}
+
+// ─── Periodic UI Refresh ──────────────────────────────────────────────────────
+function startUiRefreshLoop() {
+  // Refresh "X seconds ago" timestamps every 5 s
+  window.setInterval(() => {
+    if (mapState.lastUpdateAt) updateMapUiReadouts();
+  }, 5000);
+}
+
+// ─── Page Lifecycle ───────────────────────────────────────────────────────────
 window.addEventListener('load', async () => {
   accessToken = localStorage.getItem('accessToken');
   const userStr = localStorage.getItem('user');
@@ -622,6 +1360,7 @@ window.addEventListener('load', async () => {
     return;
   }
 
+  // Wire up static UI controls
   document.getElementById('logout-button').addEventListener('click', handleLogout);
   document.getElementById('accept-ride-form').addEventListener('submit', handleAcceptRide);
   document.getElementById('reject-ride-button').addEventListener('click', handleRejectRide);
@@ -635,10 +1374,38 @@ window.addEventListener('load', async () => {
   document.getElementById('pickup-directions-button').addEventListener('click', () => openDirections('pickup'));
   document.getElementById('dropoff-directions-button').addEventListener('click', () => openDirections('dropoff'));
 
+  // Map controls
+  setupMapControls();
+
   document.getElementById('driver-role').textContent = `Role: ${String(currentUser.role || 'driver').toUpperCase()}`;
   renderDocumentList();
   renderSupportLog();
 
+  // Background tracking: resume when tab becomes visible
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      requestWakeLock();
+      routeCache.cachedAt = 0;
+      recalculateRouteData().catch(() => {});
+      navigator.geolocation?.getCurrentPosition(handlePositionUpdate, handleGeoError, getGeolocationOptions());
+    }
+  });
+
+  // Cleanup on unload
+  window.addEventListener('beforeunload', () => {
+    stopLocationTracking();
+    if (gpsSimulationIntervalId !== null) window.clearInterval(gpsSimulationIntervalId);
+    if (wakeLockSentinel && typeof wakeLockSentinel.release === 'function') wakeLockSentinel.release().catch(() => {});
+  });
+
+  // Load data
   await Promise.all([loadDriverProfile(), loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
-  renderMap();
+
+  // Acquire initial location and start continuous tracking
+  await ensureDriverLocation();
+  await startLocationTracking();
+  await requestWakeLock();
+
+  // Periodic readout refresh
+  startUiRefreshLoop();
 });
