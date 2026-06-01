@@ -63,6 +63,8 @@ export type RideRequest = {
 };
 
 export type ActiveTrip = Omit<RideRequest, 'expiresAt'> & {
+  riderId?: string;
+  riderPhone?: string;
   status: Extract<DriverStatus, 'accepted' | 'arrived_at_pickup' | 'in-progress' | 'completed'>;
   rideId: string;
   timeline: Array<{ id: string; title: string; message: string; createdAt: string }>;

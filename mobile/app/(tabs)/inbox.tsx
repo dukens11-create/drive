@@ -1,5 +1,5 @@
 import { Linking, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../../src/context/AuthContext';
 import { useDriveRealtime } from '../../src/context/DriveRealtimeContext';
@@ -7,6 +7,7 @@ import { EmptyState } from '../../src/components/ui/EmptyState';
 import { ErrorBanner } from '../../src/components/ui/ErrorBanner';
 import { LoadingState } from '../../src/components/ui/LoadingState';
 import { ridesApi } from '../../src/services/api/ridesApi';
+import { chatApi } from '../../src/services/api/chatApi';
 import { supportApi } from '../../src/services/api/supportApi';
 import { useLocale } from '../../src/context/LocaleContext';
 import { useScreenTracking } from '../../src/hooks/useScreenTracking';
@@ -15,7 +16,7 @@ import { logEvent } from '../../src/services/observability';
 const CHAT_EVENT_TITLE = 'Trip chat';
 const MAX_VISIBLE_CHAT_MESSAGES = 8;
 
-const QUICK_REPLIES = [
+const DEFAULT_QUICK_REPLIES = [
   { id: 'qr1', label: "On my way", content: 'I am on my way to pick you up.' },
   { id: 'qr2', label: "Arrived", content: 'I have arrived at the pickup location.' },
   { id: 'qr3', label: "Wait please", content: 'Please wait for me, I will be there shortly.' },
@@ -34,6 +35,7 @@ type TripChatEvent = {
 
 type ActiveTripWithPhone = {
   rideId: string;
+  riderId?: string;
   riderName: string;
   riderPhone?: string;
   timeline?: TripChatEvent[];
@@ -50,6 +52,7 @@ export default function InboxScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [openTicketId, setOpenTicketId] = useState<string | null>(null);
   const [translatingId, setTranslatingId] = useState<string | null>(null);
+  const [quickReplies, setQuickReplies] = useState(DEFAULT_QUICK_REPLIES);
   const hasNotifications = notifications.length > 0;
 
   const typedActiveTrip = activeTrip as ActiveTripWithPhone | null;
@@ -58,6 +61,24 @@ export default function InboxScreen() {
     () => ((typedActiveTrip?.timeline ?? []) as TripChatEvent[]).filter((event) => event.title === CHAT_EVENT_TITLE).slice(-MAX_VISIBLE_CHAT_MESSAGES),
     [typedActiveTrip?.timeline]
   );
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadQuickReplies = async () => {
+      try {
+        const templates = await chatApi.quickReplies();
+        if (isMounted && templates.length > 0) {
+          setQuickReplies(templates);
+        }
+      } catch {
+        // Keep defaults if templates are unavailable.
+      }
+    };
+    void loadQuickReplies();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const sendTripMessage = async (content?: string) => {
     const text = content ?? chatMessage;
@@ -76,15 +97,26 @@ export default function InboxScreen() {
     }
   };
 
-  const callPassenger = () => {
+  const callPassenger = async () => {
     logEvent('call_passenger_tapped');
     const phone = typedActiveTrip?.riderPhone;
     if (phone) {
-      Linking.openURL(`tel:${phone}`).catch(() => {
+      await Linking.openURL(`tel:${phone}`).catch(() => {
         setSupportStatus('Unable to initiate call.');
       });
-    } else {
-      setSupportStatus('Passenger phone number is not available.');
+      return;
+    }
+
+    const riderId = typedActiveTrip?.riderId;
+    if (!riderId || !typedActiveTrip?.rideId) {
+      setSupportStatus('Passenger contact details are not available.');
+      return;
+    }
+    try {
+      await chatApi.initiateCall(riderId, typedActiveTrip.rideId);
+      setSupportStatus('Connecting passenger call...');
+    } catch (error) {
+      setSupportStatus(error instanceof Error ? error.message : 'Unable to initiate call.');
     }
   };
 
@@ -192,7 +224,7 @@ export default function InboxScreen() {
 
                 {/* Quick reply templates */}
                 <View className="mt-3 flex-row flex-wrap gap-2">
-                  {QUICK_REPLIES.map((qr) => (
+                  {quickReplies.map((qr) => (
                     <Pressable
                       key={qr.id}
                       className="rounded-xl bg-zinc-100 px-3 py-1 dark:bg-zinc-800"

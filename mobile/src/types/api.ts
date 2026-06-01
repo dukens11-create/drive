@@ -50,6 +50,8 @@ export type RideSummary = {
   id: string;
   riderId: string;
   driverId?: string;
+  riderPhone?: string;
+  driverPhone?: string;
   pickupLat?: number;
   pickupLng?: number;
   dropoffLat?: number;

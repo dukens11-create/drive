@@ -104,6 +104,20 @@ test('ride request stays unassigned when no dispatch-eligible drivers exist', as
 
 test('driver can send trip chat and rate passenger after completion', async () => {
   resetDriverData();
+  store.users.set('driver_feedback', {
+    id: 'driver_feedback',
+    role: 'driver',
+    phone: '+15550001111',
+    password: 'hashed_password',
+    createdAt: new Date().toISOString()
+  });
+  store.users.set('rider_feedback', {
+    id: 'rider_feedback',
+    role: 'rider',
+    phone: '+15550002222',
+    password: 'hashed_password',
+    createdAt: new Date().toISOString()
+  });
   await drivers.apply({ userId: 'driver_feedback' });
   await drivers.documents({
     userId: 'driver_feedback',
@@ -120,7 +134,10 @@ test('driver can send trip chat and rate passenger after completion', async () =
   const request = await rides.request({ riderId: 'rider_feedback', pickupLat: 9.01, pickupLng: 9.01, miles: 4, minutes: 10 });
   assert.equal(request.ok, true);
   assert.equal(request.ride.driverId, 'driver_feedback');
+  assert.equal(request.ride.riderPhone, '+15550002222');
+  assert.equal(request.ride.driverPhone, '+15550001111');
 
+  const dispatchEventCountBeforeMessage = store.dispatchEvents.length;
   const tripMessage = await rides.message({
     rideId: request.ride.id,
     message: 'I am arriving in 2 minutes.',
@@ -128,6 +145,9 @@ test('driver can send trip chat and rate passenger after completion', async () =
   });
   assert.equal(tripMessage.ok, true);
   assert.equal(tripMessage.message.type, 'chat_message');
+  const chatDispatchEvent = store.dispatchEvents[dispatchEventCountBeforeMessage];
+  assert.equal(chatDispatchEvent?.type, 'ride_updated');
+  assert.equal(chatDispatchEvent?.payload?.reason, 'chat_message');
 
   await rides.arrive({ rideId: request.ride.id, driverId: 'driver_feedback' });
   await rides.start({ rideId: request.ride.id, driverId: 'driver_feedback', riderConfirmed: true });

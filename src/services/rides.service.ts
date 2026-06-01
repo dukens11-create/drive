@@ -254,8 +254,12 @@ function getRideAvailableActions(ride: Ride) {
 
 function toRiderRideSummary(ride: Ride) {
   const events = getRideEvents(ride);
+  const riderPhone = store.users.get(ride.riderId)?.phone;
+  const driverPhone = ride.driverId ? store.users.get(ride.driverId)?.phone : undefined;
   return {
     ...ride,
+    riderPhone,
+    driverPhone,
     events,
     lifecycleState: getRideLifecycleState(ride),
     latestEvent: events[events.length - 1] || null,
@@ -1035,5 +1039,16 @@ export async function message(body: any, _params?: any, _query?: any) {
   if (!message) return { module: 'rides', action: 'message', error: 'message is required' };
   const actor = body?.actor;
   const event = appendRideEvent(ride, 'chat_message', 'Trip chat', message, actor?.role, actor?.id);
+  let counterpartyId: string | undefined;
+  if (actor?.id === ride.driverId) {
+    counterpartyId = ride.riderId;
+  } else if (actor?.id === ride.riderId) {
+    counterpartyId = ride.driverId;
+  }
+  if (counterpartyId) {
+    const senderLabel = actor?.role === 'driver' ? 'Driver' : 'Rider';
+    await pushRideNotification(counterpartyId, 'trip_updates', `New trip message from ${senderLabel}`, message, 'trip_message');
+  }
+  publishRideRealtimeUpdate(ride, 'chat_message');
   return { module: 'rides', action: 'message', ok: true, message: event, rideId: ride.id };
 }
