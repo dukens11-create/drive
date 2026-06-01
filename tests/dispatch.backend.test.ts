@@ -60,10 +60,18 @@ test('dispatch backend compatibility endpoints expose realtime driver, rider, re
     [driverOne, driverTwo].forEach(driver => {
       const profile = store.drivers.get(driver.user.id);
       assert.ok(profile);
+      profile.documents = ['Driver License:2030-01-01:license.jpg', 'Selfie Photo:2030-01-01:selfie.jpg'];
+      profile.verificationDocuments = [
+        { id: `license-${driver.user.id}`, type: 'Driver License', fileName: 'license.jpg', uploadedAt: new Date().toISOString(), verificationStatus: 'approved' },
+        { id: `selfie-${driver.user.id}`, type: 'Selfie Photo', fileName: 'selfie.jpg', uploadedAt: new Date().toISOString(), verificationStatus: 'auto_verified' }
+      ];
+      profile.selfieVerification = { status: 'matched', score: 0.98, fileName: 'selfie.jpg', checkedAt: new Date().toISOString() };
+      profile.verificationReview = { status: 'approved', reviewedAt: new Date().toISOString(), reviewedBy: 'test' };
       profile.status = 'approved';
       profile.verificationState = 'verified';
       profile.availabilityStatus = 'offline';
       profile.available = false;
+      store.kycStatus.set(driver.user.id, 'verified');
     });
 
     let response = await requestJson(baseUrl, `/api/drivers/${driverOne.user.id}/location`, 'POST', {

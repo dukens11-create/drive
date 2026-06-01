@@ -12,6 +12,7 @@ import {
   store,
   timestamp,
   type Ride,
+  type RiderProfile,
   type RideRequest,
   type RideRequestResponse
 } from '../database/data.store';
@@ -60,7 +61,7 @@ function getRideRequestByRideId(rideId: string) {
   return Array.from(store.rideRequests.values()).find(request => request.rideId === rideId) || null;
 }
 
-function ensureRiderProfile(riderId: string) {
+function ensureRiderProfile(riderId: string): RiderProfile {
   const existing = store.riders.get(riderId);
   if (existing) return existing;
   const profile = {
