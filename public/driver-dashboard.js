@@ -3827,11 +3827,23 @@ function setupBottomSheetControls() {
   const body = document.querySelector('.sheet-body');
   const handle = document.querySelector('.sheet-handle');
   const backdrop = document.getElementById('sheet-backdrop');
+  const toggleButton = document.getElementById('sheet-toggle-button');
   if (!body || !handle) return;
+
+  const syncToggleState = expanded => {
+    if (!toggleButton) return;
+    toggleButton.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    toggleButton.setAttribute('aria-label', expanded ? 'Minimize dashboard' : 'Expand dashboard');
+    const label = toggleButton.querySelector('span');
+    if (label) {
+      label.textContent = expanded ? 'Minimize' : 'Expand';
+    }
+  };
 
   const updateSheetUiState = () => {
     const isExpanded = sheetState.currentHeight > sheetState.minHeight + 12;
     backdrop?.classList.toggle('is-visible', isExpanded);
+    syncToggleState(isExpanded);
   };
 
   const recalculateBounds = () => {
@@ -3911,6 +3923,14 @@ function setupBottomSheetControls() {
     sheetState.currentHeight = sheetState.minHeight;
     root.style.setProperty('--sheet-height', `${sheetState.currentHeight}px`);
     updateSheetUiState();
+  });
+  toggleButton?.addEventListener('click', () => {
+    const [collapsed, , expanded] = sheetState.snapPoints;
+    const isExpanded = sheetState.currentHeight > sheetState.minHeight + 12;
+    sheetState.currentHeight = isExpanded ? collapsed : expanded;
+    root.style.setProperty('--sheet-height', `${sheetState.currentHeight}px`);
+    updateSheetUiState();
+    triggerHapticFeedback(20);
   });
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);

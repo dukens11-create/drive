@@ -795,6 +795,36 @@
             gap: 12px;
         }
 
+        .sheet-controls {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sheet-toggle {
+            min-width: 44px;
+            min-height: 44px;
+            padding: 10px 14px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: rgba(7, 16, 24, 0.7);
+            color: var(--text);
+            font-size: 0.8rem;
+            font-weight: 600;
+            border-radius: 999px !important;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .sheet-toggle i {
+            transition: transform 0.2s ease;
+        }
+
+        .sheet-toggle[aria-expanded="true"] i {
+            transform: rotate(180deg);
+        }
+
         .sheet-title {
             margin: 4px 0 0;
             font-size: 1.2rem;
@@ -1800,9 +1830,15 @@
                         <div class="section-kicker">Driver dashboard</div>
                         <h1 class="sheet-title">Professional control center</h1>
                     </div>
-                    <div class="sheet-summary">
-                        <span class="summary-pill"><i class="bi bi-phone"></i>&nbsp; Modern mobile UI</span>
-                        <span id="live-summary-pill" class="summary-pill"><i class="bi bi-lightning-charge"></i>&nbsp; 0 active requests</span>
+                    <div class="sheet-controls">
+                        <div class="sheet-summary">
+                            <span class="summary-pill"><i class="bi bi-phone"></i>&nbsp; Modern mobile UI</span>
+                            <span id="live-summary-pill" class="summary-pill"><i class="bi bi-lightning-charge"></i>&nbsp; 0 active requests</span>
+                        </div>
+                        <button id="sheet-toggle-button" class="sheet-toggle" type="button" aria-expanded="false" aria-label="Expand dashboard">
+                            <i class="bi bi-chevron-up"></i>
+                            <span>Expand</span>
+                        </button>
                     </div>
                 </div>
 
