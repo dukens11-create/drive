@@ -22,6 +22,10 @@ type DriverRealtimeRide = Ride & {
   events: RideEvent[];
 };
 
+export const DISPATCH_EVENT_HISTORY_LIMIT = 200;
+const LOCATION_SNAPSHOT_LIMIT = 200;
+const DISPATCH_EVENT_STORE_LIMIT = 1_000;
+
 type RiderRealtimeProfile = {
   userId: string;
   currentTripId?: string;
@@ -68,8 +72,8 @@ function publishDispatchEvent(type: string, payload: Record<string, unknown>, ro
     payload
   };
   store.dispatchEvents.push(event);
-  if (store.dispatchEvents.length > 1_000) {
-    store.dispatchEvents.splice(0, store.dispatchEvents.length - 1_000);
+  if (store.dispatchEvents.length > DISPATCH_EVENT_STORE_LIMIT) {
+    store.dispatchEvents.splice(0, store.dispatchEvents.length - DISPATCH_EVENT_STORE_LIMIT);
   }
   realtimeServer?.emit('dispatch:event', event);
   roomIds.forEach(roomId => emitToRoom(roomId, 'dispatch:event', event));
@@ -173,8 +177,8 @@ export function getRealtimeDispatchSnapshot() {
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .map(normalizeRide),
     requests: Array.from(store.rideRequests.values()).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
-    locations: Array.from(store.locationHistory.values()).sort((left, right) => right.timestamp.localeCompare(left.timestamp)).slice(0, 200),
-    events: [...store.dispatchEvents].sort((left, right) => left.sequence - right.sequence).slice(-200)
+    locations: Array.from(store.locationHistory.values()).sort((left, right) => right.timestamp.localeCompare(left.timestamp)).slice(0, LOCATION_SNAPSHOT_LIMIT),
+    events: [...store.dispatchEvents].sort((left, right) => left.sequence - right.sequence).slice(-DISPATCH_EVENT_HISTORY_LIMIT)
   };
 }
 
@@ -247,19 +251,15 @@ export function publishRideRealtimeUpdate(ride: Ride, reason = 'trip_update') {
     updatedAt
   });
   emitToRoom(`user:${ride.riderId}`, 'dispatch:trip_update', tripUpdatePayload);
-  const eventType = reason === 'ride_requested'
-    ? 'ride_requested'
-    : reason === 'accepted'
-      ? 'ride_accepted'
-      : reason === 'arrived_at_pickup'
-        ? 'ride_arrived'
-        : reason === 'started'
-          ? 'ride_started'
-          : reason === 'completed'
-            ? 'ride_completed'
-            : reason === 'canceled'
-              ? 'ride_cancelled'
-              : 'ride_updated';
+  const eventTypeMap: Record<string, string> = {
+    ride_requested: 'ride_requested',
+    accepted: 'ride_accepted',
+    arrived_at_pickup: 'ride_arrived',
+    started: 'ride_started',
+    completed: 'ride_completed',
+    canceled: 'ride_cancelled'
+  };
+  const eventType = eventTypeMap[reason] || 'ride_updated';
   publishDispatchEvent(eventType, {
     rideId: ride.id,
     driverId: ride.driverId,

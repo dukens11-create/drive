@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import { Server } from 'socket.io';
 import { store } from '../database/data.store';
 import { env } from '../config/env';
-import { getDriverRealtimeDispatchSnapshot, getRealtimeDispatchSnapshot, registerRealtimeDispatchServer } from '../services/realtime-dispatch.service';
+import { DISPATCH_EVENT_HISTORY_LIMIT, getDriverRealtimeDispatchSnapshot, getRealtimeDispatchSnapshot, registerRealtimeDispatchServer } from '../services/realtime-dispatch.service';
 
 export function registerTrackingSocket(io: Server) {
   registerRealtimeDispatchServer(io);
@@ -42,7 +42,7 @@ export function registerTrackingSocket(io: Server) {
         requests: Array.from(store.rideRequests.values()).filter(request =>
           request.broadcastedDrivers.includes(userId) || request.acceptedDriverId === userId
         ),
-        events: [...store.dispatchEvents].slice(-100)
+        events: [...store.dispatchEvents].slice(-DISPATCH_EVENT_HISTORY_LIMIT)
       });
       socket.emit('dispatch:rides', {
         reason: 'initial_sync',

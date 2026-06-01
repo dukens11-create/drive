@@ -16,6 +16,7 @@ type DriverDocumentInput = string | {
 
 const SELFIE_DOCUMENT_TYPE = 'Selfie Photo';
 const LICENSE_DOCUMENT_TYPE = 'Driver License';
+const LOCATION_HISTORY_LIMIT = 5_000;
 
 function getProfile(userId: string) {
   return store.drivers.get(userId);
@@ -393,8 +394,8 @@ export async function location(body: any, _params?: any, _query?: any) {
     speed: Number.isFinite(speed) ? speed : undefined,
     timestamp: updatedAt
   });
-  if (store.locationHistory.length > 5_000) {
-    store.locationHistory.splice(0, store.locationHistory.length - 5_000);
+  if (store.locationHistory.length > LOCATION_HISTORY_LIMIT) {
+    store.locationHistory.splice(0, store.locationHistory.length - LOCATION_HISTORY_LIMIT);
   }
   markStoreDirty();
   publishDriverRealtimeLocation(userId);

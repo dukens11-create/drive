@@ -25,6 +25,8 @@ const BASE_FARE = 2.5;
 const DISTANCE_RATE = 1.9;
 const TIME_RATE = 0.25;
 const CURRENCY = 'USD';
+const RIDE_REQUEST_EXPIRY_MS = 30_000;
+const MAX_FAVORITE_LOCATIONS = 10;
 
 async function pushRideNotification(userId: string | undefined, category: string, title: string, body: string, template: string) {
   if (!userId) return;
@@ -244,6 +246,9 @@ export async function request(body: any, _params?: any, _query?: any) {
   const riderId = getRiderId(body);
   if (!riderId) return { module: 'rides', action: 'request', error: 'riderId is required' };
   const riderProfile = ensureRiderProfile(riderId);
+  const pickupLat = Number(body?.pickupLat);
+  const pickupLng = Number(body?.pickupLng);
+  const hasValidPickupCoords = Number.isFinite(pickupLat) && Number.isFinite(pickupLng);
 
   const estimated = await estimate(body);
   const fareCents = Math.round(estimated.fareEstimate * 100);
@@ -305,19 +310,19 @@ export async function request(body: any, _params?: any, _query?: any) {
   };
   store.rides.set(ride.id, ride);
   riderProfile.currentTripId = ride.id;
-  riderProfile.lat = Number.isFinite(Number(body?.pickupLat)) ? Number(body.pickupLat) : riderProfile.lat;
-  riderProfile.lng = Number.isFinite(Number(body?.pickupLng)) ? Number(body.pickupLng) : riderProfile.lng;
-  riderProfile.lastLocationUpdatedAt = (Number.isFinite(Number(body?.pickupLat)) && Number.isFinite(Number(body?.pickupLng))) ? now : riderProfile.lastLocationUpdatedAt;
+  riderProfile.lat = hasValidPickupCoords ? pickupLat : riderProfile.lat;
+  riderProfile.lng = hasValidPickupCoords ? pickupLng : riderProfile.lng;
+  riderProfile.lastLocationUpdatedAt = hasValidPickupCoords ? now : riderProfile.lastLocationUpdatedAt;
   if (typeof body?.vehiclePreference === 'string' && body.vehiclePreference.trim()) riderProfile.vehiclePreference = body.vehiclePreference.trim();
   if (typeof body?.routePreference === 'string' && body.routePreference.trim()) riderProfile.routePreference = body.routePreference.trim();
-  if (body?.favoriteLocationLabel && Number.isFinite(Number(body?.pickupLat)) && Number.isFinite(Number(body?.pickupLng))) {
+  if (body?.favoriteLocationLabel && hasValidPickupCoords) {
     const label = String(body.favoriteLocationLabel).trim();
-    if (label && !riderProfile.favoriteLocations.some(location => location.label === label && location.lat === Number(body.pickupLat) && location.lng === Number(body.pickupLng))) {
-      riderProfile.favoriteLocations = [{ label, lat: Number(body.pickupLat), lng: Number(body.pickupLng) }, ...riderProfile.favoriteLocations].slice(0, 10);
+    if (label && !riderProfile.favoriteLocations.some(location => location.label === label && location.lat === pickupLat && location.lng === pickupLng)) {
+      riderProfile.favoriteLocations = [{ label, lat: pickupLat, lng: pickupLng }, ...riderProfile.favoriteLocations].slice(0, MAX_FAVORITE_LOCATIONS);
     }
   }
   const dispatch = await dispatchRide({ id: ride.id, pickupLat: ride.pickupLat, pickupLng: ride.pickupLng });
-  const expiresAt = new Date(Date.now() + 30_000).toISOString();
+  const expiresAt = new Date(Date.now() + RIDE_REQUEST_EXPIRY_MS).toISOString();
   const rideRequest: RideRequest = {
     id: makeId('request'),
     rideId: ride.id,
@@ -392,6 +397,8 @@ export async function history(body: any, _params?: any, _query?: any) {
   const status = body?.status;
   const fromDate = body?.from ? new Date(body.from) : null;
   const toDate = body?.to ? new Date(body.to) : null;
+  const validFromDate = fromDate && !Number.isNaN(fromDate.getTime()) ? fromDate : null;
+  const validToDate = toDate && !Number.isNaN(toDate.getTime()) ? toDate : null;
   const rides = Array.from(store.rides.values())
     .filter(ride => {
       if (actor?.role === 'admin') return true;
@@ -399,8 +406,8 @@ export async function history(body: any, _params?: any, _query?: any) {
       return ride.riderId === riderId;
     })
     .filter(ride => !status || ride.status === status)
-    .filter(ride => !fromDate || Number.isNaN(fromDate.getTime()) || new Date(ride.updatedAt) >= fromDate)
-    .filter(ride => !toDate || Number.isNaN(toDate.getTime()) || new Date(ride.updatedAt) <= toDate)
+    .filter(ride => !validFromDate || new Date(ride.updatedAt) >= validFromDate)
+    .filter(ride => !validToDate || new Date(ride.updatedAt) <= validToDate)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return {
     module: 'rides',
@@ -482,6 +489,9 @@ export async function accept(body: any, params?: any, _query?: any) {
   }
   const driverId = getDriverId(body);
   if (!driverId) return { module: 'rides', action: 'accept', error: 'driverId is required' };
+  if (request && request.broadcastedDrivers.length === 0) {
+    return { module: 'rides', action: 'accept', error: 'ride request has no broadcasted drivers' };
+  }
   if (request && request.broadcastedDrivers.length && !request.broadcastedDrivers.includes(driverId)) {
     return { module: 'rides', action: 'accept', error: 'driver was not included in this request broadcast' };
   }
