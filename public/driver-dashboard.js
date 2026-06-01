@@ -1761,7 +1761,6 @@ function createDriverMarkerElement() {
   return el;
 }
 
-<<<<<<< HEAD
 function updateDriverMarkerVisuals(position) {
   const markerElement = mapState.markers.driver?.getElement?.();
   if (!markerElement || !position) return;
@@ -1778,7 +1777,8 @@ function updateDriverMarkerVisuals(position) {
       : `${Math.round(speedKmh)} km/h · ${Math.round(speedMph)} mph`;
   }
   markerElement.dataset.status = mapState.motion.status || 'Moving';
-=======
+}
+
 function createRouteMarkerElement(kind) {
   const isPickup = kind === 'pickup';
   const el = document.createElement('div');
@@ -1814,7 +1814,6 @@ function syncRouteLayerStyles() {
     map.setPaintProperty(layerId, 'line-width', isHighlighted ? baseWidth + 2 : baseWidth);
     map.setPaintProperty(layerId, 'line-opacity', isHighlighted ? 1 : 0.9);
   });
->>>>>>> origin/main
 }
 
 function ensureTrafficLayer() {
@@ -2329,7 +2328,6 @@ function updateMapUiReadouts() {
   const distDropoffEl = document.getElementById('distance-dropoff');
   if (distDropoffEl) distDropoffEl.textContent = formatDistance(routeCache.dropoffDistKm);
 
-<<<<<<< HEAD
   const avgSpeedEl = document.getElementById('avg-speed');
   if (avgSpeedEl) {
     const avgSpeed = mapState.motion.averageSpeedKmh || 0;
@@ -2350,7 +2348,8 @@ function updateMapUiReadouts() {
     positionEl.textContent = pos
       ? `${roundCoord(pos.lat)}, ${roundCoord(pos.lng)}`
       : '--';
-=======
+  }
+
   const distTotalEl = document.getElementById('distance-total');
   if (distTotalEl) distTotalEl.textContent = formatDistance(routeCache.totalDistKm);
 
@@ -2404,7 +2403,6 @@ function updateMapUiReadouts() {
   if (routeAnnouncer && routeAnnouncement && routeAnnouncement !== routeCache.lastAnnouncement) {
     routeAnnouncer.textContent = routeAnnouncement;
     routeCache.lastAnnouncement = routeAnnouncement;
->>>>>>> origin/main
   }
 
   // Heading / Compass
@@ -2446,8 +2444,7 @@ function renderMap() {
   const driverPos = getMapDisplayPosition();
   if (!driverPos) return;
 
-<<<<<<< HEAD
-  if (mapState.followMode) {
+  if (mapState.followMode && !mapState.routeFitPending) {
     const cameraTarget = calculateForwardOffsetPosition(
       driverPos.lat,
       driverPos.lng,
@@ -2471,15 +2468,6 @@ function renderMap() {
         essential: true,
       });
     }
-=======
-  if (mapState.followMode && !mapState.routeFitPending) {
-    map.easeTo({
-      center: [driverPos.lng, driverPos.lat],
-      bearing: Number.isFinite(driverPos.heading) ? driverPos.heading : 0,
-      duration: 120,
-      easing: t => t,
-    });
->>>>>>> origin/main
   }
 }
 
@@ -2541,7 +2529,7 @@ async function handlePositionUpdate(positionLike, options = {}) {
     }
   }
 
-<<<<<<< HEAD
+  const hadGpsIssue = mapState.gpsRetryCount > 0 || mapState.gpsRetryExhausted || mapState.gpsLoading;
   const nextPosition = {
     lat,
     lng,
@@ -2554,63 +2542,26 @@ async function handlePositionUpdate(positionLike, options = {}) {
     console.warn('Discarding noisy GPS update', { previousPosition, nextPosition, distanceKm, elapsedMs });
     return;
   }
-  commitPositionUpdate(nextPosition, options);
-=======
-  const hadGpsIssue = mapState.gpsRetryCount > 0 || mapState.gpsRetryExhausted || mapState.gpsLoading;
-  mapState.prevPosition = mapState.lastPosition;
-  mapState.lastPosition = { lat, lng, accuracy, heading: heading ?? 0, speed: speedKmh, timestamp: Date.now() };
-  mapState.lastUpdateAt = Date.now();
-  mapState.locationPermissionState = 'granted';
   mapState.gpsRetryCount = 0;
   mapState.gpsRetryExhausted = false;
   clearGpsRetryTimer();
   clearGpsAcquisitionTimeout();
-
-  // Persist for offline fallback
-  saveLastKnownLocation(lat, lng, accuracy);
-
-  // Update profile coords
-  currentProfile = { ...(currentProfile || {}), lat, lng };
-
-  // Log the fix
-  appendGpsLogEntry(lat, lng, accuracy, heading ?? 0, speedKmh);
-
-  // Sync location to backend (fire-and-forget)
-  syncDriverLocation(lat, lng, accuracy).catch(() => {});
-
-  // Recalculate route / ETA (respects cache TTL)
-  scheduleRouteRefresh();
-
-  // Re-render map
-  queueMapRender();
+  commitPositionUpdate(nextPosition, options);
   const accuracyDetails = getGpsAccuracyDetails(accuracy);
   setGpsStatus(`GPS connected • Accuracy ${accuracyDetails.label} (±${Math.round(accuracy)} m)`, { loading: false });
   if (hadGpsIssue) {
     logGpsEvent('info', 'GPS signal restored.', { lat, lng, accuracy });
   }
->>>>>>> origin/main
 }
 
 function handleGeoError(error) {
   logGpsEvent('warn', 'Geolocation error received.', error);
   if (error?.code === 1) {
     mapState.locationPermissionState = 'denied';
-<<<<<<< HEAD
-    mapState.motion.status = 'Location denied';
-    updateMapUiReadouts();
-    showAlert('warning', 'Location permission denied. Enable GPS permissions to track rides.');
-    return;
-  }
-  mapState.motion.status = 'Signal lost';
-  updateMapUiReadouts();
-  if (error?.code === 2) {
-    showAlert('warning', 'GPS position unavailable. Retrying…');
-  } else {
-    showAlert('warning', 'GPS signal lost. Retrying location updates…');
-  }
-=======
     clearGpsRetryTimer();
     clearGpsAcquisitionTimeout();
+    mapState.motion.status = 'Location denied';
+    updateMapUiReadouts();
     setGpsStatus('Location permission denied. Enable location access in your browser settings.', { loading: false });
     showAlert('warning', 'Location permission denied. Enable location access in your browser settings.');
     stopLocationTracking();
@@ -2619,9 +2570,10 @@ function handleGeoError(error) {
 
   const isUnavailable = error?.code === 2;
   const errorLabel = isUnavailable ? 'GPS position unavailable.' : 'GPS signal lost.';
+  mapState.motion.status = 'Signal lost';
+  updateMapUiReadouts();
   setGpsStatus(`${errorLabel} Acquiring GPS...`, { loading: true });
   showAlert('warning', `${errorLabel} Retrying location updates…`);
->>>>>>> origin/main
   // Fall back to last known location for map display
   const fallback = getLastKnownLocation();
   if (fallback && !mapState.lastPosition) {
@@ -2802,7 +2754,6 @@ async function ensureDriverLocation() {
   // Use fallback coords so map renders immediately
   mapState.centerLat = fallback.lat;
   mapState.centerLng = fallback.lng;
-<<<<<<< HEAD
   commitPositionUpdate({
     lat: fallback.lat,
     lng: fallback.lng,
@@ -2811,11 +2762,7 @@ async function ensureDriverLocation() {
     speed: 0,
     timestamp: Date.now()
   }, { syncBackend: false, skipLog: true });
-=======
-  currentProfile = { ...(currentProfile || {}), lat: fallback.lat, lng: fallback.lng };
   setGpsStatus(stored ? 'Acquiring GPS... using last known location.' : 'Acquiring GPS... waiting for live location.', { loading: true });
-  queueMapRender();
->>>>>>> origin/main
 }
 
 // ─── GPS Simulation ───────────────────────────────────────────────────────────
