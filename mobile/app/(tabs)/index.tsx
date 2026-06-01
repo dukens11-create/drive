@@ -26,6 +26,7 @@ const MIN_ZOOM_LEVEL = 12;
 const MAX_ZOOM_LEVEL = 19;
 const ROUTE_OVERVIEW_EDGE_PADDING = { top: 170, right: 60, bottom: 360, left: 60 };
 const MIN_ROUTE_OVERVIEW_POINTS = 2;
+const ARRIVAL_NOTIFICATION_TOP_OFFSET = 456;
 
 type ExpoExtra = {
   emergencyNumber?: string;
@@ -289,7 +290,7 @@ export default function DriveHomeScreen() {
               <Text className={`text-xs font-semibold uppercase tracking-wider ${highContrastEnabled ? 'text-white' : 'text-zinc-500 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('home.turnByTurn')}</Text>
               <Text className={`mt-1 text-sm font-semibold ${highContrastEnabled ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{routeData.nextInstruction}</Text>
               <Text className={`mt-1 text-xs ${highContrastEnabled ? 'text-white' : 'text-zinc-600 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>
-                Voice guidance · {routeData.voiceInstruction}
+                Voice guidance enabled for the next turn
               </Text>
             </View>
           </View>
@@ -346,7 +347,7 @@ export default function DriveHomeScreen() {
       ) : null}
       {routeData?.arrivalMessage ? (
         <View
-          style={{ top: 456 }}
+          style={{ top: ARRIVAL_NOTIFICATION_TOP_OFFSET }}
           className={`absolute left-4 right-20 z-30 rounded-2xl px-4 py-3 ${highContrastEnabled ? 'border border-white bg-black' : 'bg-emerald-500/95'}`}
         >
           <Text className={`text-xs font-semibold uppercase tracking-wider ${highContrastEnabled ? 'text-white' : 'text-emerald-50'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>

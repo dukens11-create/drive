@@ -32,6 +32,8 @@ const EARTH_RADIUS_KM = 6371;
 const DEFAULT_AVERAGE_CITY_SPEED_KPH = 30;
 const ARRIVAL_ALERT_DISTANCE_KM = 0.2;
 const MIN_SEGMENT_DISTANCE_KM = 0.03;
+const VIA_POINT_OFFSET_RATIO = 0.18;
+const TURN_ANGLE_THRESHOLD_DEGREES = 20;
 
 const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
 const toDegrees = (radians: number) => (radians * 180) / Math.PI;
@@ -120,8 +122,17 @@ const buildLegWaypoints = (start: LatLng, end: LatLng): LatLng[] => {
 
   const viaPoint =
     Math.abs(lngDelta) >= Math.abs(latDelta)
-      ? { latitude: start.latitude + latDelta * 0.18, longitude: end.longitude }
-      : { latitude: end.latitude, longitude: start.longitude + lngDelta * 0.18 };
+      ? {
+          // Use a small offset from the current path so the generated route gains a readable intermediate turn
+          // without creating an unrealistic detour away from the pickup/dropoff corridor.
+          latitude: start.latitude + latDelta * VIA_POINT_OFFSET_RATIO,
+          longitude: end.longitude,
+        }
+      : {
+          // Mirror the same offset when changing latitude first so both route shapes stay similarly compact.
+          latitude: end.latitude,
+          longitude: start.longitude + lngDelta * VIA_POINT_OFFSET_RATIO,
+        };
 
   if (distanceKmBetween(start, viaPoint) < MIN_SEGMENT_DISTANCE_KM || distanceKmBetween(viaPoint, end) < MIN_SEGMENT_DISTANCE_KM) {
     return [start, end];
@@ -167,8 +178,10 @@ export const buildNavigationRoute = (origin: LatLng, trip: ActiveTrip | null): N
       const bearing = bearingBetween(from, point);
       const heading = headingToDirection(bearing);
       const isFirstSegment = pointIndex === 0;
+      // Normalize the turn delta into the [-180, 180] range so left/right detection works across the 0/360 wraparound.
       const turnDelta = previousBearing === null ? 0 : ((bearing - previousBearing + 540) % 360) - 180;
-      const maneuver = previousBearing === null || Math.abs(turnDelta) < 20 ? 'straight' : turnDelta > 0 ? 'right' : 'left';
+      const maneuver =
+        previousBearing === null || Math.abs(turnDelta) < TURN_ANGLE_THRESHOLD_DEGREES ? 'straight' : turnDelta > 0 ? 'right' : 'left';
       const instruction =
         maneuver === 'left'
           ? `Turn left toward ${leg.target}`
