@@ -2,8 +2,10 @@ import jwt from 'jsonwebtoken';
 import { Server } from 'socket.io';
 import { store } from '../database/data.store';
 import { env } from '../config/env';
+import { getDriverRealtimeDispatchSnapshot, registerRealtimeDispatchServer } from '../services/realtime-dispatch.service';
 
 export function registerTrackingSocket(io: Server) {
+  registerRealtimeDispatchServer(io);
   io.use((socket, next) => {
     const authHeader = socket.handshake.auth?.token || socket.handshake.headers.authorization;
     const token = typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '') : '';
@@ -17,14 +19,31 @@ export function registerTrackingSocket(io: Server) {
   });
 
   io.on('connection', socket => {
+    const user = (socket.data as any).user;
+    const userId = user?.sub;
+    const role = user?.role;
+    if (userId) {
+      socket.join(`user:${userId}`);
+      if (role === 'driver') socket.join(`driver:${userId}`);
+    }
+
+    socket.on('dispatch:subscribe', () => {
+      if (!userId || role !== 'driver') return;
+      const snapshot = getDriverRealtimeDispatchSnapshot(userId);
+      socket.emit('dispatch:rides', {
+        reason: 'initial_sync',
+        items: snapshot.rides,
+        updatedAt: new Date().toISOString()
+      });
+      socket.emit('dispatch:earnings', snapshot.earnings);
+      if (snapshot.location) socket.emit('dispatch:location', snapshot.location);
+    });
+
     socket.on('ride:join', ({ rideId }) => {
       if (!rideId) return;
       const ride = store.rides.get(rideId);
       if (!ride) return;
 
-      const user = (socket.data as any).user;
-      const userId = user?.sub;
-      const role = user?.role;
       const allowed = role === 'admin' || ride.riderId === userId || ride.driverId === userId;
       if (!allowed) return;
 

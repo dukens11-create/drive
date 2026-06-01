@@ -62,6 +62,7 @@ let selectedRideForDetails = null;
 let earningsSnapshot = { earningsCents: 0, rideCount: 0 };
 let realtimeSubscriptions = [];
 let realtimePollers = [];
+let realtimeSocket = null;
 let geolocationWatchId = null;
 let alertTimeoutId = null;
 
@@ -356,6 +357,10 @@ function addRealtimePoller(path, applyPayload) {
 }
 
 function clearRealtimeConnections() {
+  if (realtimeSocket) {
+    realtimeSocket.disconnect();
+    realtimeSocket = null;
+  }
   realtimeSubscriptions.forEach(unsub => {
     if (typeof unsub === 'function') unsub();
   });
@@ -364,11 +369,38 @@ function clearRealtimeConnections() {
   realtimePollers = [];
 }
 
+function startSocketRealtimeSync() {
+  if (typeof window.io !== 'function' || !accessToken) return false;
+  realtimeSocket = window.io({
+    auth: { token: accessToken }
+  });
+  realtimeSocket.on('connect', () => {
+    realtimeSocket.emit('dispatch:subscribe');
+    setRealtimeStatus('Realtime dispatch connected.', 'success');
+  });
+  realtimeSocket.on('dispatch:rides', payload => {
+    applyRealtimeRides(payload?.items || payload);
+  });
+  realtimeSocket.on('dispatch:earnings', payload => {
+    applyRealtimeEarnings(payload);
+  });
+  realtimeSocket.on('dispatch:location', payload => {
+    applyRealtimeLocation(payload);
+  });
+  realtimeSocket.on('disconnect', () => {
+    if (navigator.onLine) {
+      setRealtimeStatus('Realtime dispatch disconnected. Using cached sync fallback.', 'warning');
+    }
+  });
+  return true;
+}
+
 function startRealtimeSync() {
   clearRealtimeConnections();
+  const socketEnabled = startSocketRealtimeSync();
   const driverBasePath = getDriverRealtimeBasePath();
   const databaseUrl = getFirebaseDatabaseUrl();
-  if (!driverBasePath || !databaseUrl) return;
+  if (!driverBasePath || !databaseUrl) return socketEnabled;
 
   const ridesPath = `${driverBasePath}/rides`;
   const earningsPath = `${driverBasePath}/earnings`;
@@ -384,6 +416,7 @@ function startRealtimeSync() {
   addRealtimePoller(ridesPath, applyRealtimeRides);
   addRealtimePoller(earningsPath, applyRealtimeEarnings);
   addRealtimePoller(locationPath, applyRealtimeLocation);
+  return true;
 }
 
 async function publishRealtimeSnapshot(section, payload) {
