@@ -19,12 +19,17 @@ let currentProfile = null;
 let nearbyRideRequests = [];
 let completedRideHistory = [];
 let selectedRideForDetails = null;
+let alertTimeoutId = null;
 
 function showAlert(kind, message) {
   const alertDiv = document.getElementById('driver-alert');
-  alertDiv.className = `alert alert-${kind}`;
+  alertDiv.className = `alert alert-${kind} floating-alert`;
   alertDiv.classList.remove('d-none');
   alertDiv.textContent = message;
+  if (alertTimeoutId) clearTimeout(alertTimeoutId);
+  alertTimeoutId = window.setTimeout(() => {
+    alertDiv.classList.add('d-none');
+  }, 4200);
 }
 
 function escapeHtml(value) {
@@ -102,33 +107,62 @@ function getCurrentAvailability() {
   return currentProfile?.availabilityStatus || 'offline';
 }
 
+function renderDashboardSummary() {
+  const requestsCount = nearbyRideRequests.length;
+  const nearbyCount = document.getElementById('nearby-requests-count');
+  const liveSummaryPill = document.getElementById('live-summary-pill');
+  if (nearbyCount) nearbyCount.textContent = `${requestsCount} live request${requestsCount === 1 ? '' : 's'}`;
+  if (liveSummaryPill) liveSummaryPill.innerHTML = `<i class="bi bi-lightning-charge"></i>&nbsp; ${requestsCount} active request${requestsCount === 1 ? '' : 's'}`;
+}
+
 function renderAvailabilityControls() {
   const availability = getCurrentAvailability();
   const pill = document.getElementById('availability-pill');
   const button = document.getElementById('toggle-availability-button');
+  const statusHeadline = document.getElementById('status-headline');
   const isOnline = availability === 'online';
   pill.textContent = `Availability: ${availability.toUpperCase()}`;
-  pill.style.background = isOnline ? '#e8f5e9' : '#e3f2fd';
-  pill.style.color = isOnline ? '#1b5e20' : '#0d47a1';
-  button.className = `btn btn-sm ${isOnline ? 'btn-warning' : 'btn-success'}`;
+  pill.dataset.state = isOnline ? 'online' : 'offline';
+  button.dataset.state = isOnline ? 'online' : 'offline';
   button.innerHTML = isOnline
-    ? '<i class="bi bi-toggle-off"></i> Go Offline'
-    : '<i class="bi bi-toggle-on"></i> Go Online';
+    ? '<i class="bi bi-pause-circle"></i> Go Offline'
+    : '<i class="bi bi-broadcast"></i> Go Online';
+  if (statusHeadline) {
+    statusHeadline.textContent = isOnline ? 'Ready to accept trips' : 'Offline standby';
+  }
 }
 
 function renderProfile() {
   const profileDiv = document.getElementById('profile-info');
   if (!currentProfile) {
-    profileDiv.innerHTML = '<div class="text-danger">Unable to load driver profile.</div>';
+    profileDiv.innerHTML = '<div class="profile-card-item text-danger">Unable to load driver profile.</div>';
     return;
   }
 
+  const driverAlias = currentUser.email ? currentUser.email.split('@')[0].replace(/[._-]+/g, ' ') : 'Driver';
   profileDiv.innerHTML = `
-    <div><strong>User ID:</strong> ${escapeHtml(currentProfile.userId || currentUser.id || 'N/A')}</div>
-    <div><strong>Email:</strong> ${escapeHtml(currentUser.email || 'N/A')}</div>
-    <div><strong>Role:</strong> ${escapeHtml(String(currentUser.role || 'driver').toUpperCase())}</div>
-    <div><strong>Availability:</strong> ${escapeHtml(currentProfile.availabilityStatus || 'offline')}</div>
-    <div><strong>Rating:</strong> ${escapeHtml(currentProfile.rating ?? 'N/A')}</div>
+    <div class="profile-card-item">
+      <span class="metric-label">Driver</span>
+      <strong>${escapeHtml(driverAlias)}</strong>
+    </div>
+    <div class="profile-grid">
+      <div class="profile-card-item">
+        <span class="metric-label">User ID</span>
+        <strong>${escapeHtml(currentProfile.userId || currentUser.id || 'N/A')}</strong>
+      </div>
+      <div class="profile-card-item">
+        <span class="metric-label">Rating</span>
+        <strong>${escapeHtml(currentProfile.rating ?? 'N/A')}</strong>
+      </div>
+      <div class="profile-card-item">
+        <span class="metric-label">Email</span>
+        <strong>${escapeHtml(currentUser.email || 'N/A')}</strong>
+      </div>
+      <div class="profile-card-item">
+        <span class="metric-label">Status</span>
+        <strong>${escapeHtml(currentProfile.availabilityStatus || 'offline')}</strong>
+      </div>
+    </div>
   `;
 }
 
@@ -220,6 +254,7 @@ function renderMap() {
   caption.textContent = hasDriverLocation
     ? `Driver at ${formatCoordinate(driverLat, driverLng)} • ${nearbyRideRequests.length} nearby ride request(s)`
     : `Location pending • ${nearbyRideRequests.length} nearby ride request(s) shown from mock data`;
+  renderDashboardSummary();
 }
 
 function renderAvailableRideRequests() {
@@ -229,19 +264,41 @@ function renderAvailableRideRequests() {
 
   if (!rides.length) {
     listDiv.innerHTML = '<div class="text-muted">No available ride requests right now.</div>';
+    renderDashboardSummary();
     renderMap();
     return;
   }
 
   listDiv.innerHTML = rides.map(ride => `
     <div class="ride-item">
-      <div class="d-flex justify-content-between align-items-center">
-        <div><strong>${escapeHtml(ride.id)}</strong> <span class="badge bg-info text-dark">${escapeHtml(ride.status)}</span></div>
-        <button class="btn btn-outline-primary btn-sm choose-ride-button" data-ride-id="${escapeHtml(ride.id)}">Use Ride ID</button>
+      <div class="ride-item-top">
+        <div>
+          <div class="ride-passenger">${escapeHtml(ride.passengerName || ride.id)}</div>
+          <div class="ride-id">${escapeHtml(ride.id)} • ${Number(ride.passengerRating || 0).toFixed(1)} ★</div>
+        </div>
+        <span class="ride-status">${escapeHtml(ride.status)}</span>
       </div>
-      <div>Pickup: ${escapeHtml(formatCoordinate(ride.pickupLat, ride.pickupLng))}</div>
-      <div>Dropoff: ${escapeHtml(formatCoordinate(ride.dropoffLat, ride.dropoffLng))}</div>
-      <div>Estimated Fare: $${Number(ride.fareEstimate || 0).toFixed(2)} • ETA: ${Number(ride.minutes || 0)} mins</div>
+      <div class="ride-route">
+        <span><i class="bi bi-geo-alt"></i> Pickup</span>
+        <strong>${escapeHtml(formatCoordinate(ride.pickupLat, ride.pickupLng))}</strong>
+      </div>
+      <div class="ride-route">
+        <span><i class="bi bi-pin-map"></i> Dropoff</span>
+        <strong>${escapeHtml(formatCoordinate(ride.dropoffLat, ride.dropoffLng))}</strong>
+      </div>
+      <div class="ride-footer mt-3">
+        <div class="status-stack">
+          <div class="ride-meta">
+            <span>Est. fare</span>
+            <strong>$${Number(ride.fareEstimate || 0).toFixed(2)}</strong>
+          </div>
+          <div class="ride-meta">
+            <span>ETA</span>
+            <strong>${Number(ride.minutes || 0)} mins</strong>
+          </div>
+        </div>
+        <button class="secondary-action choose-ride-button" data-ride-id="${escapeHtml(ride.id)}">Use Ride ID</button>
+      </div>
     </div>
   `).join('');
 
@@ -316,11 +373,9 @@ function renderPerformanceStats() {
   ];
 
   container.innerHTML = stats.map(stat => `
-    <div class="col-md-3 col-sm-6">
-      <div class="metric-card">
-        <div class="metric-label">${escapeHtml(stat.label)}</div>
-        <div class="metric-value">${escapeHtml(stat.value)}</div>
-      </div>
+    <div class="metric-card ${stat.label === 'Average Rating Trend' ? 'highlight' : ''}">
+      <div class="metric-label">${escapeHtml(stat.label)}</div>
+      <div class="metric-value">${escapeHtml(stat.value)}</div>
     </div>
   `).join('');
 }
@@ -424,13 +479,35 @@ async function loadEarnings() {
       earningsDiv.innerHTML = '<div class="text-danger">Unable to load earnings.</div>';
       return;
     }
+    const averagePayout = rideCount > 0 ? earningsCents / rideCount / 100 : 0;
     earningsDiv.innerHTML = `
-      <div><strong>Total Earnings:</strong> $${(earningsCents / 100).toFixed(2)}</div>
-      <div><strong>Completed Ride Payouts:</strong> ${rideCount}</div>
+      <div class="earnings-grid">
+        <div class="metric-card highlight">
+          <div class="metric-label">Total Earnings</div>
+          <div class="metric-value">$${(earningsCents / 100).toFixed(2)}</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Completed Ride Payouts</div>
+          <div class="metric-value">${rideCount}</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Average Payout</div>
+          <div class="metric-value">$${averagePayout.toFixed(2)}</div>
+        </div>
+      </div>
     `;
   } catch (_error) {
     earningsDiv.innerHTML = '<div class="text-danger">Unable to load earnings.</div>';
   }
+}
+
+function setActivePane(pane) {
+  document.querySelectorAll('.dashboard-pane').forEach(section => {
+    section.classList.toggle('is-active', section.dataset.pane === pane);
+  });
+  document.querySelectorAll('.nav-tab').forEach(button => {
+    button.classList.toggle('is-active', button.dataset.pane === pane);
+  });
 }
 
 function getDocumentStatus(expiryDate) {
@@ -634,8 +711,12 @@ window.addEventListener('load', async () => {
   });
   document.getElementById('pickup-directions-button').addEventListener('click', () => openDirections('pickup'));
   document.getElementById('dropoff-directions-button').addEventListener('click', () => openDirections('dropoff'));
+  document.querySelectorAll('.nav-tab').forEach(button => {
+    button.addEventListener('click', () => setActivePane(button.dataset.pane || 'map'));
+  });
 
   document.getElementById('driver-role').textContent = `Role: ${String(currentUser.role || 'driver').toUpperCase()}`;
+  setActivePane('map');
   renderDocumentList();
   renderSupportLog();
 
