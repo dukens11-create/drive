@@ -82,7 +82,21 @@ let mapState = {
   isDragging: false,
   dragStartX: 0,
   dragStartY: 0,
+  activePointerId: null
 };
+
+let sheetState = {
+  minHeight: 108,
+  maxHeight: 620,
+  snapPoints: [],
+  currentHeight: 360,
+  isDragging: false,
+  dragStartY: 0,
+  dragStartHeight: 360
+};
+
+const PANE_ORDER = ['map', 'requests', 'earnings', 'more'];
+let activePane = 'map';
 
 let gpsWatchId = null;
 let gpsPollIntervalId = null;
@@ -1514,11 +1528,94 @@ async function loadEarnings() {
 }
 
 function setActivePane(pane) {
+  activePane = PANE_ORDER.includes(pane) ? pane : 'map';
   document.querySelectorAll('.dashboard-pane').forEach(section => {
-    section.classList.toggle('is-active', section.dataset.pane === pane);
+    section.classList.toggle('is-active', section.dataset.pane === activePane);
   });
   document.querySelectorAll('.nav-tab').forEach(button => {
-    button.classList.toggle('is-active', button.dataset.pane === pane);
+    button.classList.toggle('is-active', button.dataset.pane === activePane);
+  });
+}
+
+function setupBottomSheetControls() {
+  const root = document.documentElement;
+  const body = document.querySelector('.sheet-body');
+  const handle = document.querySelector('.sheet-handle');
+  if (!body || !handle) return;
+
+  const recalculateBounds = () => {
+    const viewportHeight = window.innerHeight || 760;
+    sheetState.minHeight = 108;
+    sheetState.maxHeight = Math.max(320, Math.min(Math.round(viewportHeight * 0.88), 760));
+    const half = Math.round((sheetState.minHeight + sheetState.maxHeight) / 2);
+    sheetState.snapPoints = [sheetState.minHeight, half, sheetState.maxHeight];
+    sheetState.currentHeight = Math.max(sheetState.minHeight, Math.min(sheetState.currentHeight, sheetState.maxHeight));
+    root.style.setProperty('--sheet-height', `${sheetState.currentHeight}px`);
+    root.style.setProperty('--sheet-min-height', `${sheetState.minHeight}px`);
+  };
+
+  const snapToNearest = () => {
+    if (!sheetState.snapPoints.length) return;
+    const nearest = sheetState.snapPoints.reduce((closest, value) =>
+      Math.abs(value - sheetState.currentHeight) < Math.abs(closest - sheetState.currentHeight) ? value : closest, sheetState.snapPoints[0]);
+    sheetState.currentHeight = nearest;
+    root.style.setProperty('--sheet-height', `${nearest}px`);
+  };
+
+  const onPointerDown = event => {
+    sheetState.isDragging = true;
+    sheetState.dragStartY = event.clientY;
+    sheetState.dragStartHeight = sheetState.currentHeight;
+    handle.style.cursor = 'grabbing';
+    event.preventDefault();
+  };
+
+  const onPointerMove = event => {
+    if (!sheetState.isDragging) return;
+    const delta = sheetState.dragStartY - event.clientY;
+    sheetState.currentHeight = Math.max(sheetState.minHeight, Math.min(sheetState.maxHeight, sheetState.dragStartHeight + delta));
+    root.style.setProperty('--sheet-height', `${sheetState.currentHeight}px`);
+  };
+
+  const onPointerUp = () => {
+    if (!sheetState.isDragging) return;
+    sheetState.isDragging = false;
+    handle.style.cursor = 'grab';
+    snapToNearest();
+  };
+
+  recalculateBounds();
+  window.addEventListener('resize', recalculateBounds);
+  handle.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', onPointerUp);
+}
+
+function setupPaneSwipeNavigation() {
+  const panes = document.querySelector('.dashboard-panes');
+  if (!panes) return;
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let tracking = false;
+
+  panes.addEventListener('pointerdown', event => {
+    if (event.pointerType !== 'touch') return;
+    touchStartX = event.clientX;
+    touchStartY = event.clientY;
+    tracking = true;
+  });
+
+  panes.addEventListener('pointerup', event => {
+    if (!tracking || event.pointerType !== 'touch') return;
+    tracking = false;
+    const deltaX = event.clientX - touchStartX;
+    const deltaY = event.clientY - touchStartY;
+    if (Math.abs(deltaY) > 80 || Math.abs(deltaX) < 60) return;
+    const index = PANE_ORDER.indexOf(activePane);
+    if (index < 0) return;
+    if (deltaX < 0 && index < PANE_ORDER.length - 1) setActivePane(PANE_ORDER[index + 1]);
+    if (deltaX > 0 && index > 0) setActivePane(PANE_ORDER[index - 1]);
   });
 }
 // ─── Documents ────────────────────────────────────────────────────────────────
@@ -1706,6 +1803,14 @@ function handleLogout() {
 
 // ─── Map Controls ─────────────────────────────────────────────────────────────
 function setupMapControls() {
+  const disableFollowMode = () => {
+    mapState.followMode = false;
+    const btn = document.getElementById('follow-mode-button');
+    if (!btn) return;
+    btn.innerHTML = '<i class="bi bi-geo-alt"></i> Follow: OFF';
+    btn.classList.replace('btn-primary', 'btn-outline-primary');
+  };
+
   // Follow mode toggle
   document.getElementById('follow-mode-button').addEventListener('click', () => {
     mapState.followMode = !mapState.followMode;
@@ -1752,28 +1857,33 @@ function setupMapControls() {
 
   // Pan by dragging
   const shell = document.getElementById('map-shell');
-  shell.addEventListener('mousedown', event => {
+  shell.addEventListener('pointerdown', event => {
+    if (mapState.activePointerId !== null && mapState.activePointerId !== event.pointerId) return;
     mapState.isDragging = true;
+    mapState.activePointerId = event.pointerId;
     mapState.dragStartX = event.clientX;
     mapState.dragStartY = event.clientY;
     shell.style.cursor = 'grabbing';
-    mapState.followMode = false;
-    const btn = document.getElementById('follow-mode-button');
-    btn.innerHTML = '<i class="bi bi-geo-alt"></i> Follow: OFF';
-    btn.classList.replace('btn-primary', 'btn-outline-primary');
+    disableFollowMode();
+    shell.setPointerCapture?.(event.pointerId);
   });
-  window.addEventListener('mousemove', event => {
+  shell.addEventListener('pointermove', event => {
     if (!mapState.isDragging) return;
+    if (mapState.activePointerId !== event.pointerId) return;
     mapState.panX += event.clientX - mapState.dragStartX;
     mapState.panY += event.clientY - mapState.dragStartY;
     mapState.dragStartX = event.clientX;
     mapState.dragStartY = event.clientY;
     queueMapRender();
   });
-  window.addEventListener('mouseup', () => {
+  const stopDragging = event => {
+    if (typeof event?.pointerId === 'number' && event.pointerId !== mapState.activePointerId) return;
     mapState.isDragging = false;
+    mapState.activePointerId = null;
     shell.style.cursor = 'grab';
-  });
+  };
+  shell.addEventListener('pointerup', stopDragging);
+  shell.addEventListener('pointercancel', stopDragging);
 
   // Update frequency
   document.getElementById('update-frequency-input').addEventListener('change', event => {
@@ -1832,6 +1942,8 @@ window.addEventListener('load', async () => {
   document.querySelectorAll('.nav-tab').forEach(button => {
     button.addEventListener('click', () => setActivePane(button.dataset.pane || 'map'));
   });
+  setupBottomSheetControls();
+  setupPaneSwipeNavigation();
 
   // Map controls
   setupMapControls();
