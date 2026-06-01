@@ -13,7 +13,7 @@
     }
 
     if (role === 'rider' && window.location.pathname === '/driver-dashboard.html') {
-      window.location.replace('/dashboard.html');
+      window.location.replace('/rider-dashboard.html');
     }
   } catch (_error) {
     // Let existing dashboard auth/session handling continue.
