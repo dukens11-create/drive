@@ -16,6 +16,7 @@ const ROUTE_CACHE_TTL_MS = 30000;
 const RIDE_REQUEST_ALERT_WINDOW_MS = 18000;
 const RIDE_REQUEST_COUNTDOWN_TICK_MS = 1000;
 const SWIPE_ACCEPT_THRESHOLD = 0.72;
+const SWIPE_ACCEPT_TRACK_PADDING = 14;
 
 const DEFAULT_FALLBACK_LAT = 37.7749;
 const DEFAULT_FALLBACK_LNG = -122.4194;
@@ -664,7 +665,7 @@ function getRidePickupDistanceKm(ride) {
 
 function getRideRequestExpiryTimestamp(ride) {
   const explicitExpiry = Date.parse(String(ride.requestExpiresAt || ''));
-  if (Number.isFinite(explicitExpiry) && explicitExpiry > Date.now() - RIDE_REQUEST_ALERT_WINDOW_MS) {
+  if (Number.isFinite(explicitExpiry) && explicitExpiry > Date.now()) {
     return explicitExpiry;
   }
   if (!rideRequestExpirations.has(ride.id)) {
@@ -1382,12 +1383,13 @@ function attachRideRequestSwipeControls(listDiv) {
     const track = control.querySelector('.swipe-accept-track');
     const thumb = control.querySelector('[data-swipe-thumb]');
     const rideId = control.getAttribute('data-ride-id') || '';
+    const passengerName = control.getAttribute('data-passenger-name') || 'passenger';
     if (!track || !thumb || !rideId) return;
 
     let pointerId = null;
     let currentOffset = 0;
     let startX = 0;
-    const getMaxOffset = () => Math.max(track.clientWidth - thumb.clientWidth - 14, 0);
+    const getMaxOffset = () => Math.max(track.clientWidth - thumb.clientWidth - SWIPE_ACCEPT_TRACK_PADDING, 0);
     const resetSwipe = () => {
       currentOffset = 0;
       thumb.style.transform = 'translateX(0px)';
@@ -1422,7 +1424,7 @@ function attachRideRequestSwipeControls(listDiv) {
     resetSwipe();
     track.tabIndex = 0;
     track.setAttribute('role', 'button');
-    track.setAttribute('aria-label', `Swipe accept ${rideId}`);
+    track.setAttribute('aria-label', `Swipe to accept ride request from ${passengerName}`);
 
     thumb.addEventListener('pointerdown', event => {
       if (acceptingRideIds.has(rideId)) return;
@@ -1509,10 +1511,10 @@ function renderAvailableRideRequests() {
         </div>
         <span class="ride-request-pill"><i class="bi bi-broadcast-pin"></i> Live incoming request</span>
       </div>
-      <div class="swipe-accept" data-swipe-accept data-ride-id="${escapeHtml(ride.id)}">
+      <div class="swipe-accept" data-swipe-accept data-ride-id="${escapeHtml(ride.id)}" data-passenger-name="${escapeHtml(ride.passengerName || 'Passenger')}">
         <div class="swipe-accept-track">
           <span class="swipe-accept-label"><i class="bi bi-chevron-double-right"></i> Swipe accept</span>
-          <button class="swipe-accept-thumb" data-swipe-thumb type="button" aria-label="Swipe accept ${escapeHtml(ride.id)}"><i class="bi bi-arrow-right"></i></button>
+          <button class="swipe-accept-thumb" data-swipe-thumb type="button" aria-label="Accept ride request"><i class="bi bi-arrow-right"></i></button>
         </div>
       </div>
       <div class="ride-footer mt-3">
@@ -1671,7 +1673,11 @@ function closeRideDetailsModal() {
 
 async function acceptRideById(rawRideId) {
   const rideId = String(rawRideId || '').trim();
-  if (!rideId || acceptingRideIds.has(rideId)) return false;
+  if (!rideId) return false;
+  if (acceptingRideIds.has(rideId)) {
+    showAlert('info', `Ride ${rideId} is already being accepted.`);
+    return false;
+  }
   const rideIdInput = document.getElementById('ride-id-input');
   if (rideIdInput) rideIdInput.value = rideId;
   acceptingRideIds.add(rideId);
