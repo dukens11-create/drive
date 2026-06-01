@@ -189,6 +189,7 @@ test('GET /driver-dashboard.js includes realtime and offline sync hooks', async 
       'initializeMapbox',
       'mapbox://styles/mapbox',
       'playIncomingRideAlert',
+      'refreshRideRequestFeedState',
       'updateRideRequestCountdowns',
       'syncIncomingRideRequestPopup',
       'driver:ride-request-action',
