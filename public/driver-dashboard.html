@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover, user-scalable=no">
     <meta name="mapbox-token" content="pk.eyJ1IjoiZmx1cGZsYXAiLCJhIjoiY21wMjI3M3dpMDN5eTJycHMyeG8yaDZ3OCJ9.VUXlzIoU5Gxfj6-BVjnxag">
     <title>Drive Driver Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -23,6 +23,11 @@
             --danger: #ff6b6b;
             --sheet-height: min(56vh, 620px);
             --sheet-min-height: 108px;
+            --safe-top: env(safe-area-inset-top, 0px);
+            --safe-right: env(safe-area-inset-right, 0px);
+            --safe-bottom: env(safe-area-inset-bottom, 0px);
+            --safe-left: env(safe-area-inset-left, 0px);
+            --fab-size: 60px;
         }
 
         * { box-sizing: border-box; }
@@ -38,6 +43,7 @@
             font-family: Inter, "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
             overscroll-behavior: none;
             touch-action: manipulation;
+            overflow: hidden;
         }
 
         a {
@@ -68,7 +74,8 @@
         }
 
         .driver-app {
-            min-height: 100vh;
+            position: fixed;
+            inset: 0;
         }
 
         .glass-panel {
@@ -94,11 +101,14 @@
         .map-stage {
             position: fixed;
             inset: 0;
-            padding: 0 0 calc(var(--sheet-min-height) + 20px);
+            padding: 0;
         }
 
         .top-bar {
-            position: relative;
+            position: fixed;
+            top: calc(var(--safe-top) + 8px);
+            left: calc(var(--safe-left) + 8px);
+            right: calc(var(--safe-right) + 8px);
             z-index: 4;
             display: flex;
             align-items: center;
@@ -229,7 +239,7 @@
 
         .overlay-cards {
             position: absolute;
-            inset: 86px 12px auto;
+            inset: calc(var(--safe-top) + 84px) 12px auto;
             z-index: 3;
             display: grid;
             gap: 14px;
@@ -351,7 +361,7 @@
             inset: 0;
             min-height: 280px;
             overflow: hidden;
-            touch-action: none;
+            touch-action: pan-x pan-y pinch-zoom;
             cursor: grab;
         }
 
@@ -732,8 +742,23 @@
             position: fixed;
             inset: auto 0 0;
             z-index: 5;
-            padding: 0 8px max(8px, env(safe-area-inset-bottom));
+            padding: 0 8px max(8px, var(--safe-bottom));
             pointer-events: none;
+        }
+
+        .sheet-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 4;
+            background: rgba(2, 9, 15, 0.4);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.24s ease;
+        }
+
+        .sheet-backdrop.is-visible {
+            opacity: 1;
+            pointer-events: auto;
         }
 
         .sheet-body {
@@ -749,7 +774,7 @@
             overflow: hidden;
             pointer-events: auto;
             touch-action: none;
-            transition: height 0.2s ease;
+            transition: height 0.24s cubic-bezier(0.22, 1, 0.36, 1);
         }
 
         .sheet-handle {
@@ -778,6 +803,7 @@
         .dashboard-panes {
             overflow-y: auto;
             padding-right: 2px;
+            padding-bottom: 2px;
             overscroll-behavior: contain;
             touch-action: pan-y;
         }
@@ -1336,6 +1362,15 @@
             color: #b7f7d5;
         }
 
+        .swipe-accept.is-decline-armed .swipe-accept-track {
+            background: rgba(255, 107, 107, 0.14);
+            border-color: rgba(255, 107, 107, 0.28);
+        }
+
+        .swipe-accept.is-decline-armed .swipe-accept-label {
+            color: #ffd5d5;
+        }
+
         .ride-id,
         .ride-route,
         .support-log .small,
@@ -1399,7 +1434,7 @@
 
         .bottom-nav {
             display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
+            grid-template-columns: repeat(5, minmax(0, 1fr));
             gap: 10px;
             margin-top: 12px;
             padding-top: 12px;
@@ -1410,6 +1445,7 @@
             flex-direction: column;
             gap: 6px;
             min-height: 62px;
+            min-width: 48px;
             border: 0;
             border-radius: 22px;
             background: rgba(255, 255, 255, 0.06);
@@ -1463,6 +1499,72 @@
             justify-content: flex-end;
         }
 
+        .fab-stack {
+            position: fixed;
+            right: max(12px, calc(var(--safe-right) + 12px));
+            bottom: calc(var(--sheet-min-height) + var(--safe-bottom) + 18px);
+            z-index: 16;
+            display: grid;
+            gap: 10px;
+            justify-items: end;
+            pointer-events: none;
+        }
+
+        .fab-main,
+        .fab-mini {
+            min-width: 48px;
+            min-height: 48px;
+            border: 0;
+            border-radius: 999px !important;
+            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.36);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            pointer-events: auto;
+        }
+
+        .fab-main {
+            width: var(--fab-size);
+            height: var(--fab-size);
+            background: linear-gradient(135deg, #26d07c, #1b80ff);
+            color: #071018;
+        }
+
+        .fab-main[aria-expanded="true"] i {
+            transform: rotate(45deg);
+        }
+
+        .fab-main i {
+            transition: transform 0.2s ease;
+        }
+
+        .fab-group {
+            display: grid;
+            gap: 8px;
+            opacity: 0;
+            transform: translateY(6px) scale(0.95);
+            transform-origin: bottom right;
+            pointer-events: none;
+            transition: opacity 0.18s ease, transform 0.18s ease;
+        }
+
+        .fab-stack.is-expanded .fab-group {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+        }
+
+        .fab-mini {
+            height: 48px;
+            padding: 0 14px;
+            background: rgba(8, 18, 28, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            color: var(--text);
+            font-size: 0.82rem;
+            font-weight: 600;
+        }
+
         @keyframes floatIn {
             from { opacity: 0; transform: translateY(12px); }
             to { opacity: 1; transform: translateY(0); }
@@ -1495,10 +1597,6 @@
         }
 
         @media (min-width: 768px) {
-            .map-stage {
-                padding: 12px 12px calc(var(--sheet-min-height) + 26px);
-            }
-
             .top-bar,
             .top-actions,
             .hero-actions,
@@ -1512,7 +1610,7 @@
             }
 
             .map-frame {
-                inset: 64px 12px 0;
+                inset: 0;
                 border-radius: 30px;
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 24px 80px rgba(0, 0, 0, 0.45);
@@ -1529,7 +1627,7 @@
             }
 
             .map-frame {
-                inset: 92px 16px 0;
+                inset: 0;
             }
 
             .ride-request-popup-layer {
@@ -1565,8 +1663,26 @@
                 grid-template-columns: 1fr;
             }
 
-            .map-stage {
-                padding-bottom: calc(var(--sheet-min-height) + 20px);
+            .fab-mini {
+                font-size: 0.76rem;
+            }
+        }
+
+        @media (max-width: 479px) {
+            :root {
+                --fab-size: 54px;
+            }
+        }
+
+        @media (min-width: 480px) and (max-width: 767px) {
+            :root {
+                --fab-size: 58px;
+            }
+        }
+
+        @media (min-width: 768px) {
+            :root {
+                --fab-size: 64px;
             }
 
             .ride-request-popup {
@@ -1674,8 +1790,8 @@
             </div>
         </section>
 
+        <div id="sheet-backdrop" class="sheet-backdrop" aria-hidden="true"></div>
         <div id="ride-request-popup-layer" class="ride-request-popup-layer" aria-live="assertive" aria-atomic="true"></div>
-
         <section class="bottom-sheet">
             <div class="sheet-body glass-panel">
                 <div class="sheet-handle" aria-hidden="true"></div>
@@ -1790,12 +1906,12 @@
                         </div>
                     </section>
 
-                    <section class="dashboard-pane" data-pane="requests">
+                    <section class="dashboard-pane" data-pane="trip-details">
                         <div class="panel-section">
                             <div class="section-header">
                                 <div>
-                                    <h2>View Available Ride Requests</h2>
-                                    <span>Prioritize the best pickup in seconds with a cleaner ride queue.</span>
+                                    <h2>Trip Details</h2>
+                                    <span>Prioritize the best pickup in seconds with glanceable request details.</span>
                                 </div>
                             </div>
                             <div id="available-rides">Loading ride requests...</div>
@@ -1818,6 +1934,18 @@
                                     <button id="reject-ride-button" class="secondary-action" type="button">Reject</button>
                                 </div>
                             </form>
+                        </div>
+                    </section>
+
+                    <section class="dashboard-pane" data-pane="passenger-info">
+                        <div class="panel-section">
+                            <div class="section-header">
+                                <div>
+                                    <h2>Passenger Info</h2>
+                                    <span>Quick rider snapshot for safer, faster pickups.</span>
+                                </div>
+                            </div>
+                            <div id="passenger-info-panel" class="ride-item">No active passenger selected yet.</div>
                         </div>
                     </section>
 
@@ -1858,7 +1986,7 @@
                         </div>
                     </section>
 
-                    <section class="dashboard-pane" data-pane="more">
+                    <section class="dashboard-pane" data-pane="settings">
                         <div class="more-grid">
                             <div class="panel-section">
                                 <div class="section-header">
@@ -1922,12 +2050,23 @@
 
                 <nav class="bottom-nav" aria-label="Driver dashboard navigation">
                     <button class="nav-tab is-active" type="button" data-pane="map"><i class="bi bi-map"></i><span>Map</span></button>
-                    <button class="nav-tab" type="button" data-pane="requests"><i class="bi bi-list-task"></i><span>Trips</span></button>
+                    <button class="nav-tab" type="button" data-pane="trip-details"><i class="bi bi-list-task"></i><span>Trip</span></button>
+                    <button class="nav-tab" type="button" data-pane="passenger-info"><i class="bi bi-person-badge"></i><span>Passenger</span></button>
+                    <button class="nav-tab" type="button" data-pane="settings"><i class="bi bi-sliders"></i><span>Settings</span></button>
                     <button class="nav-tab" type="button" data-pane="earnings"><i class="bi bi-wallet2"></i><span>Earnings</span></button>
-                    <button class="nav-tab" type="button" data-pane="more"><i class="bi bi-grid"></i><span>More</span></button>
                 </nav>
             </div>
         </section>
+
+        <div id="fab-stack" class="fab-stack" role="group" aria-label="Driver quick actions">
+            <div class="fab-group" aria-hidden="true">
+                <button id="fab-settings" class="fab-mini" type="button" aria-label="Open settings"><i class="bi bi-sliders"></i><span>Settings</span></button>
+                <button id="fab-support" class="fab-mini" type="button" aria-label="Call emergency support"><i class="bi bi-shield-exclamation"></i><span>Support</span></button>
+                <button id="fab-navigation" class="fab-mini" type="button" aria-label="Open navigation"><i class="bi bi-sign-turn-right"></i><span>Navigate</span></button>
+                <button id="fab-status" class="fab-mini" type="button" aria-label="Toggle driver status"><i class="bi bi-broadcast"></i><span>Status</span></button>
+            </div>
+            <button id="fab-main" class="fab-main" type="button" aria-expanded="false" aria-controls="fab-stack" aria-label="Open quick actions"><i class="bi bi-plus-lg"></i></button>
+        </div>
     </main>
 
     <div id="ride-details-modal" class="modal-lite" aria-hidden="true">

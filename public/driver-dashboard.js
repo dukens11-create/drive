@@ -32,9 +32,11 @@ const RIDE_REQUEST_ALERT_WINDOW_MS = 18000;
 const RIDE_REQUEST_COUNTDOWN_TICK_MS = 1000;
 const RIDE_REQUEST_EXPIRING_THRESHOLD_MS = 7000;
 const SWIPE_ACCEPT_THRESHOLD = 0.72;
+const SWIPE_DECLINE_THRESHOLD = 0.52;
 const SWIPE_ACCEPT_TRACK_PADDING = 14;
 const SWIPE_VERTICAL_THRESHOLD = 80;
 const SWIPE_HORIZONTAL_THRESHOLD = 60;
+const SHEET_DRAG_THRESHOLD = 18;
 const RIDE_REQUEST_HISTORY_LIMIT = 60;
 const RIDE_REQUEST_ANALYTICS_LIMIT = 120;
 const RIDE_POPUP_TERMINAL_STATE_MS = 1500;
@@ -176,10 +178,13 @@ let sheetState = {
   currentHeight: 360,
   isDragging: false,
   dragStartY: 0,
-  dragStartHeight: 360
+  dragStartHeight: 360,
+  lastDragY: 0,
+  lastDragAt: 0,
+  velocity: 0
 };
 
-const PANE_ORDER = ['map', 'requests', 'earnings', 'more'];
+const PANE_ORDER = ['map', 'trip-details', 'passenger-info', 'settings', 'earnings'];
 let activePane = 'map';
 
 let gpsWatchId = null;
@@ -241,6 +246,11 @@ function showAlert(kind, message) {
   alertTimeoutId = window.setTimeout(() => {
     alertDiv.classList.add('d-none');
   }, ALERT_DISPLAY_DURATION);
+}
+
+function triggerHapticFeedback(pattern = 25) {
+  if (typeof navigator?.vibrate !== 'function') return;
+  navigator.vibrate(pattern);
 }
 
 function escapeHtml(value) {
@@ -3059,14 +3069,15 @@ function attachRideRequestSwipeControls(listDiv) {
     const resetSwipe = () => {
       currentOffset = 0;
       thumb.style.transform = 'translateX(0px)';
-      control.classList.remove('is-armed');
+      control.classList.remove('is-armed', 'is-decline-armed');
     };
     const updateSwipe = clientX => {
       const maxOffset = getMaxOffset();
-      currentOffset = Math.max(0, Math.min(maxOffset, clientX - startX));
+      currentOffset = Math.max(-maxOffset, Math.min(maxOffset, clientX - startX));
       thumb.style.transform = `translateX(${currentOffset}px)`;
       const progress = maxOffset > 0 ? currentOffset / maxOffset : 0;
       control.classList.toggle('is-armed', progress >= SWIPE_ACCEPT_THRESHOLD);
+      control.classList.toggle('is-decline-armed', progress <= -SWIPE_DECLINE_THRESHOLD);
     };
     const commitSwipe = async () => {
       const maxOffset = getMaxOffset();
@@ -3080,10 +3091,19 @@ function attachRideRequestSwipeControls(listDiv) {
       const maxOffset = getMaxOffset();
       const progress = maxOffset > 0 ? currentOffset / maxOffset : 0;
       const shouldAccept = progress >= SWIPE_ACCEPT_THRESHOLD;
+      const shouldDecline = progress <= -SWIPE_DECLINE_THRESHOLD;
       pointerId = null;
       thumb.releasePointerCapture?.(event.pointerId);
       if (shouldAccept) {
+        triggerHapticFeedback([18, 20, 18]);
         await commitSwipe();
+      } else if (shouldDecline) {
+        triggerHapticFeedback(35);
+        const rejectedRideIds = new Set(getRejectedRideIds());
+        rejectedRideIds.add(rideId);
+        setRejectedRideIds(Array.from(rejectedRideIds));
+        renderAvailableRideRequests();
+        showAlert('warning', `Ride request from ${passengerName} declined.`);
       } else {
         resetSwipe();
       }
@@ -3092,7 +3112,7 @@ function attachRideRequestSwipeControls(listDiv) {
     resetSwipe();
     track.tabIndex = 0;
     track.setAttribute('role', 'button');
-    track.setAttribute('aria-label', `Swipe to accept ride request from ${passengerName}`);
+    track.setAttribute('aria-label', `Swipe right to accept or left to decline ride request from ${passengerName}`);
 
     thumb.addEventListener('pointerdown', event => {
       if (acceptingRideIds.has(rideId)) return;
@@ -3128,6 +3148,7 @@ function renderAvailableRideRequests() {
 
   if (!rides.length) {
     listDiv.innerHTML = '<div class="text-muted">No available ride requests right now.</div>';
+    renderPassengerInfoPane();
     syncIncomingRideRequestPopup();
     renderDashboardSummary();
     queueMapRender();
@@ -3202,6 +3223,7 @@ function renderAvailableRideRequests() {
 
   attachRideRequestSwipeControls(listDiv);
   updateRideRequestCountdowns();
+  renderPassengerInfoPane();
   syncIncomingRideRequestPopup();
   queueMapRender();
 }
@@ -3764,35 +3786,77 @@ function setActivePane(pane) {
   });
 }
 
+function renderPassengerInfoPane() {
+  const panel = document.getElementById('passenger-info-panel');
+  if (!panel) return;
+  const activeRide = nearbyRideRequests[0];
+  if (!activeRide) {
+    panel.textContent = 'No active passenger selected yet.';
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="ride-request-passenger">
+      <img class="passenger-photo" src="${escapeHtml(getPassengerPhotoUrl(activeRide))}" alt="${escapeHtml(`${activeRide.passengerName || 'Passenger'} photo`)}">
+      <div>
+        <div class="ride-passenger">${escapeHtml(activeRide.passengerName || 'Passenger')}</div>
+        <div class="ride-id">${escapeHtml(activeRide.id)} &bull; ${Number(activeRide.passengerRating || 0).toFixed(1)} &star;</div>
+      </div>
+    </div>
+    <div class="ride-route mt-3">
+      <span><i class="bi bi-geo-alt"></i> Pickup</span>
+      <strong>${escapeHtml(formatCoordinate(activeRide.pickupLat, activeRide.pickupLng))}</strong>
+    </div>
+    <div class="ride-route">
+      <span><i class="bi bi-pin-map"></i> Dropoff</span>
+      <strong>${escapeHtml(formatCoordinate(activeRide.dropoffLat, activeRide.dropoffLng))}</strong>
+    </div>
+  `;
+}
+
 function setupBottomSheetControls() {
   const root = document.documentElement;
   const body = document.querySelector('.sheet-body');
   const handle = document.querySelector('.sheet-handle');
+  const backdrop = document.getElementById('sheet-backdrop');
   if (!body || !handle) return;
+
+  const updateSheetUiState = () => {
+    const isExpanded = sheetState.currentHeight > sheetState.minHeight + 12;
+    backdrop?.classList.toggle('is-visible', isExpanded);
+  };
 
   const recalculateBounds = () => {
     const viewportHeight = window.innerHeight || 760;
-    sheetState.minHeight = 108;
-    sheetState.maxHeight = Math.max(320, Math.min(Math.round(viewportHeight * 0.88), 760));
-    const half = Math.round((sheetState.minHeight + sheetState.maxHeight) / 2);
-    sheetState.snapPoints = [sheetState.minHeight, half, sheetState.maxHeight];
+    const collapsed = Math.max(108, Math.round(viewportHeight * 0.2));
+    const half = Math.max(collapsed + 72, Math.round(viewportHeight * 0.5));
+    const full = Math.max(half + 72, Math.min(Math.round(viewportHeight * 0.9), viewportHeight - 18));
+    sheetState.minHeight = collapsed;
+    sheetState.maxHeight = full;
+    sheetState.snapPoints = [collapsed, half, full];
     sheetState.currentHeight = Math.max(sheetState.minHeight, Math.min(sheetState.currentHeight, sheetState.maxHeight));
     root.style.setProperty('--sheet-height', `${sheetState.currentHeight}px`);
     root.style.setProperty('--sheet-min-height', `${sheetState.minHeight}px`);
+    updateSheetUiState();
   };
 
-  const snapToNearest = () => {
+  const snapToNearest = ({ momentum = 0 } = {}) => {
     if (!sheetState.snapPoints.length) return;
+    const projectedHeight = sheetState.currentHeight + momentum * 120;
     const nearest = sheetState.snapPoints.reduce((closest, value) =>
-      Math.abs(value - sheetState.currentHeight) < Math.abs(closest - sheetState.currentHeight) ? value : closest, sheetState.snapPoints[0]);
+      Math.abs(value - projectedHeight) < Math.abs(closest - projectedHeight) ? value : closest, sheetState.snapPoints[0]);
     sheetState.currentHeight = nearest;
     root.style.setProperty('--sheet-height', `${nearest}px`);
+    updateSheetUiState();
   };
 
   const onPointerDown = event => {
     sheetState.isDragging = true;
     sheetState.dragStartY = event.clientY;
     sheetState.dragStartHeight = sheetState.currentHeight;
+    sheetState.lastDragY = event.clientY;
+    sheetState.lastDragAt = performance.now();
+    sheetState.velocity = 0;
     handle.style.cursor = 'grabbing';
     event.preventDefault();
   };
@@ -3800,20 +3864,46 @@ function setupBottomSheetControls() {
   const onPointerMove = event => {
     if (!sheetState.isDragging) return;
     const delta = sheetState.dragStartY - event.clientY;
-    sheetState.currentHeight = Math.max(sheetState.minHeight, Math.min(sheetState.maxHeight, sheetState.dragStartHeight + delta));
+    if (Math.abs(delta) < SHEET_DRAG_THRESHOLD) return;
+    const resistance = Math.abs(delta) > 210 ? 0.84 : 1;
+    sheetState.currentHeight = Math.max(sheetState.minHeight, Math.min(sheetState.maxHeight, sheetState.dragStartHeight + (delta * resistance)));
+    const now = performance.now();
+    const elapsed = Math.max(now - sheetState.lastDragAt, 1);
+    sheetState.velocity = (sheetState.lastDragY - event.clientY) / elapsed;
+    sheetState.lastDragY = event.clientY;
+    sheetState.lastDragAt = now;
     root.style.setProperty('--sheet-height', `${sheetState.currentHeight}px`);
+    updateSheetUiState();
   };
 
   const onPointerUp = () => {
     if (!sheetState.isDragging) return;
     sheetState.isDragging = false;
     handle.style.cursor = 'grab';
-    snapToNearest();
+    snapToNearest({ momentum: sheetState.velocity });
   };
 
   recalculateBounds();
   window.addEventListener('resize', recalculateBounds);
+  window.addEventListener('orientationchange', () => {
+    window.setTimeout(() => {
+      recalculateBounds();
+      mapState.mapboxInstance?.resize?.();
+    }, 80);
+  });
   handle.addEventListener('pointerdown', onPointerDown);
+  handle.addEventListener('dblclick', () => {
+    const [collapsed, , expanded] = sheetState.snapPoints;
+    sheetState.currentHeight = Math.abs(sheetState.currentHeight - collapsed) <= Math.abs(sheetState.currentHeight - expanded) ? expanded : collapsed;
+    root.style.setProperty('--sheet-height', `${sheetState.currentHeight}px`);
+    updateSheetUiState();
+    triggerHapticFeedback(20);
+  });
+  backdrop?.addEventListener('click', () => {
+    sheetState.currentHeight = sheetState.minHeight;
+    root.style.setProperty('--sheet-height', `${sheetState.currentHeight}px`);
+    updateSheetUiState();
+  });
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);
   window.addEventListener('pointercancel', onPointerUp);
@@ -3844,6 +3934,44 @@ function setupPaneSwipeNavigation() {
     if (index < 0) return;
     if (deltaX < 0 && index < PANE_ORDER.length - 1) setActivePane(PANE_ORDER[index + 1]);
     if (deltaX > 0 && index > 0) setActivePane(PANE_ORDER[index - 1]);
+  });
+}
+
+function setupFloatingActions() {
+  const stack = document.getElementById('fab-stack');
+  const mainFab = document.getElementById('fab-main');
+  const fabSettings = document.getElementById('fab-settings');
+  const fabSupport = document.getElementById('fab-support');
+  const fabNavigation = document.getElementById('fab-navigation');
+  const fabStatus = document.getElementById('fab-status');
+  if (!stack || !mainFab) return;
+
+  const setExpanded = expanded => {
+    stack.classList.toggle('is-expanded', expanded);
+    mainFab.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  };
+
+  mainFab.addEventListener('click', () => {
+    const next = !stack.classList.contains('is-expanded');
+    setExpanded(next);
+    triggerHapticFeedback(15);
+  });
+  fabSettings?.addEventListener('click', () => {
+    window.location.href = '/driver-settings.html';
+  });
+  fabSupport?.addEventListener('click', () => {
+    window.open('tel:+18005550123', '_self');
+  });
+  fabNavigation?.addEventListener('click', () => {
+    openDirections('pickup');
+  });
+  fabStatus?.addEventListener('click', () => {
+    toggleAvailability().catch(() => {});
+  });
+  document.addEventListener('click', event => {
+    if (!stack.contains(event.target)) {
+      setExpanded(false);
+    }
   });
 }
 // ─── Documents ────────────────────────────────────────────────────────────────
@@ -4243,9 +4371,13 @@ window.addEventListener('load', async () => {
   });
   setupBottomSheetControls();
   setupPaneSwipeNavigation();
+  setupFloatingActions();
 
   // Map controls
   setupMapControls();
+  window.addEventListener('resize', () => {
+    mapState.mapboxInstance?.resize?.();
+  });
   mapState.mapboxToken = readMapboxToken();
   const mapboxTokenInput = document.getElementById('mapbox-token-input');
   if (mapboxTokenInput && mapState.mapboxToken) {
