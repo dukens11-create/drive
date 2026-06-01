@@ -44,9 +44,28 @@ const DEFAULT_FALLBACK_LAT = 37.7749;
 const DEFAULT_FALLBACK_LNG = -122.4194;
 const DEFAULT_LOCATION_ACCURACY_M = 80;
 const DEFAULT_LOCATION_SPEED_KMH = 40;
+const MAX_ACCEPTABLE_ACCURACY_M = 150;
+const MAX_REASONABLE_SPEED_KMH = 160;
+const STOPPED_SPEED_THRESHOLD_KMH = 3;
+const ACCELERATION_THRESHOLD_KMH = 8;
+const MIN_ANIMATION_SPEED_KMH = 12;
+const MIN_ANIMATION_DISTANCE_KM = 0.00005;
+const MARKER_ANIMATION_MIN_MS = 900;
+const MARKER_ANIMATION_MAX_MS = 4800;
+const TRAIL_HISTORY_LIMIT = 32;
+const TRAIL_POINT_DISTANCE_KM = 0.012;
+const GPS_JITTER_TOLERANCE_KM = 0.05;
+const CAMERA_UPDATE_THROTTLE_MS = 140;
+const CAMERA_BASE_ZOOM = 17.3;
+const CAMERA_MIN_ZOOM = 13.4;
+const CAMERA_MAX_ZOOM = 17.6;
+const CAMERA_ZOOM_SPEED_CAP_KMH = 110;
+const CAMERA_ZOOM_SPEED_DIVISOR = 32;
+const CAMERA_AHEAD_DISTANCE_KM = 0.08;
 const BASE_FARE = 2.5;
 const DISTANCE_RATE = 1.9;
 const TIME_RATE = 0.25;
+const KMH_TO_MPH_FACTOR = 0.621371;
 
 // Map projection constants
 const BASE_PROJECTION_SCALE = 190;    // %/degree at reference zoom
@@ -129,6 +148,22 @@ let mapState = {
     pickup: null,
     destination: null,
     passengers: new Map(),
+  },
+  motion: {
+    displayPosition: null,
+    animationFrameId: null,
+    animationFrom: null,
+    animationTo: null,
+    animationStartedAt: 0,
+    animationDurationMs: 0,
+    queuedPosition: null,
+    trail: [],
+    averageSpeedKmh: 0,
+    maxSpeedKmh: 0,
+    totalDistanceKm: 0,
+    samples: 0,
+    status: 'Waiting for GPS',
+    lastCameraSyncAt: 0
   },
   activePointerId: null
 };
@@ -448,10 +483,16 @@ function applyRealtimeLocation(payload) {
   const lat = Number(payload?.lat);
   const lng = Number(payload?.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-  currentProfile = { ...(currentProfile || {}), lat, lng };
   cacheRealtimeSection('location', { lat, lng, updatedAt: payload?.updatedAt || new Date().toISOString() });
+  handlePositionUpdate({
+    lat,
+    lng,
+    accuracy: payload?.accuracy ?? mapState.lastPosition?.accuracy ?? DEFAULT_LOCATION_ACCURACY_M,
+    speed: payload?.speed,
+    heading: payload?.heading,
+    timestamp: payload?.updatedAt || Date.now()
+  }, { syncBackend: false, skipLog: true }).catch(() => {});
   renderProfile();
-  renderMap();
 }
 
 function subscribeFirebaseStream(path, applyPayload) {
@@ -862,6 +903,228 @@ function calculateHeading(lat1, lng1, lat2, lng2) {
   const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
     Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLng);
   return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+function normalizeHeading(degrees) {
+  return ((Number(degrees) % 360) + 360) % 360;
+}
+
+function shortestHeadingDelta(from, to) {
+  return ((normalizeHeading(to) - normalizeHeading(from) + 540) % 360) - 180;
+}
+
+function interpolateHeading(from, to, progress) {
+  return normalizeHeading(normalizeHeading(from) + shortestHeadingDelta(from, to) * progress);
+}
+
+function easeInOutCubic(t) {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  return t < 0.5
+    ? 4 * t * t * t
+    : 1 - ((-2 * t + 2) ** 3) / 2;
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getMapDisplayPosition() {
+  return mapState.motion.displayPosition || mapState.lastPosition || null;
+}
+
+function calculateAnimationDuration(distanceKm, speedKmh) {
+  const speed = Math.max(speedKmh || 0, MIN_ANIMATION_SPEED_KMH);
+  const estimatedMs = (distanceKm / speed) * 60 * 60 * 1000;
+  const updateFrequencyMs = Number.isFinite(mapState.updateFrequencyMs) && mapState.updateFrequencyMs > 0
+    ? mapState.updateFrequencyMs
+    : 3000;
+  const maxDurationMs = Math.max(
+    MARKER_ANIMATION_MIN_MS,
+    Math.min(MARKER_ANIMATION_MAX_MS, updateFrequencyMs * 1.1)
+  );
+  return clamp(
+    Number.isFinite(estimatedMs) && estimatedMs > 0 ? estimatedMs : updateFrequencyMs * 0.92,
+    MARKER_ANIMATION_MIN_MS,
+    maxDurationMs
+  );
+}
+
+function calculateForwardOffsetPosition(lat, lng, heading, distanceKm) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (!Number.isFinite(heading) || distanceKm <= 0) return { lat, lng };
+  const earthRadiusKm = 6371;
+  const bearing = normalizeHeading(heading) * Math.PI / 180;
+  const latRad = lat * Math.PI / 180;
+  const lngRad = lng * Math.PI / 180;
+  const distanceRatio = distanceKm / earthRadiusKm;
+  const nextLat = Math.asin(
+    Math.sin(latRad) * Math.cos(distanceRatio) +
+    Math.cos(latRad) * Math.sin(distanceRatio) * Math.cos(bearing)
+  );
+  const nextLng = lngRad + Math.atan2(
+    Math.sin(bearing) * Math.sin(distanceRatio) * Math.cos(latRad),
+    Math.cos(distanceRatio) - Math.sin(latRad) * Math.sin(nextLat)
+  );
+  return {
+    lat: nextLat * 180 / Math.PI,
+    lng: nextLng * 180 / Math.PI
+  };
+}
+
+function updateMotionTrail(position) {
+  if (!position) return;
+  const trail = mapState.motion.trail;
+  const previous = trail[trail.length - 1];
+  if (previous) {
+    const distanceKm = calculateDistance(previous[1], previous[0], position.lat, position.lng);
+    if (distanceKm < TRAIL_POINT_DISTANCE_KM) return;
+  }
+  trail.push([position.lng, position.lat]);
+  if (trail.length > TRAIL_HISTORY_LIMIT) trail.splice(0, trail.length - TRAIL_HISTORY_LIMIT);
+}
+
+function cancelMarkerAnimation() {
+  if (mapState.motion.animationFrameId !== null) {
+    cancelAnimationFrame(mapState.motion.animationFrameId);
+    mapState.motion.animationFrameId = null;
+  }
+}
+
+function sampleAnimatedPosition(now) {
+  const { animationFrom, animationTo, animationStartedAt, animationDurationMs } = mapState.motion;
+  if (!animationFrom || !animationTo || animationDurationMs <= 0) return animationTo || animationFrom || mapState.motion.displayPosition;
+  const progress = clamp((now - animationStartedAt) / animationDurationMs, 0, 1);
+  const eased = easeInOutCubic(progress);
+  const targetHeading = animationTo.heading ?? animationFrom.heading ?? 0;
+  return {
+    lat: animationFrom.lat + (animationTo.lat - animationFrom.lat) * eased,
+    lng: animationFrom.lng + (animationTo.lng - animationFrom.lng) * eased,
+    accuracy: animationFrom.accuracy + ((animationTo.accuracy ?? animationFrom.accuracy) - animationFrom.accuracy) * eased,
+    speed: animationFrom.speed + ((animationTo.speed ?? animationFrom.speed) - animationFrom.speed) * eased,
+    heading: interpolateHeading(animationFrom.heading ?? 0, targetHeading, eased),
+    timestamp: animationTo.timestamp
+  };
+}
+
+function applyAnimatedPosition(position) {
+  if (!position) return;
+  mapState.motion.displayPosition = {
+    ...position,
+    heading: normalizeHeading(position.heading ?? 0),
+    speed: Math.max(0, Number(position.speed) || 0)
+  };
+  queueMapRender();
+  updateMapUiReadouts();
+}
+
+function animateDriverMarkerTo(nextPosition) {
+  if (!nextPosition) return;
+  const now = performance.now();
+  const currentDisplay = mapState.motion.animationFrameId !== null
+    ? sampleAnimatedPosition(now)
+    : (mapState.motion.displayPosition || mapState.lastPosition || nextPosition);
+
+  cancelMarkerAnimation();
+  mapState.motion.queuedPosition = null;
+
+  const distanceKm = calculateDistance(currentDisplay.lat, currentDisplay.lng, nextPosition.lat, nextPosition.lng);
+  if (!Number.isFinite(distanceKm) || distanceKm <= MIN_ANIMATION_DISTANCE_KM) {
+    applyAnimatedPosition(nextPosition);
+    updateMotionTrail(nextPosition);
+    return;
+  }
+
+  mapState.motion.animationFrom = currentDisplay;
+  mapState.motion.animationTo = nextPosition;
+  mapState.motion.animationStartedAt = now;
+  mapState.motion.animationDurationMs = calculateAnimationDuration(distanceKm, nextPosition.speed);
+
+  const step = frameTime => {
+    const progress = clamp((frameTime - mapState.motion.animationStartedAt) / mapState.motion.animationDurationMs, 0, 1);
+    applyAnimatedPosition(sampleAnimatedPosition(frameTime));
+    if (progress < 1) {
+      mapState.motion.animationFrameId = requestAnimationFrame(step);
+      return;
+    }
+    mapState.motion.animationFrameId = null;
+    mapState.motion.animationFrom = nextPosition;
+    mapState.motion.animationTo = nextPosition;
+    applyAnimatedPosition(nextPosition);
+    updateMotionTrail(nextPosition);
+    if (mapState.motion.queuedPosition) {
+      const queued = mapState.motion.queuedPosition;
+      mapState.motion.queuedPosition = null;
+      animateDriverMarkerTo(queued);
+    }
+  };
+
+  mapState.motion.animationFrameId = requestAnimationFrame(step);
+}
+
+function queueDriverMarkerAnimation(position) {
+  if (!position) return;
+  if (!mapState.motion.displayPosition) {
+    applyAnimatedPosition(position);
+    updateMotionTrail(position);
+    return;
+  }
+  if (mapState.motion.animationFrameId !== null) {
+    mapState.motion.queuedPosition = position;
+    applyAnimatedPosition(sampleAnimatedPosition(performance.now()));
+    return;
+  }
+  animateDriverMarkerTo(position);
+}
+
+function updateMotionStats(position, previousPosition, distanceKm, elapsedMs) {
+  mapState.motion.maxSpeedKmh = Math.max(mapState.motion.maxSpeedKmh, position.speed || 0);
+  if (Number.isFinite(distanceKm) && distanceKm > 0) {
+    mapState.motion.totalDistanceKm += distanceKm;
+  }
+  mapState.motion.samples += 1;
+  mapState.motion.averageSpeedKmh = mapState.motion.samples > 0
+    ? ((mapState.motion.averageSpeedKmh * (mapState.motion.samples - 1)) + (position.speed || 0)) / mapState.motion.samples
+    : 0;
+
+  const previousSpeed = previousPosition?.speed ?? 0;
+  const speedDelta = (position.speed || 0) - previousSpeed;
+  if (isVehicleStopped(position, distanceKm, elapsedMs)) {
+    mapState.motion.status = 'Stopped';
+  } else if (speedDelta >= ACCELERATION_THRESHOLD_KMH) {
+    mapState.motion.status = 'Accelerating';
+  } else if (speedDelta <= -ACCELERATION_THRESHOLD_KMH) {
+    mapState.motion.status = 'Decelerating';
+  } else {
+    mapState.motion.status = 'Moving';
+  }
+}
+
+function isVehicleStopped(position, distanceKm, elapsedMs) {
+  return (position?.speed || 0) < STOPPED_SPEED_THRESHOLD_KMH
+    || (Number.isFinite(elapsedMs) && elapsedMs > 0 && distanceKm < MIN_MOVEMENT_DISTANCE_KM);
+}
+
+function isLikelyGpsJump(previousPosition, nextPosition, distanceKm, elapsedMs) {
+  if (!previousPosition || !Number.isFinite(distanceKm) || !Number.isFinite(elapsedMs) || elapsedMs <= 0) return false;
+  if (nextPosition.accuracy > MAX_ACCEPTABLE_ACCURACY_M && distanceKm > 0.1) return true;
+  const elapsedHours = elapsedMs / (60 * 60 * 1000);
+  const inferredSpeed = elapsedHours > 0 ? distanceKm / elapsedHours : 0;
+  if (inferredSpeed > MAX_REASONABLE_SPEED_KMH) return true;
+  const expectedDistanceKm = ((previousPosition.speed || DEFAULT_LOCATION_SPEED_KMH) * elapsedHours)
+    + (nextPosition.accuracy / 1000)
+    + GPS_JITTER_TOLERANCE_KM;
+  return distanceKm > Math.max(expectedDistanceKm * 2.5, 0.3);
+}
+
+function calculateSpeedKmh(rawSpeed, distanceKm, elapsedMs, previousSpeedKmh) {
+  if (Number.isFinite(rawSpeed) && rawSpeed >= 0) {
+    return rawSpeed * 3.6;
+  }
+  if (Number.isFinite(distanceKm) && Number.isFinite(elapsedMs) && elapsedMs > 0) {
+    return distanceKm / (elapsedMs / (60 * 60 * 1000));
+  }
+  return previousSpeedKmh ?? 0;
 }
 
 /**
@@ -1481,12 +1744,39 @@ function createPassengerMarkerElement() {
 
 function createDriverMarkerElement() {
   const el = document.createElement('div');
-  el.style.width = '16px';
-  el.style.height = '16px';
-  el.style.borderRadius = '50%';
-  el.style.background = '#26d07c';
-  el.style.boxShadow = '0 0 0 10px rgba(38, 208, 124, 0.16)';
+  el.className = 'driver-marker';
+  const speedBadge = document.createElement('div');
+  speedBadge.className = 'driver-marker-speed';
+  speedBadge.textContent = '0 km/h';
+
+  const markerBody = document.createElement('div');
+  markerBody.className = 'driver-marker-body';
+
+  const arrow = document.createElement('span');
+  arrow.className = 'driver-marker-arrow';
+  arrow.textContent = '▲';
+
+  markerBody.appendChild(arrow);
+  el.append(speedBadge, markerBody);
   return el;
+}
+
+function updateDriverMarkerVisuals(position) {
+  const markerElement = mapState.markers.driver?.getElement?.();
+  if (!markerElement || !position) return;
+  const arrow = markerElement.querySelector('.driver-marker-arrow');
+  const speedBadge = markerElement.querySelector('.driver-marker-speed');
+  if (arrow) {
+    arrow.style.transform = `rotate(${normalizeHeading(position.heading ?? 0)}deg)`;
+  }
+  if (speedBadge) {
+    const speedKmh = Math.max(0, Number(position.speed) || 0);
+    const speedMph = speedKmh * KMH_TO_MPH_FACTOR;
+    speedBadge.textContent = speedKmh < STOPPED_SPEED_THRESHOLD_KMH
+      ? 'Stopped'
+      : `${Math.round(speedKmh)} km/h · ${Math.round(speedMph)} mph`;
+  }
+  markerElement.dataset.status = mapState.motion.status || 'Moving';
 }
 
 function createRouteMarkerElement(kind) {
@@ -1636,13 +1926,54 @@ function fitMapToTrackedRoute() {
   mapState.routeFitPending = false;
 }
 
+function ensureTrailLayer() {
+  const map = mapState.mapboxInstance;
+  if (!map || !mapState.mapboxReady) return;
+  if (!map.getSource('driver-marker-trail')) {
+    map.addSource('driver-marker-trail', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+  }
+  if (!map.getLayer('driver-marker-trail-line')) {
+    map.addLayer({
+      id: 'driver-marker-trail-line',
+      type: 'line',
+      source: 'driver-marker-trail',
+      paint: {
+        'line-color': '#8df3bc',
+        'line-width': 3,
+        'line-opacity': 0.45,
+      },
+    });
+  }
+}
+
+function updateMarkerTrail() {
+  const map = mapState.mapboxInstance;
+  if (!map || !mapState.mapboxReady) return;
+  ensureTrailLayer();
+  const source = map.getSource('driver-marker-trail');
+  if (!source) return;
+  const coordinates = mapState.motion.trail;
+  const features = coordinates.length > 1 ? [{
+    type: 'Feature',
+    geometry: {
+      type: 'LineString',
+      coordinates,
+    },
+    properties: {},
+  }] : [];
+  source.setData({ type: 'FeatureCollection', features });
+}
+
 function updateMapboxRoute() {
   const map = mapState.mapboxInstance;
   if (!map || !mapState.mapboxReady) return;
   ensureRouteLayer();
 
   const trackedRide = selectedRideForDetails || nearbyRideRequests[0] || null;
-  const driverPos = mapState.lastPosition;
+  const driverPos = getMapDisplayPosition();
   const features = [];
 
   const pickupGeometry = Array.isArray(routeCache.pickupGeometry) && routeCache.pickupGeometry.length > 1
@@ -1687,12 +2018,14 @@ function updateMapboxMarkers() {
     mapState.markers.driver = new window.mapboxgl.Marker({ element: createDriverMarkerElement() });
   }
 
-  const driverPos = mapState.lastPosition;
+  const driverPos = getMapDisplayPosition();
   if (driverPos) {
     mapState.markers.driver
       .setLngLat([driverPos.lng, driverPos.lat])
       .addTo(map);
+    updateDriverMarkerVisuals(driverPos);
   }
+  updateMarkerTrail();
 
   const trackedRide = getTrackedRide();
   if (trackedRide && mapState.routeVisible) {
@@ -1792,12 +2125,14 @@ async function initializeMapbox() {
       mapState.mapboxReady = true;
       showMapTokenOverlay(false);
       ensureTrafficLayer();
+      ensureTrailLayer();
       updateMapboxMarkers();
       updateMapboxRoute();
       queueMapRender();
     });
     mapState.mapboxInstance.on('style.load', () => {
       ensureTrafficLayer();
+      ensureTrailLayer();
       updateMapboxRoute();
       updateMapboxMarkers();
     });
@@ -1928,13 +2263,14 @@ async function recalculateRouteData(options = {}) {
 
 // ─── Map UI Readouts ──────────────────────────────────────────────────────────
 function updateMapUiReadouts() {
-  const pos = mapState.lastPosition;
+  const pos = getMapDisplayPosition();
 
   // Speed
   const speedEl = document.getElementById('gps-speed');
   if (speedEl) {
     const kmh = pos?.speed ?? 0;
-    speedEl.textContent = `${kmh.toFixed(1)} km/h`;
+    const mph = kmh * KMH_TO_MPH_FACTOR;
+    speedEl.textContent = `${kmh.toFixed(1)} km/h · ${mph.toFixed(1)} mph`;
   }
 
   // Accuracy
@@ -1991,6 +2327,28 @@ function updateMapUiReadouts() {
 
   const distDropoffEl = document.getElementById('distance-dropoff');
   if (distDropoffEl) distDropoffEl.textContent = formatDistance(routeCache.dropoffDistKm);
+
+  const avgSpeedEl = document.getElementById('avg-speed');
+  if (avgSpeedEl) {
+    const avgSpeed = mapState.motion.averageSpeedKmh || 0;
+    avgSpeedEl.textContent = `${avgSpeed.toFixed(1)} km/h`;
+  }
+
+  const maxSpeedEl = document.getElementById('max-speed');
+  if (maxSpeedEl) {
+    const maxSpeed = mapState.motion.maxSpeedKmh || 0;
+    maxSpeedEl.textContent = `${maxSpeed.toFixed(1)} km/h`;
+  }
+
+  const statusEl = document.getElementById('movement-status');
+  if (statusEl) statusEl.textContent = mapState.motion.status || 'Waiting for GPS';
+
+  const positionEl = document.getElementById('position-readout');
+  if (positionEl) {
+    positionEl.textContent = pos
+      ? `${roundCoord(pos.lat)}, ${roundCoord(pos.lng)}`
+      : '--';
+  }
 
   const distTotalEl = document.getElementById('distance-total');
   if (distTotalEl) distTotalEl.textContent = formatDistance(routeCache.totalDistKm);
@@ -2056,7 +2414,9 @@ function updateMapUiReadouts() {
     compassEl.style.transform = `rotate(${heading}deg)`;
   }
   if (headingTextEl) {
-    headingTextEl.textContent = Number.isFinite(heading) ? `Heading: ${Math.round(heading)}°` : 'Heading: --°';
+    headingTextEl.textContent = Number.isFinite(heading)
+      ? `Heading: ${Math.round(heading)}° ${headingToCardinal(heading)}`
+      : 'Heading: --°';
   }
 }
 
@@ -2081,71 +2441,112 @@ function renderMap() {
   updateMapboxMarkers();
   updateMapboxRoute();
 
-  const driverPos = mapState.lastPosition;
+  const driverPos = getMapDisplayPosition();
   if (!driverPos) return;
 
   if (mapState.followMode && !mapState.routeFitPending) {
-    map.easeTo({
-      center: [driverPos.lng, driverPos.lat],
-      bearing: Number.isFinite(driverPos.heading) ? driverPos.heading : 0,
-      duration: 120,
-      easing: t => t,
-    });
+    const cameraTarget = calculateForwardOffsetPosition(
+      driverPos.lat,
+      driverPos.lng,
+      driverPos.heading ?? 0,
+      CAMERA_AHEAD_DISTANCE_KM
+    ) || driverPos;
+    const targetZoom = clamp(
+      CAMERA_BASE_ZOOM - Math.min(driverPos.speed || 0, CAMERA_ZOOM_SPEED_CAP_KMH) / CAMERA_ZOOM_SPEED_DIVISOR,
+      CAMERA_MIN_ZOOM,
+      CAMERA_MAX_ZOOM
+    );
+    const now = performance.now();
+    if ((now - mapState.motion.lastCameraSyncAt) >= CAMERA_UPDATE_THROTTLE_MS || mapState.motion.animationFrameId === null) {
+      mapState.motion.lastCameraSyncAt = now;
+      map.easeTo({
+        center: [cameraTarget.lng, cameraTarget.lat],
+        bearing: Number.isFinite(driverPos.heading) ? normalizeHeading(driverPos.heading) : 0,
+        zoom: targetZoom,
+        duration: 180,
+        easing: easeInOutCubic,
+        essential: true,
+      });
+    }
   }
 }
 
 // ─── GPS Tracking ─────────────────────────────────────────────────────────────
-async function handlePositionUpdate(positionLike) {
+function commitPositionUpdate(nextPosition, { syncBackend = true, skipLog = false } = {}) {
+  const previousPosition = mapState.lastPosition;
+  const elapsedMs = previousPosition ? Math.max(0, nextPosition.timestamp - previousPosition.timestamp) : NaN;
+  const distanceKm = previousPosition
+    ? calculateDistance(previousPosition.lat, previousPosition.lng, nextPosition.lat, nextPosition.lng)
+    : 0;
+
+  mapState.prevPosition = previousPosition;
+  mapState.lastPosition = nextPosition;
+  mapState.lastUpdateAt = nextPosition.timestamp;
+  mapState.locationPermissionState = 'granted';
+  currentProfile = { ...(currentProfile || {}), lat: nextPosition.lat, lng: nextPosition.lng };
+  saveLastKnownLocation(nextPosition.lat, nextPosition.lng, nextPosition.accuracy);
+  updateMotionStats(nextPosition, previousPosition, distanceKm, elapsedMs);
+
+  if (!skipLog) {
+    appendGpsLogEntry(nextPosition.lat, nextPosition.lng, nextPosition.accuracy, nextPosition.heading ?? 0, nextPosition.speed ?? 0);
+  }
+
+  if (syncBackend) {
+    syncDriverLocation(nextPosition.lat, nextPosition.lng, nextPosition.accuracy).catch(() => {});
+  }
+  recalculateRouteData().catch(() => {});
+  queueDriverMarkerAnimation(nextPosition);
+  updateMapUiReadouts();
+}
+
+async function handlePositionUpdate(positionLike, options = {}) {
   const lat = Number(positionLike.coords?.latitude ?? positionLike.lat);
   const lng = Number(positionLike.coords?.longitude ?? positionLike.lng);
   const accuracy = Number(positionLike.coords?.accuracy ?? positionLike.accuracy ?? DEFAULT_LOCATION_ACCURACY_M);
   const rawSpeed = positionLike.coords?.speed;  // m/s or null
   const rawHeading = positionLike.coords?.heading; // degrees or null
+  const timestamp = Number(positionLike.timestamp ?? positionLike.updatedAt ?? Date.now());
 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  if (!Number.isFinite(timestamp)) return;
 
-  // Speed in km/h
-  const speedKmh = (Number.isFinite(rawSpeed) && rawSpeed >= 0) ? rawSpeed * 3.6 : (mapState.lastPosition?.speed ?? 0);
+  const previousPosition = mapState.lastPosition;
+  if (previousPosition && timestamp < previousPosition.timestamp - 1000) return;
 
-  // Heading: prefer native GPS heading when moving, else calculate from movement
-  let heading = (Number.isFinite(rawHeading) && rawHeading >= 0 && speedKmh > 1) ? rawHeading : null;
-  if (heading === null && mapState.lastPosition) {
-    const prev = mapState.lastPosition;
-    const dist = calculateDistance(prev.lat, prev.lng, lat, lng);
-    if (dist > MIN_MOVEMENT_DISTANCE_KM) {
-      heading = calculateHeading(prev.lat, prev.lng, lat, lng);
+  const distanceKm = previousPosition
+    ? calculateDistance(previousPosition.lat, previousPosition.lng, lat, lng)
+    : 0;
+  const elapsedMs = previousPosition ? Math.max(0, timestamp - previousPosition.timestamp) : NaN;
+
+  let speedKmh = calculateSpeedKmh(rawSpeed, distanceKm, elapsedMs, previousPosition?.speed ?? 0);
+
+  let heading = (Number.isFinite(rawHeading) && rawHeading >= 0 && speedKmh > STOPPED_SPEED_THRESHOLD_KMH) ? rawHeading : null;
+  if (heading === null && previousPosition) {
+    if (distanceKm > MIN_MOVEMENT_DISTANCE_KM) {
+      heading = calculateHeading(previousPosition.lat, previousPosition.lng, lat, lng);
     } else {
-      heading = prev.heading;
+      heading = previousPosition.heading;
     }
   }
 
   const hadGpsIssue = mapState.gpsRetryCount > 0 || mapState.gpsRetryExhausted || mapState.gpsLoading;
-  mapState.prevPosition = mapState.lastPosition;
-  mapState.lastPosition = { lat, lng, accuracy, heading: heading ?? 0, speed: speedKmh, timestamp: Date.now() };
-  mapState.lastUpdateAt = Date.now();
-  mapState.locationPermissionState = 'granted';
+  const nextPosition = {
+    lat,
+    lng,
+    accuracy,
+    heading: normalizeHeading(heading ?? 0),
+    speed: Math.max(0, Math.min(speedKmh, MAX_REASONABLE_SPEED_KMH)),
+    timestamp
+  };
+  if (isLikelyGpsJump(previousPosition, nextPosition, distanceKm, elapsedMs)) {
+    console.warn('Discarding noisy GPS update', { previousPosition, nextPosition, distanceKm, elapsedMs });
+    return;
+  }
   mapState.gpsRetryCount = 0;
   mapState.gpsRetryExhausted = false;
   clearGpsRetryTimer();
   clearGpsAcquisitionTimeout();
-
-  // Persist for offline fallback
-  saveLastKnownLocation(lat, lng, accuracy);
-
-  // Update profile coords
-  currentProfile = { ...(currentProfile || {}), lat, lng };
-
-  // Log the fix
-  appendGpsLogEntry(lat, lng, accuracy, heading ?? 0, speedKmh);
-
-  // Sync location to backend (fire-and-forget)
-  syncDriverLocation(lat, lng, accuracy).catch(() => {});
-
-  // Recalculate route / ETA (respects cache TTL)
-  scheduleRouteRefresh();
-
-  // Re-render map
-  queueMapRender();
+  commitPositionUpdate(nextPosition, options);
   const accuracyDetails = getGpsAccuracyDetails(accuracy);
   setGpsStatus(`GPS connected • Accuracy ${accuracyDetails.label} (±${Math.round(accuracy)} m)`, { loading: false });
   if (hadGpsIssue) {
@@ -2159,6 +2560,8 @@ function handleGeoError(error) {
     mapState.locationPermissionState = 'denied';
     clearGpsRetryTimer();
     clearGpsAcquisitionTimeout();
+    mapState.motion.status = 'Location denied';
+    updateMapUiReadouts();
     setGpsStatus('Location permission denied. Enable location access in your browser settings.', { loading: false });
     showAlert('warning', 'Location permission denied. Enable location access in your browser settings.');
     stopLocationTracking();
@@ -2167,13 +2570,21 @@ function handleGeoError(error) {
 
   const isUnavailable = error?.code === 2;
   const errorLabel = isUnavailable ? 'GPS position unavailable.' : 'GPS signal lost.';
+  mapState.motion.status = 'Signal lost';
+  updateMapUiReadouts();
   setGpsStatus(`${errorLabel} Acquiring GPS...`, { loading: true });
   showAlert('warning', `${errorLabel} Retrying location updates…`);
   // Fall back to last known location for map display
   const fallback = getLastKnownLocation();
   if (fallback && !mapState.lastPosition) {
-    mapState.lastPosition = { lat: fallback.lat, lng: fallback.lng, accuracy: fallback.accuracy ?? DEFAULT_LOCATION_ACCURACY_M, heading: 0, speed: 0, timestamp: Date.now() };
-    queueMapRender();
+    commitPositionUpdate({
+      lat: fallback.lat,
+      lng: fallback.lng,
+      accuracy: fallback.accuracy ?? DEFAULT_LOCATION_ACCURACY_M,
+      heading: 0,
+      speed: 0,
+      timestamp: Date.now()
+    }, { syncBackend: false, skipLog: true });
   }
   scheduleGpsRetry(error);
 }
@@ -2299,6 +2710,7 @@ function stopLocationTracking() {
     window.clearInterval(gpsPollIntervalId);
     gpsPollIntervalId = null;
   }
+  cancelMarkerAnimation();
 }
 
 async function restartLocationTracking({ reason = 'restart' } = {}) {
@@ -2342,9 +2754,15 @@ async function ensureDriverLocation() {
   // Use fallback coords so map renders immediately
   mapState.centerLat = fallback.lat;
   mapState.centerLng = fallback.lng;
-  currentProfile = { ...(currentProfile || {}), lat: fallback.lat, lng: fallback.lng };
+  commitPositionUpdate({
+    lat: fallback.lat,
+    lng: fallback.lng,
+    accuracy: fallback.accuracy ?? DEFAULT_LOCATION_ACCURACY_M,
+    heading: 0,
+    speed: 0,
+    timestamp: Date.now()
+  }, { syncBackend: false, skipLog: true });
   setGpsStatus(stored ? 'Acquiring GPS... using last known location.' : 'Acquiring GPS... waiting for live location.', { loading: true });
-  queueMapRender();
 }
 
 // ─── GPS Simulation ───────────────────────────────────────────────────────────

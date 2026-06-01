@@ -687,6 +687,47 @@
             padding-top: 8px;
         }
 
+        .driver-marker {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            will-change: transform;
+        }
+
+        .driver-marker-speed {
+            min-width: 74px;
+            padding: 3px 8px;
+            border-radius: 999px;
+            background: rgba(7, 16, 24, 0.88);
+            color: #f5f7fb;
+            font-size: 10px;
+            font-weight: 700;
+            text-align: center;
+            box-shadow: 0 8px 18px rgba(3, 8, 14, 0.28);
+        }
+
+        .driver-marker-body {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(180deg, #52f0a2 0%, #1ec96f 100%);
+            box-shadow: 0 0 0 12px rgba(38, 208, 124, 0.16), 0 6px 16px rgba(9, 24, 16, 0.35);
+        }
+
+        .driver-marker-arrow {
+            display: inline-flex;
+            color: #071018;
+            font-size: 13px;
+            line-height: 1;
+            transform-origin: 50% 50%;
+            transition: transform 0.18s ease-out;
+        }
+
         .bottom-sheet {
             position: fixed;
             inset: auto 0 0;
@@ -1667,9 +1708,13 @@
                                 </div>
                                 <div class="map-controls-grid">
                                     <div><strong>Speed:</strong> <span id="gps-speed" class="map-control-value">-- km/h</span></div>
+                                    <div><strong>Average Speed:</strong> <span id="avg-speed" class="map-control-value">--</span></div>
+                                    <div><strong>Max Speed:</strong> <span id="max-speed" class="map-control-value">--</span></div>
                                     <div><strong>Accuracy:</strong> <span id="gps-accuracy" class="map-control-value">--</span></div>
                                     <div><strong>GPS Signal:</strong> <span id="gps-signal" class="map-control-value">Unknown</span></div>
+                                    <div><strong>Status:</strong> <span id="movement-status" class="map-control-value">Waiting for GPS</span></div>
                                     <div><strong>Updated:</strong> <span id="last-update" class="map-control-value">--</span></div>
+                                    <div><strong>Position:</strong> <span id="position-readout" class="map-control-value">--</span></div>
                                     <div><strong>ETA Pickup:</strong> <span id="eta-pickup" class="map-control-value">--</span></div>
                                     <div><strong>ETA Destination:</strong> <span id="eta-dropoff" class="map-control-value">--</span></div>
                                     <div><strong>Distance Pickup:</strong> <span id="distance-pickup" class="map-control-value">--</span></div>
