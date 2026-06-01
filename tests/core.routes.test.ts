@@ -156,7 +156,7 @@ test('GET / serves the professional dashboard login page', async () => {
       assert.match(body, /api\.mapbox\.com\/mapbox-gl-js/);
       assert.match(body, /id="mapbox"/);
       assert.match(body, /id="mapbox-token-save"/);
-      ['toggle-availability-button', 'Driver mode', 'Professional control center', 'Ride History', 'Real-time Map', 'Performance Stats', 'Support \/ Help', 'Driver dashboard navigation', 'Follow Driver: ON', 'Simulate GPS', 'ETA Pickup', 'Selfie Photo', 'Verification Status', 'Arrived at Pickup', 'Start Trip', 'End Trip', 'Rider Rating', 'countdown-pill', 'passenger-photo', 'swipe-accept-track', 'sheet-handle', 'bottom-sheet'].forEach(label => {
+      ['toggle-availability-button', 'Driver mode', 'Professional control center', 'Ride History', 'Real-time Map', 'Performance Stats', 'Support \/ Help', 'Driver dashboard navigation', 'Follow Driver: ON', 'Simulate GPS', 'ETA Pickup', 'ETA Destination', 'Route Details', 'Refresh Route', 'Hide Route', 'Pickup Route', 'Destination Route', 'Total Trip Distance', 'Selfie Photo', 'Verification Status', 'Arrived at Pickup', 'Start Trip', 'End Trip', 'Rider Rating', 'countdown-pill', 'passenger-photo', 'swipe-accept-track', 'sheet-handle', 'bottom-sheet'].forEach(label => {
         assert.match(body, new RegExp(label));
       });
       assert.doesNotMatch(body, /\s(onclick|onsubmit)=/);
@@ -192,6 +192,12 @@ test('GET /driver-dashboard.js includes realtime and offline sync hooks', async 
       'Swipe accept',
       'Estimated earnings',
       'Pickup distance',
+      'scheduleRouteRefresh',
+      'fitMapToTrackedRoute',
+      'refresh-route-button',
+      'route-visibility-button',
+      'driver-live-route-to-pickup',
+      'driver-live-route-to-dropoff',
       'setupBottomSheetControls',
       'setupPaneSwipeNavigation',
       'pointerdown',

@@ -14,7 +14,9 @@ const PROFILE_RETRY_DELAY_MS = 800;
 const GPS_LOG_KEY = 'driverGpsLog';
 const LAST_KNOWN_LOCATION_KEY = 'driverLastKnownLocation';
 const MAX_GPS_LOG_ENTRIES = 200;
-const ROUTE_CACHE_TTL_MS = 30000;
+const ROUTE_CACHE_TTL_MS = 15000;
+const ROUTE_RECALC_DEBOUNCE_MS = 1200;
+const ROUTE_MOVEMENT_REFRESH_KM = 0.08;
 const MAPBOX_TOKEN_STORAGE_KEY = 'drive.mapboxToken';
 const MAPBOX_STYLE_STREETS = 'mapbox://styles/mapbox/navigation-night-v1';
 const MAPBOX_STYLE_SATELLITE = 'mapbox://styles/mapbox/satellite-streets-v12';
@@ -103,8 +105,14 @@ let mapState = {
   mapboxInstance: null,
   mapboxReady: false,
   mapboxInitPromise: null,
+  routeVisible: true,
+  routeFitPending: false,
+  routeHoveredSegment: null,
+  routeLayerEventsBound: false,
   markers: {
     driver: null,
+    pickup: null,
+    destination: null,
     passengers: new Map(),
   },
   activePointerId: null
@@ -128,15 +136,32 @@ let gpsPollIntervalId = null;
 let gpsSimulationIntervalId = null;
 let gpsSimulationIndex = 0;
 let wakeLockSentinel = null;
-let routeCache = {
-  pickupEta: null,
-  dropoffEta: null,
-  pickupDistKm: null,
-  dropoffDistKm: null,
-  pickupGeometry: null,
-  dropoffGeometry: null,
-  cachedAt: 0,
-};
+let routeRefreshTimeoutId = null;
+
+function createEmptyRouteCache() {
+  return {
+    pickupEta: null,
+    dropoffEta: null,
+    pickupDistKm: null,
+    dropoffDistKm: null,
+    totalDistKm: null,
+    pickupDurationMin: null,
+    dropoffDurationMin: null,
+    totalDurationMin: null,
+    pickupGeometry: null,
+    dropoffGeometry: null,
+    cacheKey: '',
+    driverLat: null,
+    driverLng: null,
+    cachedAt: 0,
+    loading: false,
+    warning: '',
+    statusMessage: 'Waiting for route',
+    lastAnnouncement: '',
+  };
+}
+
+let routeCache = createEmptyRouteCache();
 let rideRequestCountdownIntervalId = null;
 let rideRequestFeedInitialized = false;
 let knownRideRequestIds = new Set();
@@ -766,6 +791,42 @@ function formatEta(minutes) {
   return `${mins} min`;
 }
 
+function getTrackedRide() {
+  return syncSelectedRideFromState() || nearbyRideRequests[0] || null;
+}
+
+function buildRouteCacheKey(driverLat, driverLng, ride) {
+  if (!ride) return '';
+  return [
+    ride.id || 'ride',
+    roundCoord(driverLat),
+    roundCoord(driverLng),
+    roundCoord(ride.pickupLat),
+    roundCoord(ride.pickupLng),
+    roundCoord(ride.dropoffLat),
+    roundCoord(ride.dropoffLng),
+  ].join(':');
+}
+
+function buildRouteFallback(originLat, originLng, destLat, destLng, warning) {
+  const distKm = calculateDistance(originLat, originLng, destLat, destLng);
+  const speedKmh = mapState.lastPosition?.speed > 2 ? mapState.lastPosition.speed : DEFAULT_LOCATION_SPEED_KMH;
+  return {
+    distKm,
+    etaMin: calculateETA(distKm, speedKmh),
+    geometry: null,
+    source: 'fallback',
+    warning,
+  };
+}
+
+function getRouteWarningMessage(status, payload) {
+  if (status === 429) return 'Mapbox route rate limit reached. Showing an estimated route.';
+  if (status === 401 || status === 403) return 'Mapbox directions are unavailable for this token. Showing an estimated route.';
+  if (status === 422) return payload?.message || 'Route coordinates were invalid. Showing an estimated route.';
+  return payload?.message || 'Live route data is unavailable right now. Showing an estimated route.';
+}
+
 function formatDistance(km) {
   if (!Number.isFinite(km)) return '--';
   const miles = km * 0.621371;
@@ -946,6 +1007,43 @@ function createDriverMarkerElement() {
   return el;
 }
 
+function createRouteMarkerElement(kind) {
+  const isPickup = kind === 'pickup';
+  const el = document.createElement('div');
+  el.style.width = '28px';
+  el.style.height = '28px';
+  el.style.borderRadius = '50%';
+  el.style.display = 'flex';
+  el.style.alignItems = 'center';
+  el.style.justifyContent = 'center';
+  el.style.fontSize = '0.72rem';
+  el.style.fontWeight = '700';
+  el.style.color = '#071018';
+  el.style.background = isPickup ? '#5b8cff' : '#26d07c';
+  el.style.boxShadow = isPickup
+    ? '0 0 0 8px rgba(91, 140, 255, 0.16)'
+    : '0 0 0 8px rgba(38, 208, 124, 0.16)';
+  el.textContent = isPickup ? 'P' : 'D';
+  el.setAttribute('aria-label', isPickup ? 'Pickup marker' : 'Destination marker');
+  return el;
+}
+
+function syncRouteLayerStyles() {
+  const map = mapState.mapboxInstance;
+  if (!map || !mapState.mapboxReady) return;
+  [
+    ['driver-live-route-to-pickup', 'pickup', '#5b8cff', 5],
+    ['driver-live-route-to-dropoff', 'dropoff', '#26d07c', 4],
+  ].forEach(([layerId, segment, color, baseWidth]) => {
+    if (!map.getLayer(layerId)) return;
+    const isHighlighted = mapState.routeHoveredSegment === segment;
+    map.setLayoutProperty(layerId, 'visibility', mapState.routeVisible ? 'visible' : 'none');
+    map.setPaintProperty(layerId, 'line-color', color);
+    map.setPaintProperty(layerId, 'line-width', isHighlighted ? baseWidth + 2 : baseWidth);
+    map.setPaintProperty(layerId, 'line-opacity', isHighlighted ? 1 : 0.9);
+  });
+}
+
 function ensureTrafficLayer() {
   const map = mapState.mapboxInstance;
   if (!map || !mapState.mapboxReady) return;
@@ -1006,6 +1104,54 @@ function ensureRouteLayer() {
       paint: { 'line-color': '#26d07c', 'line-width': 4, 'line-dasharray': [1, 1.2], 'line-opacity': 0.9 },
     });
   }
+  if (!mapState.routeLayerEventsBound) {
+    [
+      ['driver-live-route-to-pickup', 'pickup'],
+      ['driver-live-route-to-dropoff', 'dropoff'],
+    ].forEach(([layerId, segment]) => {
+      map.on('mouseenter', layerId, () => {
+        mapState.routeHoveredSegment = segment;
+        map.getCanvas().style.cursor = 'pointer';
+        syncRouteLayerStyles();
+      });
+      map.on('mouseleave', layerId, () => {
+        if (mapState.routeHoveredSegment === segment) mapState.routeHoveredSegment = null;
+        map.getCanvas().style.cursor = '';
+        syncRouteLayerStyles();
+      });
+      map.on('click', layerId, () => {
+        mapState.routeFitPending = true;
+        fitMapToTrackedRoute();
+      });
+    });
+    mapState.routeLayerEventsBound = true;
+  }
+  syncRouteLayerStyles();
+}
+
+function fitMapToTrackedRoute() {
+  const map = mapState.mapboxInstance;
+  if (!map || !mapState.mapboxReady || !window.mapboxgl?.LngLatBounds || !mapState.routeVisible) return;
+  const trackedRide = getTrackedRide();
+  const driverPos = mapState.lastPosition;
+  if (!trackedRide || !driverPos) return;
+  const allCoordinates = [];
+  const pickupCoords = Array.isArray(routeCache.pickupGeometry) && routeCache.pickupGeometry.length > 1
+    ? routeCache.pickupGeometry
+    : [[driverPos.lng, driverPos.lat], [trackedRide.pickupLng, trackedRide.pickupLat]];
+  const dropoffCoords = Array.isArray(routeCache.dropoffGeometry) && routeCache.dropoffGeometry.length > 1
+    ? routeCache.dropoffGeometry
+    : [[trackedRide.pickupLng, trackedRide.pickupLat], [trackedRide.dropoffLng, trackedRide.dropoffLat]];
+  allCoordinates.push(...pickupCoords, ...dropoffCoords);
+  if (allCoordinates.length < 2) return;
+  const bounds = new window.mapboxgl.LngLatBounds(allCoordinates[0], allCoordinates[0]);
+  allCoordinates.forEach(coord => bounds.extend(coord));
+  map.fitBounds(bounds, {
+    padding: { top: 90, right: 42, bottom: 260, left: 42 },
+    duration: 700,
+    maxZoom: 15.5,
+  });
+  mapState.routeFitPending = false;
 }
 
 function updateMapboxRoute() {
@@ -1045,6 +1191,10 @@ function updateMapboxRoute() {
 
   const source = map.getSource('driver-live-route');
   if (source) source.setData({ type: 'FeatureCollection', features });
+  syncRouteLayerStyles();
+  if (mapState.routeFitPending && features.length) {
+    fitMapToTrackedRoute();
+  }
 }
 
 function updateMapboxMarkers() {
@@ -1060,6 +1210,27 @@ function updateMapboxMarkers() {
     mapState.markers.driver
       .setLngLat([driverPos.lng, driverPos.lat])
       .addTo(map);
+  }
+
+  const trackedRide = getTrackedRide();
+  if (trackedRide && mapState.routeVisible) {
+    if (!mapState.markers.pickup) {
+      mapState.markers.pickup = new window.mapboxgl.Marker({ element: createRouteMarkerElement('pickup') });
+    }
+    if (!mapState.markers.destination) {
+      mapState.markers.destination = new window.mapboxgl.Marker({ element: createRouteMarkerElement('destination') });
+    }
+    mapState.markers.pickup
+      .setLngLat([trackedRide.pickupLng, trackedRide.pickupLat])
+      .setPopup(new window.mapboxgl.Popup({ offset: 16 }).setText('Pickup'))
+      .addTo(map);
+    mapState.markers.destination
+      .setLngLat([trackedRide.dropoffLng, trackedRide.dropoffLat])
+      .setPopup(new window.mapboxgl.Popup({ offset: 16 }).setText('Destination'))
+      .addTo(map);
+  } else {
+    mapState.markers.pickup?.remove();
+    mapState.markers.destination?.remove();
   }
 
   const activePassengerIds = new Set();
@@ -1162,96 +1333,115 @@ async function initializeMapbox() {
 
 // ─── Route Estimation ─────────────────────────────────────────────────────────
 async function fetchRouteEstimate(originLat, originLng, destLat, destLng) {
+  if (![originLat, originLng, destLat, destLng].every(Number.isFinite)) {
+    return buildRouteFallback(originLat, originLng, destLat, destLng, 'Route coordinates are unavailable.');
+  }
   if (mapState.mapboxToken) {
     try {
-      const url = new URL(`https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${originLng},${originLat};${destLng},${destLat}`);
+      const url = new URL(`https://api.mapbox.com/directions/v5/mapbox/driving/${originLng},${originLat};${destLng},${destLat}`);
       url.searchParams.set('geometries', 'geojson');
       url.searchParams.set('overview', 'full');
       url.searchParams.set('steps', 'false');
+      url.searchParams.set('alternatives', 'false');
       url.searchParams.set('access_token', mapState.mapboxToken);
       const response = await fetch(url.toString());
+      const payload = await response.json().catch(() => null);
       if (response.ok) {
-        const payload = await response.json();
         const route = payload?.routes?.[0];
         if (route) {
           return {
             distKm: Number(route.distance || 0) / 1000,
             etaMin: Number(route.duration || 0) / 60,
             geometry: Array.isArray(route.geometry?.coordinates) ? route.geometry.coordinates : null,
+            source: 'mapbox',
+            warning: '',
           };
         }
       }
-    } catch (_e) { /* fall through to next provider */ }
+      return buildRouteFallback(
+        originLat,
+        originLng,
+        destLat,
+        destLng,
+        getRouteWarningMessage(response.status, payload)
+      );
+    } catch (_e) {
+      return buildRouteFallback(originLat, originLng, destLat, destLng, 'Live route lookup failed. Showing an estimated route.');
+    }
   }
-
-  // Attempt Google Maps Directions API (requires API key exposed in env).
-  // Falls back to haversine estimate without network call.
-  const apiKey = typeof window !== 'undefined' && window.GOOGLE_MAPS_API_KEY;
-  if (apiKey) {
-    try {
-      const origin = `${originLat},${originLng}`;
-      const dest = `${destLat},${destLng}`;
-      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(dest)}&mode=driving&key=${encodeURIComponent(apiKey)}`;
-      const { data } = await fetchJson(url, {});
-      if (data?.routes?.[0]?.legs?.[0]) {
-        const leg = data.routes[0].legs[0];
-        return {
-          distKm: Number(leg.distance?.value || 0) / 1000,
-          etaMin: Number(leg.duration?.value || 0) / 60,
-          geometry: null,
-        };
-      }
-    } catch (_e) { /* fall through to haversine */ }
-  }
-  const distKm = calculateDistance(originLat, originLng, destLat, destLng);
-  const speedKmh = mapState.lastPosition?.speed > 2 ? mapState.lastPosition.speed : DEFAULT_LOCATION_SPEED_KMH;
-  return { distKm, etaMin: calculateETA(distKm, speedKmh), geometry: null };
+  return buildRouteFallback(originLat, originLng, destLat, destLng, 'Mapbox token missing. Showing an estimated route.');
 }
 
-async function recalculateRouteData() {
+function scheduleRouteRefresh(options = {}) {
+  const { force = false, fitRoute = false } = options;
+  if (fitRoute) mapState.routeFitPending = true;
+  if (routeRefreshTimeoutId !== null) window.clearTimeout(routeRefreshTimeoutId);
+  routeRefreshTimeoutId = window.setTimeout(() => {
+    routeRefreshTimeoutId = null;
+    recalculateRouteData({ force }).catch(error => {
+      console.warn('Unable to refresh route data:', error);
+    });
+  }, force ? 0 : ROUTE_RECALC_DEBOUNCE_MS);
+}
+
+async function recalculateRouteData(options = {}) {
+  const { force = false } = options;
   const driverLat = mapState.lastPosition?.lat ?? Number(currentProfile?.lat);
   const driverLng = mapState.lastPosition?.lng ?? Number(currentProfile?.lng);
   if (!Number.isFinite(driverLat) || !Number.isFinite(driverLng)) return;
 
+  const trackedRide = getTrackedRide();
+  const nextCacheKey = buildRouteCacheKey(driverLat, driverLng, trackedRide);
   const now = Date.now();
-  if (now - routeCache.cachedAt < ROUTE_CACHE_TTL_MS) {
+  const driverMovedKm = Number.isFinite(routeCache.driverLat) && Number.isFinite(routeCache.driverLng)
+    ? calculateDistance(routeCache.driverLat, routeCache.driverLng, driverLat, driverLng)
+    : Number.POSITIVE_INFINITY;
+  const shouldReuseCache = !force
+    && trackedRide
+    && routeCache.cacheKey === nextCacheKey
+    && now - routeCache.cachedAt < ROUTE_CACHE_TTL_MS
+    && driverMovedKm < ROUTE_MOVEMENT_REFRESH_KM;
+  if (shouldReuseCache) {
     updateMapUiReadouts();
     return;
   }
 
-  const trackedRide = selectedRideForDetails || nearbyRideRequests[0] || null;
   if (!trackedRide) {
-    routeCache = {
-      pickupEta: null,
-      dropoffEta: null,
-      pickupDistKm: null,
-      dropoffDistKm: null,
-      pickupGeometry: null,
-      dropoffGeometry: null,
-      cachedAt: now,
-    };
+    routeCache = { ...createEmptyRouteCache(), cachedAt: now, statusMessage: 'Waiting for route' };
     updateMapUiReadouts();
     updateMapboxRoute();
+    updateMapboxMarkers();
     return;
   }
 
-  try {
-    const pickupResult = await fetchRouteEstimate(driverLat, driverLng, trackedRide.pickupLat, trackedRide.pickupLng);
-    routeCache.pickupDistKm = pickupResult.distKm;
-    routeCache.pickupEta = pickupResult.etaMin;
-    routeCache.pickupGeometry = pickupResult.geometry;
-
-    const dropoffResult = await fetchRouteEstimate(trackedRide.pickupLat, trackedRide.pickupLng, trackedRide.dropoffLat, trackedRide.dropoffLng);
-    routeCache.dropoffDistKm = dropoffResult.distKm;
-    routeCache.dropoffEta = dropoffResult.etaMin;
-    routeCache.dropoffGeometry = dropoffResult.geometry;
-
-    routeCache.cachedAt = Date.now();
-  } catch (_e) {
-    // Keep previous cache values
-  }
+  routeCache.loading = true;
+  routeCache.statusMessage = 'Loading live route';
+  routeCache.warning = '';
+  updateMapUiReadouts();
+  const [pickupResult, dropoffResult] = await Promise.all([
+    fetchRouteEstimate(driverLat, driverLng, trackedRide.pickupLat, trackedRide.pickupLng),
+    fetchRouteEstimate(trackedRide.pickupLat, trackedRide.pickupLng, trackedRide.dropoffLat, trackedRide.dropoffLng),
+  ]);
+  routeCache.pickupDistKm = pickupResult.distKm;
+  routeCache.pickupEta = pickupResult.etaMin;
+  routeCache.pickupDurationMin = pickupResult.etaMin;
+  routeCache.pickupGeometry = pickupResult.geometry;
+  routeCache.dropoffDistKm = dropoffResult.distKm;
+  routeCache.dropoffDurationMin = dropoffResult.etaMin;
+  routeCache.dropoffEta = [pickupResult.etaMin, dropoffResult.etaMin].reduce((total, value) => total + (Number.isFinite(value) ? value : 0), 0);
+  routeCache.dropoffGeometry = dropoffResult.geometry;
+  routeCache.totalDistKm = [pickupResult.distKm, dropoffResult.distKm].reduce((total, value) => total + (Number.isFinite(value) ? value : 0), 0);
+  routeCache.totalDurationMin = routeCache.dropoffEta;
+  routeCache.cacheKey = nextCacheKey;
+  routeCache.driverLat = driverLat;
+  routeCache.driverLng = driverLng;
+  routeCache.cachedAt = Date.now();
+  routeCache.loading = false;
+  routeCache.warning = [pickupResult.warning, dropoffResult.warning].filter(Boolean).join(' ');
+  routeCache.statusMessage = routeCache.warning ? 'Estimated route ready' : 'Live route ready';
   updateMapUiReadouts();
   updateMapboxRoute();
+  updateMapboxMarkers();
 }
 
 // ─── Map UI Readouts ──────────────────────────────────────────────────────────
@@ -1310,6 +1500,61 @@ function updateMapUiReadouts() {
   const distDropoffEl = document.getElementById('distance-dropoff');
   if (distDropoffEl) distDropoffEl.textContent = formatDistance(routeCache.dropoffDistKm);
 
+  const distTotalEl = document.getElementById('distance-total');
+  if (distTotalEl) distTotalEl.textContent = formatDistance(routeCache.totalDistKm);
+
+  const durationTotalEl = document.getElementById('duration-total');
+  if (durationTotalEl) durationTotalEl.textContent = formatEta(routeCache.totalDurationMin);
+
+  const pickupLegDistanceEl = document.getElementById('pickup-leg-distance');
+  if (pickupLegDistanceEl) pickupLegDistanceEl.textContent = formatDistance(routeCache.pickupDistKm);
+
+  const destinationLegDistanceEl = document.getElementById('destination-leg-distance');
+  if (destinationLegDistanceEl) destinationLegDistanceEl.textContent = formatDistance(routeCache.dropoffDistKm);
+
+  const pickupLegDurationEl = document.getElementById('pickup-leg-duration');
+  if (pickupLegDurationEl) pickupLegDurationEl.textContent = formatEta(routeCache.pickupDurationMin);
+
+  const destinationLegDurationEl = document.getElementById('destination-leg-duration');
+  if (destinationLegDurationEl) destinationLegDurationEl.textContent = formatEta(routeCache.dropoffDurationMin);
+
+  const totalTripDistanceEl = document.getElementById('total-trip-distance');
+  if (totalTripDistanceEl) totalTripDistanceEl.textContent = formatDistance(routeCache.totalDistKm);
+
+  const totalTripEtaEl = document.getElementById('total-trip-eta');
+  if (totalTripEtaEl) totalTripEtaEl.textContent = formatEta(routeCache.dropoffEta);
+
+  const routeStatusEl = document.getElementById('route-status');
+  if (routeStatusEl) routeStatusEl.textContent = routeCache.statusMessage || 'Waiting for route';
+
+  const routeLoadingEl = document.getElementById('route-loading-indicator');
+  if (routeLoadingEl) routeLoadingEl.classList.toggle('d-none', !routeCache.loading);
+
+  const routeVisibilityButton = document.getElementById('route-visibility-button');
+  if (routeVisibilityButton) {
+    routeVisibilityButton.textContent = mapState.routeVisible ? 'Hide Route' : 'Show Route';
+    routeVisibilityButton.setAttribute('aria-pressed', String(mapState.routeVisible));
+  }
+
+  const routeNoteEl = document.getElementById('route-note');
+  if (routeNoteEl) {
+    const trackedRide = getTrackedRide();
+    const defaultMessage = trackedRide
+      ? 'Hover over a route line to highlight it, or use Refresh Route to fetch the latest navigation path.'
+      : 'Enable location and select a ride request to visualize the route.';
+    routeNoteEl.textContent = routeCache.warning || defaultMessage;
+    routeNoteEl.classList.toggle('is-warning', Boolean(routeCache.warning));
+  }
+
+  const routeAnnouncer = document.getElementById('route-announcer');
+  const routeAnnouncement = Number.isFinite(routeCache.totalDistKm) && Number.isFinite(routeCache.dropoffEta)
+    ? `Route updated. Pickup in ${formatEta(routeCache.pickupEta)}. Destination ETA ${formatEta(routeCache.dropoffEta)}. Total trip distance ${formatDistance(routeCache.totalDistKm)}.`
+    : '';
+  if (routeAnnouncer && routeAnnouncement && routeAnnouncement !== routeCache.lastAnnouncement) {
+    routeAnnouncer.textContent = routeAnnouncement;
+    routeCache.lastAnnouncement = routeAnnouncement;
+  }
+
   // Heading / Compass
   const heading = pos?.heading;
   const compassEl = document.getElementById('compass-indicator');
@@ -1347,7 +1592,7 @@ function renderMap() {
   const driverPos = mapState.lastPosition;
   if (!driverPos) return;
 
-  if (mapState.followMode) {
+  if (mapState.followMode && !mapState.routeFitPending) {
     map.easeTo({
       center: [driverPos.lng, driverPos.lat],
       bearing: Number.isFinite(driverPos.heading) ? driverPos.heading : 0,
@@ -1400,7 +1645,7 @@ async function handlePositionUpdate(positionLike) {
   syncDriverLocation(lat, lng, accuracy).catch(() => {});
 
   // Recalculate route / ETA (respects cache TTL)
-  recalculateRouteData().catch(() => {});
+  scheduleRouteRefresh();
 
   // Re-render map
   queueMapRender();
@@ -1923,6 +2168,7 @@ async function loadAvailableRideRequests() {
   }
 
   renderAvailableRideRequests();
+  scheduleRouteRefresh();
 }
 
 function renderRideHistory() {
@@ -2061,7 +2307,7 @@ function renderRideDetailsModal(ride) {
   modal.setAttribute('aria-hidden', 'false');
   // Refresh route data for this ride
   routeCache.cachedAt = 0;
-  recalculateRouteData().catch(() => {});
+  scheduleRouteRefresh({ force: true, fitRoute: true });
   queueMapRender();
 }
 
@@ -2072,6 +2318,8 @@ function closeRideDetailsModal() {
   document.getElementById('ride-fare-breakdown').textContent = '';
   document.getElementById('rider-rating-controls').classList.add('d-none');
   selectedRideForDetails = null;
+  routeCache.cachedAt = 0;
+  scheduleRouteRefresh({ force: true });
   queueMapRender();
 }
 
@@ -2665,11 +2913,26 @@ function setupMapControls() {
     mapState.updateFrequencyMs = Number(event.target.value) || 3000;
     routeCache.cachedAt = 0;
     refreshTrackingFrequency().catch(() => {});
+    scheduleRouteRefresh({ force: true });
     showAlert('info', `GPS update interval set to ${mapState.updateFrequencyMs / 1000}s.`);
   });
 
   // GPS simulation
   document.getElementById('simulate-gps-button').addEventListener('click', toggleGpsSimulation);
+  document.getElementById('refresh-route-button')?.addEventListener('click', () => {
+    routeCache.cachedAt = 0;
+    scheduleRouteRefresh({ force: true, fitRoute: true });
+    showAlert('info', 'Refreshing live route…');
+  });
+  document.getElementById('route-visibility-button')?.addEventListener('click', () => {
+    mapState.routeVisible = !mapState.routeVisible;
+    if (mapState.routeVisible) {
+      mapState.routeFitPending = true;
+    }
+    updateMapboxRoute();
+    updateMapboxMarkers();
+    updateMapUiReadouts();
+  });
   document.getElementById('mapbox-token-save')?.addEventListener('click', () => {
     const input = document.getElementById('mapbox-token-input');
     const token = String(input?.value || '').trim();
@@ -2679,7 +2942,7 @@ function setupMapControls() {
     showMapTokenOverlay(false);
     initializeMapbox().then(() => {
       routeCache.cachedAt = 0;
-      recalculateRouteData().catch(() => {});
+      scheduleRouteRefresh({ force: true, fitRoute: true });
       queueMapRender();
     });
   });
@@ -2771,7 +3034,7 @@ window.addEventListener('load', async () => {
     if (document.visibilityState === 'visible') {
       requestWakeLock();
       routeCache.cachedAt = 0;
-      recalculateRouteData().catch(() => {});
+      scheduleRouteRefresh({ force: true });
       navigator.geolocation?.getCurrentPosition(handlePositionUpdate, handleGeoError, getGeolocationOptions());
     }
   });
@@ -2781,6 +3044,7 @@ window.addEventListener('load', async () => {
     stopLocationTracking();
     if (gpsSimulationIntervalId !== null) window.clearInterval(gpsSimulationIntervalId);
     if (rideRequestCountdownIntervalId !== null) window.clearInterval(rideRequestCountdownIntervalId);
+    if (routeRefreshTimeoutId !== null) window.clearTimeout(routeRefreshTimeoutId);
     if (wakeLockSentinel && typeof wakeLockSentinel.release === 'function') wakeLockSentinel.release().catch(() => {});
   });
 
