@@ -557,6 +557,108 @@
             font-weight: 600;
         }
 
+        .route-details-card {
+            border-radius: 22px;
+            padding: 14px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .route-details-header,
+        .route-legend,
+        .route-note {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .route-details-header {
+            justify-content: space-between;
+        }
+
+        .route-status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(91, 140, 255, 0.14);
+            border: 1px solid rgba(91, 140, 255, 0.24);
+            color: #d9e5ff;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .route-loading {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #ffe1a0;
+        }
+
+        .route-legend {
+            margin-top: 12px;
+            color: var(--muted);
+            font-size: 0.8rem;
+        }
+
+        .route-legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .route-swatch {
+            width: 16px;
+            height: 4px;
+            border-radius: 999px;
+            display: inline-block;
+        }
+
+        .route-swatch.pickup {
+            background: #5b8cff;
+        }
+
+        .route-swatch.destination {
+            background: #26d07c;
+        }
+
+        .route-details-grid {
+            display: grid;
+            gap: 10px;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            margin-top: 12px;
+        }
+
+        .route-leg-card {
+            border-radius: 18px;
+            padding: 12px;
+            background: rgba(7, 16, 24, 0.62);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .route-leg-card strong {
+            display: block;
+            margin-bottom: 6px;
+        }
+
+        .route-leg-card div + div,
+        .route-note {
+            margin-top: 4px;
+        }
+
+        .route-note {
+            color: var(--muted);
+            font-size: 0.8rem;
+        }
+
+        .route-note.is-warning {
+            color: #ffe1a0;
+        }
+
         .compass-indicator {
             width: 28px;
             height: 28px;
@@ -1169,9 +1271,11 @@
                                     <div><strong>GPS Signal:</strong> <span id="gps-signal" class="map-control-value">Unknown</span></div>
                                     <div><strong>Updated:</strong> <span id="last-update" class="map-control-value">--</span></div>
                                     <div><strong>ETA Pickup:</strong> <span id="eta-pickup" class="map-control-value">--</span></div>
-                                    <div><strong>ETA Dropoff:</strong> <span id="eta-dropoff" class="map-control-value">--</span></div>
+                                    <div><strong>ETA Destination:</strong> <span id="eta-dropoff" class="map-control-value">--</span></div>
                                     <div><strong>Distance Pickup:</strong> <span id="distance-pickup" class="map-control-value">--</span></div>
-                                    <div><strong>Trip Distance:</strong> <span id="distance-dropoff" class="map-control-value">--</span></div>
+                                    <div><strong>Destination Distance:</strong> <span id="distance-dropoff" class="map-control-value">--</span></div>
+                                    <div><strong>Total Trip Distance:</strong> <span id="distance-total" class="map-control-value">--</span></div>
+                                    <div><strong>Total Travel Time:</strong> <span id="duration-total" class="map-control-value">--</span></div>
                                 </div>
                                 <div class="map-controls-row align-items-center">
                                     <span class="compass-indicator" id="compass-indicator" title="Driver heading">N</span>
@@ -1188,6 +1292,46 @@
                                     <summary class="small text-muted" style="cursor:pointer">GPS Debug Log</summary>
                                     <div id="gps-log" class="gps-log"></div>
                                 </details>
+                                <div id="route-details-card" class="route-details-card" tabindex="0" aria-labelledby="route-details-heading">
+                                    <div class="route-details-header">
+                                        <div>
+                                            <h3 id="route-details-heading" class="h6 mb-1">Route Details</h3>
+                                            <div class="small text-muted">Live route to pickup and destination using Mapbox Directions.</div>
+                                        </div>
+                                        <div class="map-controls-row">
+                                            <span id="route-status" class="route-status-pill" role="status">Waiting for route</span>
+                                            <span id="route-loading-indicator" class="route-loading d-none" aria-hidden="true">
+                                                <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                                                Updating route…
+                                            </span>
+                                            <button id="refresh-route-button" class="secondary-action" type="button">Refresh Route</button>
+                                            <button id="route-visibility-button" class="secondary-action" type="button">Hide Route</button>
+                                        </div>
+                                    </div>
+                                    <div class="route-legend" aria-label="Route color legend">
+                                        <span class="route-legend-item"><span class="route-swatch pickup" aria-hidden="true"></span> Pickup Route</span>
+                                        <span class="route-legend-item"><span class="route-swatch destination" aria-hidden="true"></span> Destination Route</span>
+                                    </div>
+                                    <div class="route-details-grid">
+                                        <div class="route-leg-card">
+                                            <strong>Pickup Leg</strong>
+                                            <div>Distance: <span id="pickup-leg-distance" class="map-control-value">--</span></div>
+                                            <div>Travel Time: <span id="pickup-leg-duration" class="map-control-value">--</span></div>
+                                        </div>
+                                        <div class="route-leg-card">
+                                            <strong>Destination Leg</strong>
+                                            <div>Distance: <span id="destination-leg-distance" class="map-control-value">--</span></div>
+                                            <div>Travel Time: <span id="destination-leg-duration" class="map-control-value">--</span></div>
+                                        </div>
+                                        <div class="route-leg-card">
+                                            <strong>Total Trip</strong>
+                                            <div>Distance: <span id="total-trip-distance" class="map-control-value">--</span></div>
+                                            <div>ETA: <span id="total-trip-eta" class="map-control-value">--</span></div>
+                                        </div>
+                                    </div>
+                                    <div id="route-note" class="route-note" aria-live="polite">Enable location and select a ride request to visualize the route.</div>
+                                    <div id="route-announcer" class="visually-hidden" aria-live="polite"></div>
+                                </div>
                             </div>
                         </div>
                         <div class="panel-section">
