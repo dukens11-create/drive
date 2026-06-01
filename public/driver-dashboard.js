@@ -38,6 +38,13 @@ const MARKER_ANIMATION_MIN_MS = 900;
 const MARKER_ANIMATION_MAX_MS = 4800;
 const TRAIL_HISTORY_LIMIT = 32;
 const TRAIL_POINT_DISTANCE_KM = 0.012;
+const GPS_JITTER_TOLERANCE_KM = 0.05;
+const CAMERA_UPDATE_THROTTLE_MS = 140;
+const CAMERA_BASE_ZOOM = 17.3;
+const CAMERA_MIN_ZOOM = 13.4;
+const CAMERA_MAX_ZOOM = 17.6;
+const CAMERA_ZOOM_SPEED_CAP_KMH = 110;
+const CAMERA_ZOOM_SPEED_DIVISOR = 32;
 const CAMERA_AHEAD_DISTANCE_KM = 0.08;
 const BASE_FARE = 2.5;
 const DISTANCE_RATE = 1.9;
@@ -129,7 +136,8 @@ let mapState = {
     maxSpeedKmh: 0,
     totalDistanceKm: 0,
     samples: 0,
-    status: 'Waiting for GPS'
+    status: 'Waiting for GPS',
+    lastCameraSyncAt: 0
   },
   activePointerId: null
 };
@@ -807,10 +815,14 @@ function getMapDisplayPosition() {
 function calculateAnimationDuration(distanceKm, speedKmh) {
   const speed = Math.max(speedKmh || 0, 12);
   const estimatedMs = (distanceKm / speed) * 60 * 60 * 1000;
+  const maxDurationMs = Math.max(
+    MARKER_ANIMATION_MIN_MS,
+    Math.min(MARKER_ANIMATION_MAX_MS, mapState.updateFrequencyMs * 1.1)
+  );
   return clamp(
     Number.isFinite(estimatedMs) && estimatedMs > 0 ? estimatedMs : mapState.updateFrequencyMs * 0.92,
     MARKER_ANIMATION_MIN_MS,
-    Math.max(MARKER_ANIMATION_MIN_MS, Math.min(MARKER_ANIMATION_MAX_MS, mapState.updateFrequencyMs * 1.1))
+    maxDurationMs
   );
 }
 
@@ -860,12 +872,13 @@ function sampleAnimatedPosition(now) {
   if (!animationFrom || !animationTo || animationDurationMs <= 0) return animationTo || animationFrom || mapState.motion.displayPosition;
   const progress = clamp((now - animationStartedAt) / animationDurationMs, 0, 1);
   const eased = easeInOutCubic(progress);
+  const targetHeading = animationTo.heading ?? animationFrom.heading ?? 0;
   return {
     lat: animationFrom.lat + (animationTo.lat - animationFrom.lat) * eased,
     lng: animationFrom.lng + (animationTo.lng - animationFrom.lng) * eased,
     accuracy: animationFrom.accuracy + ((animationTo.accuracy ?? animationFrom.accuracy) - animationFrom.accuracy) * eased,
     speed: animationFrom.speed + ((animationTo.speed ?? animationFrom.speed) - animationFrom.speed) * eased,
-    heading: interpolateHeading(animationFrom.heading ?? 0, animationTo.heading ?? animationFrom.heading ?? 0, eased),
+    heading: interpolateHeading(animationFrom.heading ?? 0, targetHeading, eased),
     timestamp: animationTo.timestamp
   };
 }
@@ -969,7 +982,9 @@ function isLikelyGpsJump(previousPosition, nextPosition, distanceKm, elapsedMs) 
   const elapsedHours = elapsedMs / (60 * 60 * 1000);
   const inferredSpeed = elapsedHours > 0 ? distanceKm / elapsedHours : 0;
   if (inferredSpeed > MAX_REASONABLE_SPEED_KMH) return true;
-  const expectedDistanceKm = ((previousPosition.speed || DEFAULT_LOCATION_SPEED_KMH) * elapsedHours) + (nextPosition.accuracy / 1000) + 0.05;
+  const expectedDistanceKm = ((previousPosition.speed || DEFAULT_LOCATION_SPEED_KMH) * elapsedHours)
+    + (nextPosition.accuracy / 1000)
+    + GPS_JITTER_TOLERANCE_KM;
   return distanceKm > Math.max(expectedDistanceKm * 2.5, 0.3);
 }
 
@@ -1671,12 +1686,23 @@ function renderMap() {
       driverPos.heading ?? 0,
       CAMERA_AHEAD_DISTANCE_KM
     ) || driverPos;
-    const targetZoom = clamp(17.3 - Math.min(driverPos.speed || 0, 110) / 32, 13.4, 17.6);
-    map.jumpTo({
-      center: [cameraTarget.lng, cameraTarget.lat],
-      bearing: Number.isFinite(driverPos.heading) ? normalizeHeading(driverPos.heading) : 0,
-      zoom: targetZoom,
-    });
+    const targetZoom = clamp(
+      CAMERA_BASE_ZOOM - Math.min(driverPos.speed || 0, CAMERA_ZOOM_SPEED_CAP_KMH) / CAMERA_ZOOM_SPEED_DIVISOR,
+      CAMERA_MIN_ZOOM,
+      CAMERA_MAX_ZOOM
+    );
+    const now = performance.now();
+    if ((now - mapState.motion.lastCameraSyncAt) >= CAMERA_UPDATE_THROTTLE_MS || mapState.motion.animationFrameId === null) {
+      mapState.motion.lastCameraSyncAt = now;
+      map.easeTo({
+        center: [cameraTarget.lng, cameraTarget.lat],
+        bearing: Number.isFinite(driverPos.heading) ? normalizeHeading(driverPos.heading) : 0,
+        zoom: targetZoom,
+        duration: 180,
+        easing: easeInOutCubic,
+        essential: true,
+      });
+    }
   }
 }
 
