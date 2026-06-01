@@ -145,12 +145,16 @@ test('GET / serves the professional dashboard login page', async () => {
       const csp = response.headers.get('content-security-policy') ?? '';
       assert.match(csp, /script-src 'self'/);
       assert.match(csp, /connect-src 'self'/);
+      assert.match(csp, /api\.mapbox\.com/);
       assert.match(csp, /https:\/\/\*\.firebaseio\.com/);
       assert.match(csp, /https:\/\/\*\.supabase\.co/);
       assert.match(csp, /wss:\/\/\*\.supabase\.co/);
 
       const body = await response.text();
       assert.match(body, /<script src="\/driver-dashboard\.js"><\/script>/);
+      assert.match(body, /api\.mapbox\.com\/mapbox-gl-js/);
+      assert.match(body, /id="mapbox"/);
+      assert.match(body, /id="mapbox-token-save"/);
       ['toggle-availability-button', 'Driver mode', 'Professional control center', 'Ride History', 'Real-time Map', 'Performance Stats', 'Support \/ Help', 'Driver dashboard navigation', 'Follow Driver: ON', 'Simulate GPS', 'ETA Pickup', 'Selfie Photo', 'Verification Status'].forEach(label => {
         assert.match(body, new RegExp(label));
       });
@@ -171,7 +175,9 @@ test('GET /driver-dashboard.js includes realtime and offline sync hooks', async 
       'hydrateDashboardFromCache',
       'startRealtimeSync',
       'subscribeFirebaseStream',
-      'flushOfflineLocationQueue'
+      'flushOfflineLocationQueue',
+      'initializeMapbox',
+      'mapbox://styles/mapbox'
     ].forEach(token => {
       assert.match(body, new RegExp(token));
     });

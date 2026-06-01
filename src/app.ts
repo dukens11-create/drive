@@ -17,7 +17,19 @@ export function createApp() {
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
-        connectSrc: ["'self'", 'https://*.firebaseio.com', 'https://*.supabase.co', 'wss://*.supabase.co']
+        scriptSrc: ["'self'", 'https://api.mapbox.com'],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://cdn.jsdelivr.net', 'https://api.mapbox.com'],
+        imgSrc: ["'self'", 'data:', 'blob:', 'https://api.mapbox.com', 'https://*.tiles.mapbox.com'],
+        workerSrc: ["'self'", 'blob:'],
+        connectSrc: [
+          "'self'",
+          'https://*.firebaseio.com',
+          'https://*.supabase.co',
+          'wss://*.supabase.co',
+          'https://api.mapbox.com',
+          'https://events.mapbox.com',
+          'https://*.tiles.mapbox.com'
+        ]
       }
     }
   }));
