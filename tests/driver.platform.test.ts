@@ -6,6 +6,8 @@ import * as drivers from '../src/services/drivers.service';
 import * as kyc from '../src/services/kyc.service';
 import * as rides from '../src/services/rides.service';
 
+const WAIT_TIMEOUT_MS = 6 * 60 * 1000;
+
 function resetDriverData() {
   store.drivers.clear();
   store.rides.clear();
@@ -247,11 +249,11 @@ test('auto no-show requires wait timer expiration unless driver confirms manuall
   await rides.arrive({ rideId: request.ride.id, driverId: 'driver_noshow_timer' });
 
   const tooSoon = await rides.noShow({ rideId: request.ride.id, driverId: 'driver_noshow_timer' });
-  assert.equal(tooSoon.error, 'wait timer must expire before auto no-show');
+  assert.equal(tooSoon.error, 'wait timer must expire before automatic no-show');
 
   const ride = store.rides.get(request.ride.id);
   assert.ok(ride);
-  ride.waitingSince = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+  ride.waitingSince = new Date(Date.now() - WAIT_TIMEOUT_MS).toISOString();
 
   const autoNoShow = await rides.noShow({ rideId: request.ride.id, driverId: 'driver_noshow_timer' });
   assert.equal(autoNoShow.ok, true);

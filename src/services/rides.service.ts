@@ -95,7 +95,8 @@ function buildFareDetails(
     serviceFeePercent?: number;
   }
 ) {
-  const surgeMultiplier = Number(options?.surgeMultiplier || 1) > 0 ? Number(options?.surgeMultiplier || 1) : 1;
+  const requestedSurgeMultiplier = Number(options?.surgeMultiplier || 1);
+  const surgeMultiplier = requestedSurgeMultiplier >= 1 ? requestedSurgeMultiplier : 1;
   const serviceFeePercent = Number(options?.serviceFeePercent ?? DEFAULT_SERVICE_FEE_PERCENT);
   const baseFare = BASE_FARE;
   const distanceFare = roundToTwoDecimals(miles * DISTANCE_RATE);
@@ -630,8 +631,8 @@ export async function noShow(body: any, _params?: any, _query?: any) {
   if (ride.status !== 'arrived_at_pickup') return { module: 'rides', action: 'no-show', error: 'driver must be at pickup to report no-show' };
   const now = timestamp();
   const waitDurationSeconds = getWaitDurationSeconds(ride);
-  if (body?.manual !== true && waitDurationSeconds < DEFAULT_WAIT_TIMEOUT_SECONDS) {
-    return { module: 'rides', action: 'no-show', error: 'wait timer must expire before auto no-show' };
+  if (!body?.manual && waitDurationSeconds < DEFAULT_WAIT_TIMEOUT_SECONDS) {
+    return { module: 'rides', action: 'no-show', error: 'wait timer must expire before automatic no-show' };
   }
   ride.noShowFeeCents = DEFAULT_NO_SHOW_FEE_CENTS;
   ride.photoEvidenceUrl = typeof body?.photoEvidenceUrl === 'string' ? body.photoEvidenceUrl.trim() || undefined : undefined;

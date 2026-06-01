@@ -81,6 +81,7 @@ let realtimePollers = [];
 let realtimeSocket = null;
 let geolocationWatchId = null;
 let alertTimeoutId = null;
+let pendingRideActionHandler = null;
 
 let mapState = {
   zoom: 15,
@@ -2111,6 +2112,61 @@ function renderRideFlowControls() {
   riderRatingControls.classList.toggle('d-none', !(isCompleted && !isCanceled && !hasPassengerRating(ride)));
 }
 
+function closeRideActionConfirmation() {
+  pendingRideActionHandler = null;
+  const container = document.getElementById('ride-action-confirmation');
+  const fields = document.getElementById('ride-action-confirmation-fields');
+  const input = document.getElementById('ride-action-confirmation-input');
+  if (container) container.classList.add('d-none');
+  if (fields) fields.classList.add('d-none');
+  if (input) {
+    input.value = '';
+    input.placeholder = '';
+    input.type = 'text';
+  }
+}
+
+function openRideActionConfirmation(config) {
+  const container = document.getElementById('ride-action-confirmation');
+  const title = document.getElementById('ride-action-confirmation-title');
+  const message = document.getElementById('ride-action-confirmation-message');
+  const fields = document.getElementById('ride-action-confirmation-fields');
+  const label = document.getElementById('ride-action-confirmation-label');
+  const input = document.getElementById('ride-action-confirmation-input');
+  const confirmButton = document.getElementById('ride-action-confirm-button');
+  if (!container || !title || !message || !fields || !label || !input || !confirmButton) return;
+
+  pendingRideActionHandler = config?.onConfirm || null;
+  title.textContent = config?.title || 'Confirm Action';
+  message.textContent = config?.message || '';
+  const requiresInput = Boolean(config?.inputLabel);
+  fields.classList.toggle('d-none', !requiresInput);
+  label.textContent = config?.inputLabel || 'Details';
+  input.type = config?.inputType || 'text';
+  input.placeholder = config?.inputPlaceholder || '';
+  input.value = config?.defaultValue || '';
+  container.classList.remove('d-none');
+
+  if (requiresInput) {
+    input.focus();
+    input.select();
+  } else {
+    confirmButton.focus();
+  }
+}
+
+function confirmRideAction() {
+  if (typeof pendingRideActionHandler !== 'function') {
+    closeRideActionConfirmation();
+    return;
+  }
+  const input = document.getElementById('ride-action-confirmation-input');
+  const value = input ? input.value.trim() : '';
+  const handler = pendingRideActionHandler;
+  closeRideActionConfirmation();
+  handler(value);
+}
+
 function renderRideDetailsModal(ride) {
   if (!ride) return;
   selectedRideForDetails = ride;
@@ -2169,6 +2225,7 @@ function closeRideDetailsModal() {
   modal.setAttribute('aria-hidden', 'true');
   document.getElementById('ride-fare-breakdown').textContent = '';
   document.getElementById('rider-rating-controls').classList.add('d-none');
+  closeRideActionConfirmation();
   selectedRideForDetails = null;
   queueMapRender();
 }
@@ -2212,25 +2269,41 @@ function handleArrivedAtPickup() {
 }
 
 function handleStartTrip() {
-  if (!window.confirm('Confirm rider pickup and start the trip?')) return;
-  performRideFlowAction('start', 'Trip started.', { riderConfirmed: true });
+  openRideActionConfirmation({
+    title: 'Start Trip',
+    message: 'Confirm rider pickup and begin navigation to the destination.',
+    onConfirm: () => performRideFlowAction('start', 'Trip started.', { riderConfirmed: true })
+  });
 }
 
 function handleEndTrip() {
-  if (!window.confirm('Confirm trip completion at the destination?')) return;
-  performRideFlowAction('complete', 'Trip ended successfully.');
+  openRideActionConfirmation({
+    title: 'End Trip',
+    message: 'Confirm trip completion at the destination and finalize payment.',
+    onConfirm: () => performRideFlowAction('complete', 'Trip ended successfully.')
+  });
 }
 
 function handleMarkNoShow() {
-  if (!window.confirm('Confirm rider no-show and apply the no-show fee?')) return;
-  const photoEvidenceUrl = window.prompt('Optional photo evidence URL (leave blank to skip):', '') || '';
-  performRideFlowAction('no-show', 'Rider marked as no-show.', { manual: true, photoEvidenceUrl });
+  openRideActionConfirmation({
+    title: 'Mark Rider No-Show',
+    message: 'Confirm that the rider did not arrive. You can optionally attach a photo evidence URL.',
+    inputLabel: 'Photo evidence URL (optional)',
+    inputPlaceholder: 'https://example.com/pickup-photo.jpg',
+    inputType: 'url',
+    onConfirm: photoEvidenceUrl => performRideFlowAction('no-show', 'Rider marked as no-show.', { manual: true, photoEvidenceUrl })
+  });
 }
 
 function handleCancelTrip() {
-  const reason = window.prompt('Why are you canceling this trip?', 'driver_canceled_trip');
-  if (reason == null) return;
-  performRideFlowAction('driver-cancel', 'Trip canceled.', { reason: reason.trim() || 'driver_canceled_trip' });
+  openRideActionConfirmation({
+    title: 'Cancel Trip',
+    message: 'Provide a short reason for the cancellation before ending the trip.',
+    inputLabel: 'Cancellation reason',
+    inputPlaceholder: 'traffic, wrong location, vehicle issue',
+    defaultValue: 'driver_canceled_trip',
+    onConfirm: reason => performRideFlowAction('driver-cancel', 'Trip canceled.', { reason: reason || 'driver_canceled_trip' })
+  });
 }
 
 async function handleSubmitRiderRating() {
@@ -2854,6 +2927,8 @@ window.addEventListener('load', async () => {
   document.getElementById('end-trip-button').addEventListener('click', handleEndTrip);
   document.getElementById('mark-no-show-button').addEventListener('click', handleMarkNoShow);
   document.getElementById('cancel-trip-button').addEventListener('click', handleCancelTrip);
+  document.getElementById('ride-action-confirm-button').addEventListener('click', confirmRideAction);
+  document.getElementById('ride-action-dismiss-button').addEventListener('click', closeRideActionConfirmation);
   document.getElementById('submit-rider-rating-button').addEventListener('click', handleSubmitRiderRating);
   document.getElementById('pickup-directions-button').addEventListener('click', () => openDirections('pickup'));
   document.getElementById('dropoff-directions-button').addEventListener('click', () => openDirections('dropoff'));
