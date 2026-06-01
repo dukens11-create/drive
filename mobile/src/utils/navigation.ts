@@ -32,8 +32,10 @@ const EARTH_RADIUS_KM = 6371;
 const DEFAULT_AVERAGE_CITY_SPEED_KPH = 30;
 const ARRIVAL_ALERT_DISTANCE_KM = 0.2;
 const MIN_SEGMENT_DISTANCE_KM = 0.03;
+const MIN_LEG_DELTA_THRESHOLD = 0.0007;
 const VIA_POINT_OFFSET_RATIO = 0.18;
 const TURN_ANGLE_THRESHOLD_DEGREES = 20;
+const BEARING_NORMALIZATION_OFFSET = 540;
 
 const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
 const toDegrees = (radians: number) => (radians * 180) / Math.PI;
@@ -116,7 +118,7 @@ const buildLegWaypoints = (start: LatLng, end: LatLng): LatLng[] => {
   const latDelta = end.latitude - start.latitude;
   const lngDelta = end.longitude - start.longitude;
 
-  if (Math.abs(latDelta) < 0.0007 || Math.abs(lngDelta) < 0.0007) {
+  if (Math.abs(latDelta) < MIN_LEG_DELTA_THRESHOLD || Math.abs(lngDelta) < MIN_LEG_DELTA_THRESHOLD) {
     return [start, end];
   }
 
@@ -178,8 +180,9 @@ export const buildNavigationRoute = (origin: LatLng, trip: ActiveTrip | null): N
       const bearing = bearingBetween(from, point);
       const heading = headingToDirection(bearing);
       const isFirstSegment = pointIndex === 0;
-      // Normalize the turn delta into the [-180, 180] range so left/right detection works across the 0/360 wraparound.
-      const turnDelta = previousBearing === null ? 0 : ((bearing - previousBearing + 540) % 360) - 180;
+      // Add 540 (180 + 360) before the modulo so the normalized delta remains in the [-180, 180] range
+      // even when the turn crosses the 0/360 bearing wraparound.
+      const turnDelta = previousBearing === null ? 0 : ((bearing - previousBearing + BEARING_NORMALIZATION_OFFSET) % 360) - 180;
       const maneuver =
         previousBearing === null || Math.abs(turnDelta) < TURN_ANGLE_THRESHOLD_DEGREES ? 'straight' : turnDelta > 0 ? 'right' : 'left';
       const instruction =

@@ -26,6 +26,7 @@ const MIN_ZOOM_LEVEL = 12;
 const MAX_ZOOM_LEVEL = 19;
 const ROUTE_OVERVIEW_EDGE_PADDING = { top: 170, right: 60, bottom: 360, left: 60 };
 const MIN_ROUTE_OVERVIEW_POINTS = 2;
+// Keep the arrival banner directly beneath the expanded navigation card and above the support sheet entry point.
 const ARRIVAL_NOTIFICATION_TOP_OFFSET = 456;
 
 type ExpoExtra = {
