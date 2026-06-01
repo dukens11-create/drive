@@ -506,11 +506,13 @@ test('notifications: preferences, device tokens, push/email/sms, and logs work',
     const prefs = await post(baseUrl, '/api/notifications/preferences', {
       pushOptIn: true,
       frequency: 'daily',
-      categories: ['rides', 'promotions'],
-      timezone: 'America/New_York',
+      categories: ['trip_updates', 'support_replies', 'bonuses', 'earnings', 'new_rides', 'system'],
+      timezone: 'UTC',
+      quietHours: { enabled: false, start: '22:00', end: '07:00' },
     }, rider.token);
     assert.equal(prefs.status, 200);
     assert.equal(prefs.body.frequency, 'daily');
+    assert.equal(prefs.body.quietHours.enabled, false);
 
     const token = await post(baseUrl, '/api/notifications/device-tokens', {
       token: 'device-token-123',
@@ -522,11 +524,29 @@ test('notifications: preferences, device tokens, push/email/sms, and logs work',
 
     const push = await post(baseUrl, '/api/notifications/push', {
       userId: rider.userId,
+      category: 'trip_updates',
       title: 'Ride accepted',
       body: 'Your driver is heading to pickup.',
     }, rider.token);
     assert.equal(push.status, 200, JSON.stringify(push.body));
     assert.equal(push.body.delivered, 1);
+
+    const quietHours = await post(baseUrl, '/api/notifications/preferences', {
+      // When start equals end (00:00 === 00:00), isQuietHours treats it as all-day quiet mode for deterministic queuing assertions.
+      quietHours: { enabled: true, start: '00:00', end: '00:00' },
+    }, rider.token);
+    assert.equal(quietHours.status, 200);
+    assert.equal(quietHours.body.quietHours.enabled, true);
+
+    const quietPush = await post(baseUrl, '/api/notifications/push', {
+      userId: rider.userId,
+      category: 'support_replies',
+      title: 'Support update',
+      body: 'Your ticket was updated.',
+    }, rider.token);
+    assert.equal(quietPush.status, 200, JSON.stringify(quietPush.body));
+    assert.equal(quietPush.body.delivered, 0);
+    assert.equal(quietPush.body.queued, 1);
 
     const email = await post(baseUrl, '/api/notifications/email', {
       userId: rider.userId,
@@ -544,7 +564,46 @@ test('notifications: preferences, device tokens, push/email/sms, and logs work',
     const logs = await get(baseUrl, '/api/notifications/logs', rider.token);
     assert.equal(logs.status, 200);
     assert.ok(Array.isArray(logs.body));
-    assert.ok(logs.body.length >= 3);
+    assert.ok(logs.body.length >= 4);
+    assert.ok(logs.body.some((entry: any) => entry.status === 'queued' && entry.errorMessage === 'queued_due_to_quiet_hours'));
+  });
+});
+
+test('support replies trigger push notifications when rider preference allows support category', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+    const adminToken = await loginAdmin(baseUrl);
+
+    const prefs = await post(baseUrl, '/api/notifications/preferences', {
+      categories: ['support_replies'],
+      quietHours: { enabled: false, start: '22:00', end: '07:00' },
+      timezone: 'UTC'
+    }, rider.token);
+    assert.equal(prefs.status, 200);
+
+    const token = await post(baseUrl, '/api/notifications/device-tokens', {
+      token: 'support-rider-device-token',
+      platform: 'ios'
+    }, rider.token);
+    assert.equal(token.status, 200);
+
+    const ticket = await post(baseUrl, '/api/support/create-ticket', {
+      userId: rider.userId,
+      type: 'general',
+      message: 'Need help with billing.',
+    }, rider.token);
+    assert.equal(ticket.status, 200);
+    assert.ok(ticket.body.ticket?.id);
+
+    const reply = await post(baseUrl, '/api/support/reply-ticket', {
+      ticketId: ticket.body.ticket.id,
+      message: 'We have reviewed your request.',
+    }, adminToken);
+    assert.equal(reply.status, 200, JSON.stringify(reply.body));
+
+    const logs = await get(baseUrl, '/api/notifications/logs', rider.token);
+    assert.equal(logs.status, 200);
+    assert.equal(logs.body.some((entry: any) => entry.template === 'support_reply' && entry.status === 'sent'), true);
   });
 });
 

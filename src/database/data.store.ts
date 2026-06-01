@@ -656,6 +656,11 @@ export type NotificationPreference = {
   frequency: 'instant' | 'hourly' | 'daily' | 'weekly';
   categories: string[];
   timezone: string;
+  quietHours?: {
+    enabled: boolean;
+    start: string;
+    end: string;
+  };
   updatedAt: string;
 };
 
