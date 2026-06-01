@@ -7,251 +7,1087 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <style>
-        body { background: #f7f7f7; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .navbar { background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08); }
-        .navbar-brand { font-weight: 700; color: #ff6b6b !important; }
-        .container-main { max-width: 1100px; margin: 0 auto; padding: 30px 16px; }
-        .card { border: none; border-radius: 12px; box-shadow: 0 2px 15px rgba(0, 0, 0, 0.08); margin-bottom: 20px; }
-        .card-header { background: linear-gradient(135deg, #ff6b6b, #4ecdc4); color: #fff; border-radius: 12px 12px 0 0 !important; font-weight: 600; }
-        .role-pill { background: #e3f2fd; color: #0d47a1; padding: 6px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-        .ride-item { border: 1px solid #e9ecef; border-radius: 8px; padding: 10px; margin-bottom: 10px; background: #fff; }
-        .metric-card { border: 1px solid #e9ecef; border-radius: 10px; padding: 12px; background: #fff; }
-        .metric-label { color: #6c757d; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; }
-        .metric-value { font-size: 24px; font-weight: 700; margin-top: 4px; }
-        /* Map */
-        .map-shell { border: 1px solid #dfe3e8; border-radius: 10px; background: #e8f0fe; min-height: 320px; position: relative; overflow: hidden; cursor: grab; user-select: none; }
-        .map-shell.satellite-view { background: #2a3f1e; }
-        .map-shell.satellite-view .map-grid { background-image: linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.06) 1px, transparent 1px); }
-        .map-grid { position: absolute; inset: 0; background-image: linear-gradient(to right, rgba(0,0,0,0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,0.05) 1px, transparent 1px); background-size: 40px 40px; }
-        .map-dynamic { position: absolute; }
-        /* Driver marker: blue circle with a direction arrow */
-        .point-driver { width: 18px; height: 18px; background: #0d6efd; border: 2px solid #fff; box-shadow: 0 0 0 3px rgba(13,110,253,0.35), 0 2px 6px rgba(0,0,0,0.25); border-radius: 50%; position: absolute; transform: translate(-50%, -50%); transition: left 0.6s ease, top 0.6s ease; z-index: 10; }
-        .driver-arrow { position: absolute; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 10px solid #0d6efd; transform-origin: 50% 100%; z-index: 11; }
-        /* Accuracy halo */
-        .accuracy-circle { border-radius: 50%; border: 2px dashed rgba(13,110,253,0.45); background: rgba(13,110,253,0.07); position: absolute; transform: translate(-50%, -50%); pointer-events: none; z-index: 5; }
-        /* Pickup pin (red teardrop) */
-        .point-pickup { width: 16px; height: 16px; background: #dc3545; border: 2px solid #fff; box-shadow: 0 2px 6px rgba(220,53,69,0.45); border-radius: 50% 50% 50% 0; position: absolute; transform: translate(-50%, -100%) rotate(-45deg); z-index: 9; }
-        /* Dropoff pin (green teardrop) */
-        .point-dropoff { width: 16px; height: 16px; background: #198754; border: 2px solid #fff; box-shadow: 0 2px 6px rgba(25,135,84,0.45); border-radius: 50% 50% 50% 0; position: absolute; transform: translate(-50%, -100%) rotate(-45deg); z-index: 9; }
-        /* Nearby request dot */
-        .point-nearby { background: #ffc107; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.2); border-radius: 50%; width: 11px; height: 11px; position: absolute; transform: translate(-50%, -50%); z-index: 8; }
-        /* Map labels */
-        .map-label { position: absolute; font-size: 10px; font-weight: 600; background: rgba(255,255,255,0.88); border-radius: 4px; padding: 2px 5px; pointer-events: none; white-space: nowrap; transform: translateX(-50%); z-index: 12; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
-        /* Compass */
-        .compass-indicator { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: #343a40; color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0; }
-        /* GPS signal colours */
-        .gps-good { color: #198754; font-weight: 600; }
-        .gps-medium { color: #fd7e14; font-weight: 600; }
-        .gps-poor { color: #dc3545; font-weight: 600; }
-        /* Support log */
-        .support-log { max-height: 180px; overflow-y: auto; border: 1px solid #e9ecef; border-radius: 8px; padding: 10px; background: #fff; }
-        /* Modal */
-        .modal-lite { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; z-index: 1040; }
-        .modal-lite.show { display: flex; }
-        .modal-lite-body { width: min(560px, 94vw); background: #fff; border-radius: 12px; box-shadow: 0 10px 35px rgba(0,0,0,0.2); }
-        .modal-lite-header, .modal-lite-footer { padding: 14px 18px; border-bottom: 1px solid #f1f3f5; }
-        .modal-lite-footer { border-bottom: 0; border-top: 1px solid #f1f3f5; }
-        .modal-lite-content { padding: 18px; }
-        .table-wrap { overflow-x: auto; }
+        :root {
+            --bg: #071018;
+            --bg-soft: rgba(11, 19, 32, 0.78);
+            --panel: rgba(17, 27, 43, 0.74);
+            --panel-strong: rgba(15, 24, 38, 0.92);
+            --line: rgba(255, 255, 255, 0.12);
+            --text: #f5f7fb;
+            --muted: #9fb0c7;
+            --accent: #26d07c;
+            --accent-soft: rgba(38, 208, 124, 0.18);
+            --warning: #f8c15d;
+            --danger: #ff6b6b;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background:
+                radial-gradient(circle at top left, rgba(38, 208, 124, 0.22), transparent 30%),
+                radial-gradient(circle at top right, rgba(27, 128, 255, 0.18), transparent 24%),
+                linear-gradient(180deg, #071018 0%, #0b1220 100%);
+            color: var(--text);
+            font-family: Inter, "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        button,
+        input,
+        select {
+            border-radius: 18px !important;
+        }
+
+        input,
+        select {
+            background: rgba(255, 255, 255, 0.08) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            color: var(--text) !important;
+        }
+
+        input::placeholder {
+            color: rgba(245, 247, 251, 0.45) !important;
+        }
+
+        input[type="date"]::-webkit-calendar-picker-indicator,
+        input[type="file"]::-webkit-file-upload-button {
+            filter: invert(1);
+        }
+
+        .driver-app {
+            min-height: 100vh;
+        }
+
+        .glass-panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+            backdrop-filter: blur(22px);
+            -webkit-backdrop-filter: blur(22px);
+        }
+
+        .floating-alert {
+            position: fixed;
+            top: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(540px, calc(100vw - 24px));
+            z-index: 30;
+            border: 0;
+            border-radius: 18px;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+        }
+
+        .map-stage {
+            position: fixed;
+            inset: 0;
+            padding: 16px 16px 212px;
+        }
+
+        .top-bar {
+            position: relative;
+            z-index: 4;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 14px 18px;
+            border-radius: 28px;
+        }
+
+        .brand-block,
+        .top-actions,
+        .hero-actions,
+        .sheet-summary,
+        .ride-item-top,
+        .ride-footer,
+        .status-stack,
+        .modal-lite-header,
+        .modal-lite-footer {
+            display: flex;
+            align-items: center;
+        }
+
+        .brand-block,
+        .hero-actions,
+        .status-stack {
+            gap: 12px;
+        }
+
+        .top-actions,
+        .sheet-summary,
+        .ride-footer,
+        .modal-lite-footer {
+            gap: 10px;
+        }
+
+        .brand-icon,
+        .icon-button,
+        .nav-tab,
+        .summary-pill,
+        .status-chip,
+        .map-marker-note {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .brand-icon {
+            width: 46px;
+            height: 46px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(38, 208, 124, 0.95), rgba(27, 128, 255, 0.9));
+            color: #071018;
+            font-size: 1.25rem;
+        }
+
+        .eyebrow,
+        .section-kicker,
+        .metric-label,
+        .ride-meta span,
+        .quick-pulse span,
+        .summary-pill {
+            color: var(--muted);
+            font-size: 0.72rem;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+
+        .brand-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+        }
+
+        .status-chip,
+        .summary-pill {
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            font-weight: 600;
+        }
+
+        .status-chip[data-state="online"] {
+            background: rgba(38, 208, 124, 0.16);
+            border-color: rgba(38, 208, 124, 0.3);
+            color: #b7f7d5;
+        }
+
+        .status-chip[data-state="offline"] {
+            background: rgba(248, 193, 93, 0.16);
+            border-color: rgba(248, 193, 93, 0.28);
+            color: #ffe1a0;
+        }
+
+        .icon-button,
+        .primary-action,
+        .secondary-action {
+            border: 0;
+            padding: 11px 16px;
+            font-weight: 600;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+        }
+
+        .icon-button,
+        .secondary-action {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .primary-action {
+            background: linear-gradient(135deg, #26d07c, #1b80ff);
+            color: #071018;
+            box-shadow: 0 18px 40px rgba(38, 208, 124, 0.22);
+        }
+
+        .icon-button.danger {
+            background: rgba(255, 107, 107, 0.14);
+            color: #ffd5d5;
+        }
+
+        .icon-button:hover,
+        .primary-action:hover,
+        .secondary-action:hover,
+        .nav-tab:hover {
+            transform: translateY(-1px);
+        }
+
+        .overlay-cards {
+            position: absolute;
+            inset: 92px 16px auto;
+            z-index: 3;
+            display: grid;
+            gap: 14px;
+            grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+            pointer-events: none;
+        }
+
+        .overlay-card {
+            padding: 18px;
+            border-radius: 28px;
+            pointer-events: auto;
+            animation: floatIn 0.45s ease;
+        }
+
+        .hero-title {
+            margin-top: 8px;
+            font-size: clamp(1.35rem, 2vw, 2.15rem);
+            font-weight: 700;
+        }
+
+        .hero-copy,
+        .section-header span,
+        .map-caption,
+        .support-meta {
+            color: var(--muted);
+        }
+
+        .hero-copy {
+            max-width: 34rem;
+            margin: 8px 0 16px;
+        }
+
+        .profile-card {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .profile-grid {
+            display: grid;
+            gap: 10px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .profile-card-item,
+        .metric-card,
+        .ride-item,
+        .support-log,
+        .table-wrap,
+        .modal-lite-body {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .profile-card-item,
+        .metric-card {
+            padding: 14px;
+            border-radius: 20px;
+        }
+
+        .profile-card-item strong,
+        .ride-meta strong,
+        .quick-pulse strong,
+        .metric-value,
+        .section-header h2,
+        .sheet-title,
+        .ride-passenger {
+            display: block;
+            font-weight: 700;
+        }
+
+        .profile-card-item strong,
+        .metric-value {
+            font-size: 1.1rem;
+            margin-top: 6px;
+        }
+
+        .mini-stat {
+            padding: 12px 14px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .mini-stat span {
+            color: var(--muted);
+            display: block;
+            font-size: 0.82rem;
+        }
+
+        .quick-pulse {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            margin-top: 16px;
+        }
+
+        .quick-pulse > div {
+            padding: 14px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .map-frame {
+            position: absolute;
+            inset: 92px 16px 126px;
+            border-radius: 34px;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at center, rgba(38, 208, 124, 0.1), transparent 38%),
+                linear-gradient(180deg, rgba(9, 16, 28, 0.76), rgba(9, 16, 28, 0.95));
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 24px 80px rgba(0, 0, 0, 0.45);
+        }
+
+        .map-shell {
+            position: absolute;
+            inset: 0;
+            min-height: 280px;
+            overflow: hidden;
+        }
+
+        .map-shell.satellite-view {
+            filter: hue-rotate(120deg) saturate(0.8) brightness(0.72);
+        }
+
+        .map-shell::before,
+        .map-shell::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+        }
+
+        .map-shell::before {
+            background:
+                radial-gradient(circle at 20% 20%, rgba(27, 128, 255, 0.18), transparent 18%),
+                radial-gradient(circle at 75% 28%, rgba(38, 208, 124, 0.18), transparent 18%),
+                radial-gradient(circle at 60% 76%, rgba(248, 193, 93, 0.15), transparent 20%);
+        }
+
+        .map-shell::after {
+            background:
+                linear-gradient(120deg, transparent 48%, rgba(255, 255, 255, 0.05) 50%, transparent 52%) 0 0 / 220px 220px,
+                linear-gradient(90deg, transparent 28%, rgba(255, 255, 255, 0.04) 30%, transparent 32%) 0 0 / 180px 180px;
+            opacity: 0.7;
+        }
+
+        .map-grid {
+            position: absolute;
+            inset: 0;
+            background-image:
+                linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+            background-size: 42px 42px;
+            mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.85), transparent 96%);
+        }
+
+        .map-point {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            position: absolute;
+            transform: translate(-50%, -50%);
+            animation: pulseMarker 2.6s infinite;
+        }
+
+        .point-driver {
+            background: #26d07c;
+            box-shadow: 0 0 0 10px rgba(38, 208, 124, 0.16);
+        }
+
+        .point-ride {
+            background: #1b80ff;
+            box-shadow: 0 0 0 8px rgba(27, 128, 255, 0.15);
+        }
+
+        .map-dynamic,
+        .driver-arrow,
+        .accuracy-circle,
+        .point-pickup,
+        .point-dropoff,
+        .point-nearby,
+        .map-label {
+            position: absolute;
+        }
+
+        .driver-arrow {
+            width: 0;
+            height: 0;
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-bottom: 12px solid #26d07c;
+            transform-origin: 50% 100%;
+            z-index: 13;
+        }
+
+        .accuracy-circle {
+            border-radius: 50%;
+            border: 2px dashed rgba(27, 128, 255, 0.35);
+            background: rgba(27, 128, 255, 0.08);
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .point-pickup,
+        .point-dropoff {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #fff;
+            border-radius: 50% 50% 50% 0;
+            transform: translate(-50%, -100%) rotate(-45deg);
+            z-index: 10;
+        }
+
+        .point-pickup {
+            background: #ff6b6b;
+            box-shadow: 0 2px 6px rgba(255, 107, 107, 0.55);
+        }
+
+        .point-dropoff {
+            background: #26d07c;
+            box-shadow: 0 2px 6px rgba(38, 208, 124, 0.55);
+        }
+
+        .point-nearby {
+            width: 11px;
+            height: 11px;
+            border-radius: 50%;
+            background: #f8c15d;
+            border: 2px solid #fff;
+            transform: translate(-50%, -50%);
+            z-index: 9;
+        }
+
+        .map-label {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: 6px;
+            background: rgba(7, 16, 24, 0.74);
+            color: #f5f7fb;
+            pointer-events: none;
+            white-space: nowrap;
+            transform: translateX(-50%);
+            z-index: 14;
+        }
+
+        .map-controls {
+            margin-top: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .map-controls-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .map-controls-grid {
+            display: grid;
+            gap: 8px;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            color: var(--muted);
+            font-size: 0.82rem;
+        }
+
+        .map-control-value {
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        .compass-indicator {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.74rem;
+            font-weight: 700;
+            background: rgba(7, 16, 24, 0.86);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            color: var(--text);
+        }
+
+        .gps-good { color: #26d07c; font-weight: 600; }
+        .gps-medium { color: #f8c15d; font-weight: 600; }
+        .gps-poor { color: #ff6b6b; font-weight: 600; }
+
+        .gps-log {
+            max-height: 110px;
+            overflow-y: auto;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 11px;
+            color: var(--muted);
+            border-top: 1px dashed rgba(255, 255, 255, 0.12);
+            padding-top: 8px;
+        }
+
+        .bottom-sheet {
+            position: fixed;
+            inset: auto 0 0;
+            z-index: 5;
+            padding: 0 12px 12px;
+        }
+
+        .sheet-body {
+            max-width: 1180px;
+            margin: 0 auto;
+            padding: 14px 16px 12px;
+            border-radius: 28px;
+            max-height: min(53vh, 560px);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sheet-handle {
+            width: 56px;
+            height: 5px;
+            border-radius: 999px;
+            margin: 2px auto 14px;
+            background: rgba(255, 255, 255, 0.22);
+        }
+
+        .sheet-header,
+        .section-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .sheet-title {
+            margin: 4px 0 0;
+            font-size: 1.2rem;
+        }
+
+        .dashboard-panes {
+            overflow-y: auto;
+            padding-right: 2px;
+        }
+
+        .dashboard-pane {
+            display: none;
+            animation: paneIn 0.28s ease;
+        }
+
+        .dashboard-pane.is-active {
+            display: block;
+        }
+
+        .panel-section {
+            padding: 16px 0;
+        }
+
+        .panel-section + .panel-section {
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .metric-grid,
+        .earnings-grid,
+        .more-grid,
+        #available-rides {
+            display: grid;
+            gap: 12px;
+        }
+
+        .metric-grid,
+        .earnings-grid {
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        }
+
+        .more-grid {
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        }
+
+        #available-rides {
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            margin-top: 14px;
+        }
+
+        .ride-item {
+            border-radius: 22px;
+            padding: 14px;
+        }
+
+        .ride-item-top {
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        .ride-id,
+        .ride-route,
+        .support-log .small,
+        .table,
+        .table td,
+        .table th,
+        .map-legend {
+            color: var(--muted);
+        }
+
+        .ride-status {
+            padding: 8px 10px;
+            border-radius: 999px;
+            background: rgba(38, 208, 124, 0.14);
+            color: #b7f7d5;
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-transform: capitalize;
+        }
+
+        .ride-route {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            margin-top: 8px;
+            font-size: 0.92rem;
+        }
+
+        .ride-meta {
+            display: grid;
+            gap: 4px;
+        }
+
+        .metric-card {
+            min-height: 116px;
+        }
+
+        .metric-card.highlight {
+            background: linear-gradient(145deg, rgba(38, 208, 124, 0.16), rgba(27, 128, 255, 0.14));
+        }
+
+        .table-wrap,
+        .support-log {
+            border-radius: 22px;
+            padding: 12px;
+        }
+
+        .table {
+            margin-bottom: 0;
+            --bs-table-bg: transparent;
+            --bs-table-striped-bg: rgba(255, 255, 255, 0.04);
+            --bs-table-color: var(--text);
+            --bs-table-striped-color: var(--text);
+            --bs-table-border-color: rgba(255, 255, 255, 0.08);
+        }
+
+        .support-log {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .bottom-nav {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .nav-tab {
+            flex-direction: column;
+            gap: 6px;
+            min-height: 62px;
+            border: 0;
+            border-radius: 22px;
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--muted);
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+
+        .nav-tab.is-active {
+            background: linear-gradient(135deg, rgba(38, 208, 124, 0.2), rgba(27, 128, 255, 0.22));
+            color: var(--text);
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+        }
+
+        .modal-lite {
+            position: fixed;
+            inset: 0;
+            background: rgba(2, 8, 16, 0.6);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 25;
+            padding: 16px;
+        }
+
+        .modal-lite.show {
+            display: flex;
+        }
+
+        .modal-lite-body {
+            width: min(520px, 100%);
+            border-radius: 28px;
+            overflow: hidden;
+        }
+
+        .modal-lite-header,
+        .modal-lite-footer,
+        .modal-lite-content {
+            padding: 18px;
+        }
+
+        .modal-lite-header,
+        .modal-lite-footer {
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .modal-lite-footer {
+            border-bottom: 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            justify-content: flex-end;
+        }
+
+        @keyframes floatIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes paneIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes pulseMarker {
+            0%, 100% { transform: translate(-50%, -50%) scale(1); }
+            50% { transform: translate(-50%, -50%) scale(1.08); }
+        }
+
+        @media (max-width: 991px) {
+            .overlay-cards {
+                grid-template-columns: 1fr;
+            }
+
+            .map-frame {
+                inset: 168px 16px 128px;
+            }
+        }
+
+        @media (max-width: 767px) {
+            .map-stage {
+                padding-bottom: 236px;
+            }
+
+            .top-bar,
+            .top-actions,
+            .hero-actions,
+            .sheet-header {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .top-actions,
+            .hero-actions,
+            .sheet-summary {
+                flex-wrap: wrap;
+            }
+
+            .profile-grid,
+            .quick-pulse,
+            .metric-grid,
+            .earnings-grid,
+            .more-grid,
+            #available-rides {
+                grid-template-columns: 1fr;
+            }
+
+            .map-frame {
+                inset: 248px 12px 134px;
+            }
+
+            .sheet-body {
+                max-height: min(58vh, 620px);
+            }
+        }
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-light">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="#"><i class="bi bi-car-front"></i> Drive Driver</a>
-            <div class="d-flex align-items-center gap-2">
-                <span id="availability-pill" class="role-pill">Availability: OFFLINE</span>
-                <span id="driver-role" class="role-pill">Role: DRIVER</span>
-                <a class="btn btn-outline-dark btn-sm" href="/driver-settings.html"><i class="bi bi-gear"></i> Settings</a>
-                <button id="logout-button" class="btn btn-danger btn-sm" type="button"><i class="bi bi-box-arrow-right"></i> Logout</button>
-            </div>
-        </div>
-    </nav>
+    <div id="driver-alert" class="alert floating-alert d-none" role="alert"></div>
 
-    <div class="container-main">
-        <div id="driver-alert" class="alert d-none" role="alert"></div>
-
-        <div class="card">
-            <div class="card-header"><i class="bi bi-person-badge"></i> Driver Profile Information</div>
-            <div class="card-body">
-                <div id="profile-info" class="mb-3">Loading profile...</div>
-                <div class="d-flex flex-wrap gap-2">
-                    <button id="toggle-availability-button" class="btn btn-success btn-sm" type="button"><i class="bi bi-toggle-on"></i> Go Online</button>
+    <main class="driver-app">
+        <section class="map-stage" aria-label="Driver map overview">
+            <header class="top-bar glass-panel">
+                <div class="brand-block">
+                    <span class="brand-icon"><i class="bi bi-car-front-fill"></i></span>
+                    <div>
+                        <div class="eyebrow">Driver mode</div>
+                        <div class="brand-title">Drive Driver</div>
+                    </div>
                 </div>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header"><i class="bi bi-map"></i> Real-time Map</div>
-            <div class="card-body">
-                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-                    <button id="follow-mode-button" class="btn btn-sm btn-primary" type="button"><i class="bi bi-geo-alt-fill"></i> Follow Driver: ON</button>
-                    <button id="satellite-toggle-button" class="btn btn-sm btn-outline-secondary" type="button"><i class="bi bi-globe"></i> Satellite</button>
-                    <button id="zoom-in-button" class="btn btn-sm btn-outline-secondary" type="button" aria-label="Zoom in"><i class="bi bi-zoom-in"></i></button>
-                    <button id="zoom-out-button" class="btn btn-sm btn-outline-secondary" type="button" aria-label="Zoom out"><i class="bi bi-zoom-out"></i></button>
+                <div class="top-actions">
+                    <span id="availability-pill" class="status-chip" data-state="offline">Availability: OFFLINE</span>
+                    <span id="driver-role" class="status-chip">Role: DRIVER</span>
+                    <a class="icon-button" href="/driver-settings.html" aria-label="Open driver settings"><i class="bi bi-sliders"></i> Settings</a>
+                    <button id="logout-button" class="icon-button danger" type="button"><i class="bi bi-box-arrow-right"></i> Logout</button>
                 </div>
+            </header>
+
+            <div class="overlay-cards">
+                <article class="overlay-card glass-panel">
+                    <div class="section-kicker">Online pulse</div>
+                    <div class="hero-title">Stay ready for your next trip</div>
+                    <p class="hero-copy">A polished, driver-centric cockpit with demand heat, live trip flow, and quick actions designed for the road.</p>
+                    <div id="profile-info" class="profile-card">Loading profile...</div>
+                    <div class="hero-actions">
+                        <button id="toggle-availability-button" class="primary-action" type="button"><i class="bi bi-broadcast"></i> Go Online</button>
+                        <div class="mini-stat">
+                            <span>Trip board</span>
+                            <strong id="nearby-requests-count">0 live requests</strong>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="overlay-card glass-panel">
+                    <div class="section-kicker">Dispatch radar</div>
+                    <div id="map-caption" class="map-caption">Loading location and nearby ride requests...</div>
+                    <div class="quick-pulse">
+                        <div>
+                            <span>Mode</span>
+                            <strong id="status-headline">Offline standby</strong>
+                        </div>
+                        <div>
+                            <span>Focus</span>
+                            <strong id="focus-headline">Monitoring local demand</strong>
+                        </div>
+                    </div>
+                </article>
+            </div>
+
+            <div class="map-frame">
                 <div id="map-shell" class="map-shell">
                     <div class="map-grid"></div>
                     <svg id="map-route-layer" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;" aria-hidden="true"></svg>
                 </div>
-                <div class="mt-2 text-muted small" id="map-caption">Loading location and nearby ride requests...</div>
-                <div class="row g-2 mt-2 small">
-                    <div class="col-6 col-md-3"><strong>Speed:</strong> <span id="gps-speed">-- km/h</span></div>
-                    <div class="col-6 col-md-3"><strong>Accuracy:</strong> <span id="gps-accuracy">--</span></div>
-                    <div class="col-6 col-md-3"><strong>GPS Signal:</strong> <span id="gps-signal">Unknown</span></div>
-                    <div class="col-6 col-md-3"><strong>Updated:</strong> <span id="last-update">--</span></div>
-                    <div class="col-6 col-md-3"><strong>ETA Pickup:</strong> <span id="eta-pickup">--</span></div>
-                    <div class="col-6 col-md-3"><strong>ETA Dropoff:</strong> <span id="eta-dropoff">--</span></div>
-                    <div class="col-6 col-md-3"><strong>Distance Pickup:</strong> <span id="distance-pickup">--</span></div>
-                    <div class="col-6 col-md-3"><strong>Trip Distance:</strong> <span id="distance-dropoff">--</span></div>
+            </div>
+        </section>
+
+        <section class="bottom-sheet">
+            <div class="sheet-body glass-panel">
+                <div class="sheet-handle" aria-hidden="true"></div>
+                <div class="sheet-header">
+                    <div>
+                        <div class="section-kicker">Driver dashboard</div>
+                        <h1 class="sheet-title">Professional control center</h1>
+                    </div>
+                    <div class="sheet-summary">
+                        <span class="summary-pill"><i class="bi bi-phone"></i>&nbsp; Modern mobile UI</span>
+                        <span id="live-summary-pill" class="summary-pill"><i class="bi bi-lightning-charge"></i>&nbsp; 0 active requests</span>
+                    </div>
                 </div>
-                <div class="d-flex flex-wrap align-items-center gap-3 mt-3 small">
-                    <div class="d-flex align-items-center gap-2">
-                        <span class="compass-indicator" id="compass-indicator" title="Driver heading">N</span>
-                        <span id="heading-text">Heading: --°</span>
-                    </div>
-                    <div class="d-flex align-items-center gap-2">
-                        <label for="update-frequency-input" class="mb-0">Interval:</label>
-                        <select id="update-frequency-input" class="form-select form-select-sm" style="width:auto">
-                            <option value="2000">2 s</option>
-                            <option value="3000" selected>3 s</option>
-                            <option value="5000">5 s</option>
-                        </select>
-                    </div>
-                    <button id="simulate-gps-button" class="btn btn-sm btn-outline-warning" type="button"><i class="bi bi-play-circle"></i> Simulate GPS</button>
+
+                <div class="dashboard-panes">
+                    <section class="dashboard-pane is-active" data-pane="map">
+                        <div class="panel-section">
+                            <div class="section-header">
+                                <div>
+                                    <h2>Real-time Map</h2>
+                                    <span>Full-screen driver map with floating cards and live dispatch context.</span>
+                                </div>
+                            </div>
+                            <div class="map-controls">
+                                <div class="map-controls-row">
+                                    <button id="follow-mode-button" class="primary-action" type="button"><i class="bi bi-geo-alt-fill"></i> Follow Driver: ON</button>
+                                    <button id="satellite-toggle-button" class="secondary-action" type="button"><i class="bi bi-globe"></i> Satellite</button>
+                                    <button id="zoom-in-button" class="secondary-action" type="button" aria-label="Zoom in"><i class="bi bi-zoom-in"></i></button>
+                                    <button id="zoom-out-button" class="secondary-action" type="button" aria-label="Zoom out"><i class="bi bi-zoom-out"></i></button>
+                                </div>
+                                <div class="map-controls-grid">
+                                    <div><strong>Speed:</strong> <span id="gps-speed" class="map-control-value">-- km/h</span></div>
+                                    <div><strong>Accuracy:</strong> <span id="gps-accuracy" class="map-control-value">--</span></div>
+                                    <div><strong>GPS Signal:</strong> <span id="gps-signal" class="map-control-value">Unknown</span></div>
+                                    <div><strong>Updated:</strong> <span id="last-update" class="map-control-value">--</span></div>
+                                    <div><strong>ETA Pickup:</strong> <span id="eta-pickup" class="map-control-value">--</span></div>
+                                    <div><strong>ETA Dropoff:</strong> <span id="eta-dropoff" class="map-control-value">--</span></div>
+                                    <div><strong>Distance Pickup:</strong> <span id="distance-pickup" class="map-control-value">--</span></div>
+                                    <div><strong>Trip Distance:</strong> <span id="distance-dropoff" class="map-control-value">--</span></div>
+                                </div>
+                                <div class="map-controls-row align-items-center">
+                                    <span class="compass-indicator" id="compass-indicator" title="Driver heading">N</span>
+                                    <span id="heading-text" class="map-control-value">Heading: --°</span>
+                                    <label for="update-frequency-input" class="mb-0">Interval:</label>
+                                    <select id="update-frequency-input" class="form-select form-select-sm" style="width:auto">
+                                        <option value="2000">2 s</option>
+                                        <option value="3000" selected>3 s</option>
+                                        <option value="5000">5 s</option>
+                                    </select>
+                                    <button id="simulate-gps-button" class="secondary-action" type="button"><i class="bi bi-play-circle"></i> Simulate GPS</button>
+                                </div>
+                                <details>
+                                    <summary class="small text-muted" style="cursor:pointer">GPS Debug Log</summary>
+                                    <div id="gps-log" class="gps-log"></div>
+                                </details>
+                            </div>
+                        </div>
+                        <div class="panel-section">
+                            <div class="section-header">
+                                <div>
+                                    <h2>Performance Stats</h2>
+                                    <span>Acceptance, completion, and service quality at a glance.</span>
+                                </div>
+                            </div>
+                            <div id="performance-stats" class="metric-grid"></div>
+                        </div>
+                    </section>
+
+                    <section class="dashboard-pane" data-pane="requests">
+                        <div class="panel-section">
+                            <div class="section-header">
+                                <div>
+                                    <h2>View Available Ride Requests</h2>
+                                    <span>Prioritize the best pickup in seconds with a cleaner ride queue.</span>
+                                </div>
+                            </div>
+                            <div id="available-rides">Loading ride requests...</div>
+                        </div>
+                        <div class="panel-section">
+                            <div class="section-header">
+                                <div>
+                                    <h2>Accept/Reject Rides</h2>
+                                    <span>Use the selected trip ID to accept or clear a request from your queue.</span>
+                                </div>
+                            </div>
+                            <form id="accept-ride-form" class="row g-2">
+                                <div class="col-md-8">
+                                    <input id="ride-id-input" class="form-control" placeholder="Enter ride ID (e.g. ride_123)" required>
+                                </div>
+                                <div class="col-md-2 d-grid">
+                                    <button class="primary-action" type="submit">Accept</button>
+                                </div>
+                                <div class="col-md-2 d-grid">
+                                    <button id="reject-ride-button" class="secondary-action" type="button">Reject</button>
+                                </div>
+                            </form>
+                        </div>
+                    </section>
+
+                    <section class="dashboard-pane" data-pane="earnings">
+                        <div class="panel-section">
+                            <div class="section-header">
+                                <div>
+                                    <h2>Track Earnings</h2>
+                                    <span>Review total payouts and completed ride value in a cleaner summary.</span>
+                                </div>
+                            </div>
+                            <div id="earnings-info">Loading earnings...</div>
+                        </div>
+                        <div class="panel-section">
+                            <div class="section-header">
+                                <div>
+                                    <h2>Ride History</h2>
+                                    <span>Completed trips remain accessible from the earnings workspace.</span>
+                                </div>
+                            </div>
+                            <div class="table-wrap">
+                                <table class="table table-sm table-striped align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th>Ride</th>
+                                            <th>Pickup</th>
+                                            <th>Dropoff</th>
+                                            <th>Fare</th>
+                                            <th>Duration</th>
+                                            <th>Passenger Rating</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="ride-history-body">
+                                        <tr><td colspan="6" class="text-muted">Loading completed rides...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="dashboard-pane" data-pane="more">
+                        <div class="more-grid">
+                            <div class="panel-section">
+                                <div class="section-header">
+                                    <div>
+                                        <h2>Document / License Management</h2>
+                                        <span>Keep compliance items up to date without leaving the dashboard.</span>
+                                    </div>
+                                </div>
+                                <div id="verification-summary" class="ride-item mb-3">
+                                    <strong>Verification Status</strong>
+                                    <div class="text-muted">Upload a driver license scan and selfie for OCR extraction and admin approval.</div>
+                                </div>
+                                <form id="document-form" class="row g-2 align-items-end mb-3">
+                                    <div class="col-md-4">
+                                        <label class="form-label" for="document-type">Document Type</label>
+                                        <select id="document-type" class="form-select" required>
+                                            <option value="Driver License">Driver License</option>
+                                            <option value="Selfie Photo">Selfie Photo</option>
+                                            <option value="Insurance">Insurance</option>
+                                            <option value="Vehicle Registration">Vehicle Registration</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label" for="document-expiry">Expiry Date</label>
+                                        <input id="document-expiry" type="date" class="form-control" required>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label" for="document-file">Upload</label>
+                                        <input id="document-file" type="file" class="form-control" required>
+                                    </div>
+                                    <div class="col-md-2 d-grid">
+                                        <button class="primary-action" type="submit">Save</button>
+                                    </div>
+                                </form>
+                                <div id="document-list"></div>
+                            </div>
+
+                            <div class="panel-section">
+                                <div class="section-header">
+                                    <div>
+                                        <h2>Support / Help</h2>
+                                        <span>Reach operations support from the same mobile-first workspace.</span>
+                                    </div>
+                                </div>
+                                <div id="support-log" class="support-log mb-2"></div>
+                                <form id="support-form" class="row g-2">
+                                    <div class="col-md-9">
+                                        <input id="support-message" class="form-control" placeholder="Describe your issue or ask a question..." required>
+                                    </div>
+                                    <div class="col-md-3 d-grid">
+                                        <button class="secondary-action" type="submit">Send to Support</button>
+                                    </div>
+                                </form>
+                                <div class="support-meta mt-2 small">
+                                    Demo support contacts: <a href="mailto:support@drive.example">support@drive.example</a> &bull; <a href="tel:+18005550123">+1 (800) 555-0123</a>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
                 </div>
-                <details class="mt-2">
-                    <summary class="small text-muted" style="cursor:pointer">GPS Debug Log</summary>
-                    <div id="gps-log" class="mt-1 small text-muted" style="max-height:110px;overflow-y:auto;font-family:monospace;font-size:11px;"></div>
-                </details>
-            </div>
-        </div>
 
-        <div class="card">
-            <div class="card-header"><i class="bi bi-list-task"></i> View Available Ride Requests</div>
-            <div class="card-body">
-                <p class="text-muted mb-2">Recent rides assigned to you that are active and awaiting action.</p>
-                <div id="available-rides">Loading ride requests...</div>
+                <nav class="bottom-nav" aria-label="Driver dashboard navigation">
+                    <button class="nav-tab is-active" type="button" data-pane="map"><i class="bi bi-map"></i><span>Map</span></button>
+                    <button class="nav-tab" type="button" data-pane="requests"><i class="bi bi-list-task"></i><span>Trips</span></button>
+                    <button class="nav-tab" type="button" data-pane="earnings"><i class="bi bi-wallet2"></i><span>Earnings</span></button>
+                    <button class="nav-tab" type="button" data-pane="more"><i class="bi bi-grid"></i><span>More</span></button>
+                </nav>
             </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header"><i class="bi bi-check2-square"></i> Accept/Reject Rides</div>
-            <div class="card-body">
-                <form id="accept-ride-form" class="row g-2">
-                    <div class="col-md-8">
-                        <input id="ride-id-input" class="form-control" placeholder="Enter ride ID (e.g. ride_123)" required>
-                    </div>
-                    <div class="col-md-2 d-grid">
-                        <button class="btn btn-primary" type="submit">Accept</button>
-                    </div>
-                    <div class="col-md-2 d-grid">
-                        <button id="reject-ride-button" class="btn btn-outline-secondary" type="button">Reject</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header"><i class="bi bi-bar-chart"></i> Performance Stats</div>
-            <div class="card-body">
-                <div class="row g-2" id="performance-stats"></div>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header"><i class="bi bi-cash-stack"></i> Track Earnings</div>
-            <div class="card-body" id="earnings-info">Loading earnings...</div>
-        </div>
-
-        <div class="card">
-            <div class="card-header"><i class="bi bi-clock-history"></i> Ride History</div>
-            <div class="card-body table-wrap">
-                <table class="table table-sm table-striped align-middle">
-                    <thead>
-                        <tr>
-                            <th>Ride</th>
-                            <th>Pickup</th>
-                            <th>Dropoff</th>
-                            <th>Fare</th>
-                            <th>Duration</th>
-                            <th>Passenger Rating</th>
-                        </tr>
-                    </thead>
-                    <tbody id="ride-history-body">
-                        <tr><td colspan="6" class="text-muted">Loading completed rides...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header"><i class="bi bi-file-earmark-medical"></i> Document / License Management</div>
-            <div class="card-body">
-                <div id="verification-summary" class="ride-item mb-3">
-                    <strong>Verification Status</strong>
-                    <div class="text-muted">Upload a driver license scan and selfie for OCR extraction and admin approval.</div>
-                </div>
-                <form id="document-form" class="row g-2 align-items-end mb-3">
-                    <div class="col-md-4">
-                        <label class="form-label" for="document-type">Document Type</label>
-                        <select id="document-type" class="form-select" required>
-                            <option value="Driver License">Driver License</option>
-                            <option value="Selfie Photo">Selfie Photo</option>
-                            <option value="Insurance">Insurance</option>
-                            <option value="Vehicle Registration">Vehicle Registration</option>
-                        </select>
-                    </div>
-                    <div class="col-md-3">
-                        <label class="form-label" for="document-expiry">Expiry Date</label>
-                        <input id="document-expiry" type="date" class="form-control" required>
-                    </div>
-                    <div class="col-md-3">
-                        <label class="form-label" for="document-file">Upload</label>
-                        <input id="document-file" type="file" class="form-control" required>
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label" for="document-license-number">License Number / OCR Hint</label>
-                        <input id="document-license-number" type="text" class="form-control" placeholder="Only required for license scans">
-                    </div>
-                    <div class="col-md-2 d-grid">
-                        <button class="btn btn-primary" type="submit">Save</button>
-                    </div>
-                </form>
-                <div id="document-list"></div>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header"><i class="bi bi-headset"></i> Support / Help</div>
-            <div class="card-body">
-                <p class="text-muted">Need help? Start a chat with support or send an inquiry.</p>
-                <div id="support-log" class="support-log mb-2"></div>
-                <form id="support-form" class="row g-2">
-                    <div class="col-md-9">
-                        <input id="support-message" class="form-control" placeholder="Describe your issue or ask a question..." required>
-                    </div>
-                    <div class="col-md-3 d-grid">
-                        <button class="btn btn-outline-primary" type="submit">Send to Support</button>
-                    </div>
-                </form>
-                <div class="mt-2 small">
-                    Demo support contacts: <a href="mailto:support@drive.example">support@drive.example</a> • <a href="tel:+18005550123">+1 (800) 555-0123</a>
-                </div>
-            </div>
-        </div>
-    </div>
+        </section>
+    </main>
 
     <div id="ride-details-modal" class="modal-lite" aria-hidden="true">
         <div class="modal-lite-body" role="dialog" aria-modal="true" aria-labelledby="ride-details-title">
-            <div class="modal-lite-header d-flex justify-content-between align-items-center">
+            <div class="modal-lite-header">
                 <h5 id="ride-details-title" class="mb-0">Accepted Ride Details</h5>
-                <button id="close-ride-details" type="button" class="btn btn-sm btn-outline-secondary">&times;</button>
+                <button id="close-ride-details" type="button" class="icon-button" aria-label="Close ride details">&times;</button>
             </div>
             <div id="ride-details-content" class="modal-lite-content"></div>
-            <div class="modal-lite-footer d-flex gap-2 justify-content-end">
-                <button id="pickup-directions-button" class="btn btn-outline-primary" type="button"><i class="bi bi-sign-turn-right"></i> Navigate to Pickup</button>
-                <button id="dropoff-directions-button" class="btn btn-primary" type="button"><i class="bi bi-geo"></i> Navigate to Dropoff</button>
+            <div class="modal-lite-footer">
+                <button id="pickup-directions-button" class="secondary-action" type="button"><i class="bi bi-sign-turn-right"></i> Navigate to Pickup</button>
+                <button id="dropoff-directions-button" class="primary-action" type="button"><i class="bi bi-geo"></i> Navigate to Dropoff</button>
             </div>
         </div>
     </div>
