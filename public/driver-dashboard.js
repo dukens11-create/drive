@@ -896,15 +896,27 @@ function appendGpsLogEntry(lat, lng, accuracy, heading, speed) {
 }
 
 function readMapboxToken() {
+  // Public Mapbox token (pk.*) — safe to embed in client-side code.
+  // Restrict usage by domain in the Mapbox dashboard if needed.
+  const HARDCODED_FALLBACK = 'pk.eyJ1IjoiZmx1cGZsYXAiLCJhIjoiY21wMjI3M3dpMDN5eTJycHMyeG8yaDZ3OCJ9.VUXlzIoU5Gxfj6-BVjnxag';
   try {
     const params = new URLSearchParams(window.location.search);
     const queryToken = String(params.get('mapboxToken') || '').trim();
     const savedToken = String(localStorage.getItem(MAPBOX_TOKEN_STORAGE_KEY) || '').trim();
     const metaToken = String(document.querySelector('meta[name="mapbox-token"]')?.content || '').trim();
     const windowToken = String(window.MAPBOX_TOKEN || '').trim();
-    return queryToken || savedToken || metaToken || windowToken;
+    const resolved = queryToken || savedToken || metaToken || windowToken || HARDCODED_FALLBACK;
+    console.debug('[Mapbox] readMapboxToken:', {
+      queryToken: Boolean(queryToken),
+      savedToken: Boolean(savedToken),
+      metaToken: Boolean(metaToken),
+      windowToken: Boolean(windowToken),
+      resolved: Boolean(resolved),
+    });
+    return resolved;
   } catch (_error) {
-    return '';
+    console.error('[Mapbox] readMapboxToken error:', _error);
+    return HARDCODED_FALLBACK;
   }
 }
 
