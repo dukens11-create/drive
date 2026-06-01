@@ -2573,22 +2573,30 @@ async function handlePositionUpdate(positionLike, options = {}) {
   const lat = Number(positionLike.coords?.latitude ?? positionLike.lat);
   const lng = Number(positionLike.coords?.longitude ?? positionLike.lng);
   const accuracy = Number(positionLike.coords?.accuracy ?? positionLike.accuracy ?? DEFAULT_LOCATION_ACCURACY_M);
-  const rawSpeed = positionLike.coords?.speed;  // m/s or null
-  const rawHeading = positionLike.coords?.heading; // degrees or null
-  const timestamp = Number(positionLike.timestamp ?? positionLike.updatedAt ?? Date.now());
+  const rawSpeedMps = positionLike.coords?.speed;  // m/s or null
+  const payloadSpeedKmh = positionLike.speed; // already-normalized realtime payload speed
+  const rawHeading = positionLike.coords?.heading ?? positionLike.heading; // degrees
+  const timestampCandidate = positionLike.timestamp ?? positionLike.updatedAt ?? Date.now();
+  const timestamp = Number(timestampCandidate);
+  const parsedTimestamp = Number.isFinite(timestamp)
+    ? timestamp
+    : Number(Date.parse(String(timestampCandidate || '')));
+  const normalizedTimestamp = Number.isFinite(parsedTimestamp) ? parsedTimestamp : Date.now();
+  const normalizedPayloadSpeedKmh = Number(payloadSpeedKmh);
 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-  if (!Number.isFinite(timestamp)) return;
 
   const previousPosition = mapState.lastPosition;
-  if (previousPosition && timestamp < previousPosition.timestamp - 1000) return;
+  if (previousPosition && normalizedTimestamp < previousPosition.timestamp - 1000) return;
 
   const distanceKm = previousPosition
     ? calculateDistance(previousPosition.lat, previousPosition.lng, lat, lng)
     : 0;
-  const elapsedMs = previousPosition ? Math.max(0, timestamp - previousPosition.timestamp) : NaN;
+  const elapsedMs = previousPosition ? Math.max(0, normalizedTimestamp - previousPosition.timestamp) : NaN;
 
-  let speedKmh = calculateSpeedKmh(rawSpeed, distanceKm, elapsedMs, previousPosition?.speed ?? 0);
+  let speedKmh = Number.isFinite(normalizedPayloadSpeedKmh) && normalizedPayloadSpeedKmh >= 0
+    ? normalizedPayloadSpeedKmh
+    : calculateSpeedKmh(rawSpeedMps, distanceKm, elapsedMs, previousPosition?.speed ?? 0);
 
   let heading = (Number.isFinite(rawHeading) && rawHeading >= 0 && speedKmh > STOPPED_SPEED_THRESHOLD_KMH) ? rawHeading : null;
   if (heading === null && previousPosition) {
@@ -2606,7 +2614,7 @@ async function handlePositionUpdate(positionLike, options = {}) {
     accuracy,
     heading: normalizeHeading(heading ?? 0),
     speed: Math.max(0, Math.min(speedKmh, MAX_REASONABLE_SPEED_KMH)),
-    timestamp
+    timestamp: normalizedTimestamp
   };
   if (isLikelyGpsJump(previousPosition, nextPosition, distanceKm, elapsedMs)) {
     console.warn('Discarding noisy GPS update', { previousPosition, nextPosition, distanceKm, elapsedMs });
