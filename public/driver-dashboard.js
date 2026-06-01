@@ -84,7 +84,7 @@ const mapboxState = {
   map: null,
   markers: new Map(),
   labels: new Map(),
-  statusMessage: 'Mapbox map loading…',
+  statusMessage: 'Mapbox map loading...',
   styleUrl: '',
   initialized: false,
   styleReady: false,
@@ -748,7 +748,7 @@ function updateMapUiReadouts() {
     else if (acc <= 80) { sigEl.textContent = 'Fair'; sigEl.className = 'gps-medium'; }
     else { sigEl.textContent = 'Poor'; sigEl.className = 'gps-poor'; }
   } else if (sigEl) {
-    sigEl.textContent = mapState.locationPermissionState === 'denied' ? 'Denied' : 'Waiting…';
+    sigEl.textContent = mapState.locationPermissionState === 'denied' ? 'Denied' : 'Waiting...';
     sigEl.className = '';
   }
 
@@ -1190,7 +1190,7 @@ function renderMap() {
   }
 
   if (syncMapboxStyle()) {
-    updateMapboxStatus('Switching map style…');
+    updateMapboxStatus('Switching map style...');
     renderMapCaption();
     return;
   }
@@ -1282,9 +1282,9 @@ function handleGeoError(error) {
     return;
   }
   if (error?.code === 2) {
-    showAlert('warning', 'GPS position unavailable. Retrying…');
+    showAlert('warning', 'GPS position unavailable. Retrying...');
   } else {
-    showAlert('warning', 'GPS signal lost. Retrying location updates…');
+    showAlert('warning', 'GPS signal lost. Retrying location updates...');
   }
   // Fall back to last known location for map display
   const fallback = getLastKnownLocation();

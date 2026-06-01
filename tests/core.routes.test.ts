@@ -105,7 +105,7 @@ test('GET /health returns service status payload', async () => {
     const response = await fetch(`${baseUrl}/health`);
     assert.equal(response.status, 200);
     const body = await response.json();
-    assert.deepEqual(body, { ok: true, service: 'flupflap-ride-v7' });
+    assert.deepEqual(body, { ok: true, service: 'drive-api' });
   });
 });
 
