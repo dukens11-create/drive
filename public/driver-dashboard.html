@@ -1767,6 +1767,9 @@
                 <div class="top-actions">
                     <span id="availability-pill" class="status-chip" data-state="offline">Availability: OFFLINE</span>
                     <span id="driver-role" class="status-chip">Role: DRIVER</span>
+                    <!-- Navigation links -->
+                    <a class="icon-button" href="/rider-dashboard.html" aria-label="Switch to rider dashboard"><i class="bi bi-person-fill"></i> Rider</a>
+                    <a class="icon-button" href="/dashboard.html" aria-label="Open admin dashboard"><i class="bi bi-grid-3x3-gap"></i> Admin</a>
                     <a class="icon-button" href="/driver-settings.html" aria-label="Open driver settings"><i class="bi bi-sliders"></i> Settings</a>
                     <button id="logout-button" class="icon-button danger" type="button"><i class="bi bi-box-arrow-right"></i> Logout</button>
                 </div>
@@ -1970,6 +1973,12 @@
                                     <button id="reject-ride-button" class="secondary-action" type="button">Reject</button>
                                 </div>
                             </form>
+                            <!-- Demo ride button: injects a test ride request for QA without opening the rider page -->
+                            <div class="mt-3">
+                                <button id="btn-demo-ride-request" class="secondary-action" type="button">
+                                    <i class="bi bi-play-circle"></i> Add Demo Ride Request
+                                </button>
+                            </div>
                         </div>
                     </section>
 
