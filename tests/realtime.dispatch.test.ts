@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
-import { pushWalletTx, store, timestamp, type Ride } from '../src/database/data.store';
+import { pushWalletTx, store, timestamp, type Ride, type RideRequest } from '../src/database/data.store';
 import { getDriverRealtimeDispatchSnapshot } from '../src/services/realtime-dispatch.service';
 
 test('driver realtime dispatch snapshot includes live location, rides, and earnings', () => {
@@ -78,4 +78,81 @@ test('driver realtime dispatch snapshot includes live location, rides, and earni
     amountCents: 2500,
     createdAt: snapshot.earnings.rideEarnings[0]?.createdAt
   });
+});
+
+test('driver realtime dispatch snapshot includes broadcasted nearby ride requests for matched drivers', () => {
+  const matchedDriverId = `driver_rt_${randomUUID()}`;
+  const otherDriverId = `driver_rt_${randomUUID()}`;
+  const riderId = `rider_rt_${randomUUID()}`;
+  const now = timestamp();
+
+  store.drivers.set(matchedDriverId, {
+    userId: matchedDriverId,
+    status: 'approved',
+    verificationState: 'verified',
+    availabilityStatus: 'online',
+    available: true,
+    lat: 37.781,
+    lng: -122.404,
+    rating: 4.9,
+    acceptanceRate: 0.98,
+    cancellationRate: 0.01,
+    earningsCents: 0,
+    documents: []
+  });
+  store.drivers.set(otherDriverId, {
+    userId: otherDriverId,
+    status: 'approved',
+    verificationState: 'verified',
+    availabilityStatus: 'online',
+    available: true,
+    lat: 37.79,
+    lng: -122.41,
+    rating: 4.8,
+    acceptanceRate: 0.95,
+    cancellationRate: 0.02,
+    earningsCents: 0,
+    documents: []
+  });
+
+  const ride: Ride = {
+    id: `ride_rt_${randomUUID()}`,
+    riderId,
+    pickupLat: 37.78,
+    pickupLng: -122.41,
+    dropoffLat: 37.79,
+    dropoffLng: -122.4,
+    miles: 3.1,
+    minutes: 12,
+    fareEstimate: 18.5,
+    status: 'requested',
+    events: [],
+    createdAt: now,
+    updatedAt: now
+  };
+  const request: RideRequest = {
+    id: `request_rt_${randomUUID()}`,
+    rideId: ride.id,
+    riderId,
+    pickupLat: ride.pickupLat,
+    pickupLng: ride.pickupLng,
+    dropoffLat: ride.dropoffLat,
+    dropoffLng: ride.dropoffLng,
+    fareEstimate: ride.fareEstimate,
+    broadcastedDrivers: [matchedDriverId],
+    responses: [{ driverId: matchedDriverId, status: 'broadcasted', respondedAt: now }],
+    expiresAt: new Date(Date.now() + 30_000).toISOString(),
+    status: 'broadcasting',
+    createdAt: now,
+    updatedAt: now
+  };
+
+  store.rides.set(ride.id, ride);
+  store.rideRequests.set(request.id, request);
+
+  const matchedSnapshot = getDriverRealtimeDispatchSnapshot(matchedDriverId);
+  const otherSnapshot = getDriverRealtimeDispatchSnapshot(otherDriverId);
+
+  assert.equal(matchedSnapshot.rides.some(entry => entry.id === ride.id && entry.status === 'requested'), true);
+  assert.equal(otherSnapshot.rides.some(entry => entry.id === ride.id), false);
 });

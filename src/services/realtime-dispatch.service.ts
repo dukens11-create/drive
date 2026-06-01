@@ -94,10 +94,28 @@ function getDriverRealtimeLocation(driverId: string): DriverRealtimeLocation | n
 }
 
 function getDriverRealtimeRides(driverId: string): DriverRealtimeRide[] {
+  const activeRequestByRideId = new Map(
+    Array.from(store.rideRequests.values())
+      .filter(request => request.status === 'broadcasting')
+      .map(request => [request.rideId, request] as const)
+  );
   return Array.from(store.rides.values())
-    .filter(ride => ride.driverId === driverId)
+    .filter(ride => {
+      if (ride.driverId === driverId) return true;
+      if (ride.status !== 'requested' || ride.driverId) return false;
+      const request = activeRequestByRideId.get(ride.id);
+      if (!request) return false;
+      if (new Date(request.expiresAt).getTime() <= Date.now()) return false;
+      return request.broadcastedDrivers.includes(driverId);
+    })
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
     .map(normalizeRide);
+}
+
+function getRealtimeRequestDriverIds(rideId: string) {
+  const request = Array.from(store.rideRequests.values()).find(entry => entry.rideId === rideId);
+  if (!request) return [];
+  return Array.from(new Set([...(request.broadcastedDrivers || []), request.acceptedDriverId].filter(Boolean) as string[]));
 }
 
 function getRiderRealtimeProfile(riderId: string): RiderRealtimeProfile | null {
@@ -278,6 +296,13 @@ export function publishRideRealtimeUpdate(ride: Ride, reason = 'trip_update') {
     });
     publishDriverRealtimeLocation(ride.driverId);
   }
+  getRealtimeRequestDriverIds(ride.id).forEach(driverId => {
+    emitToRoom(`driver:${driverId}`, 'dispatch:rides', {
+      reason,
+      items: getDriverRealtimeRides(driverId),
+      updatedAt
+    });
+  });
 
   return tripUpdatePayload;
 }

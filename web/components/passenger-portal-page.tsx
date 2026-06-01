@@ -128,10 +128,34 @@ export function PassengerPortalPage({ section, rideId }: { section: PortalSectio
       transports: ['websocket'],
       auth: { token: session.accessToken },
     });
+    const upsertRide = (nextRide: RideSummary) => {
+      setRides((current) => [nextRide, ...current.filter((ride) => ride.id !== nextRide.id)]);
+      setSelectedRide((current) => (current?.id === nextRide.id ? { ...current, ...nextRide } : current));
+    };
 
     socket.emit('ride:join', { rideId: selectedRide.id });
     socket.on('ride:driver_location', (payload) => {
       setBanner(`Live driver update at ${payload.updatedAt}`);
+    });
+    socket.on('ride:status', (payload) => {
+      if (!payload?.rideId || payload.rideId !== selectedRide.id) return;
+      setSelectedRide((current) => ({
+        ...current,
+        status: payload.status,
+        driverId: payload.driverId,
+        updatedAt: payload.updatedAt || current.updatedAt,
+      }));
+      setRides((current) => current.map((ride) => (ride.id === payload.rideId
+        ? { ...ride, status: payload.status, driverId: payload.driverId, updatedAt: payload.updatedAt || ride.updatedAt }
+        : ride)));
+    });
+    socket.on('dispatch:trip_update', (payload) => {
+      const nextRide = payload?.ride as RideSummary | undefined;
+      if (!nextRide?.id) return;
+      upsertRide(nextRide);
+      if (nextRide.id === selectedRide.id) {
+        setBanner(`Trip status updated to ${nextRide.status}.`);
+      }
     });
 
     return () => {
