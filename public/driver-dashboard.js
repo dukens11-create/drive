@@ -15,6 +15,7 @@ const MAX_GPS_LOG_ENTRIES = 200;
 const ROUTE_CACHE_TTL_MS = 30000;
 const RIDE_REQUEST_ALERT_WINDOW_MS = 18000;
 const RIDE_REQUEST_COUNTDOWN_TICK_MS = 1000;
+const RIDE_REQUEST_EXPIRING_THRESHOLD_MS = 7000;
 const SWIPE_ACCEPT_THRESHOLD = 0.72;
 const SWIPE_ACCEPT_TRACK_PADDING = 14;
 
@@ -575,7 +576,7 @@ function normalizeRide(ride, index) {
     dropoffLat: Number.isFinite(dropoffLat) ? dropoffLat : DEFAULT_FALLBACK_LAT + 0.01,
     dropoffLng: Number.isFinite(dropoffLng) ? dropoffLng : DEFAULT_FALLBACK_LNG + 0.01,
     fareEstimate: Number(ride.fareEstimate || 0),
-    estimatedEarnings: Number((ride.driverEarningsEstimate ?? ride.earningsEstimate ?? ride.fareEstimate) || 0),
+    estimatedEarnings: Number(ride.driverEarningsEstimate ?? ride.earningsEstimate ?? ride.fareEstimate ?? 0),
     minutes: Number(ride.minutes || 18),
     passengerRating: Number(ride.passengerRating || 4.8),
     passengerName: ride.passengerName || `Passenger ${index + 1}`,
@@ -720,7 +721,7 @@ function updateRideRequestCountdowns() {
     const expiresAt = Number(element.getAttribute('data-expires-at'));
     const remainingMs = expiresAt - Date.now();
     element.textContent = formatRideRequestCountdown(remainingMs);
-    const isExpiring = remainingMs <= 7000;
+    const isExpiring = remainingMs <= RIDE_REQUEST_EXPIRING_THRESHOLD_MS;
     element.classList.toggle('is-expiring', isExpiring);
     element.closest('[data-ride-request-card]')?.classList.toggle('is-expiring', isExpiring);
   });
@@ -1400,7 +1401,8 @@ function attachRideRequestSwipeControls(listDiv) {
       const maxOffset = getMaxOffset();
       currentOffset = Math.max(0, Math.min(maxOffset, clientX - startX));
       thumb.style.transform = `translateX(${currentOffset}px)`;
-      control.classList.toggle('is-armed', maxOffset > 0 && currentOffset / maxOffset >= SWIPE_ACCEPT_THRESHOLD);
+      const progress = maxOffset > 0 ? currentOffset / maxOffset : 0;
+      control.classList.toggle('is-armed', progress >= SWIPE_ACCEPT_THRESHOLD);
     };
     const commitSwipe = async () => {
       const maxOffset = getMaxOffset();
@@ -1412,7 +1414,8 @@ function attachRideRequestSwipeControls(listDiv) {
     const finalizeSwipe = async event => {
       if (pointerId !== event.pointerId) return;
       const maxOffset = getMaxOffset();
-      const shouldAccept = maxOffset > 0 && currentOffset / maxOffset >= SWIPE_ACCEPT_THRESHOLD;
+      const progress = maxOffset > 0 ? currentOffset / maxOffset : 0;
+      const shouldAccept = progress >= SWIPE_ACCEPT_THRESHOLD;
       pointerId = null;
       thumb.releasePointerCapture?.(event.pointerId);
       if (shouldAccept) {
@@ -1712,7 +1715,10 @@ async function acceptRideById(rawRideId) {
 async function handleAcceptRide(event) {
   event.preventDefault();
   const rideId = document.getElementById('ride-id-input').value.trim();
-  if (!rideId) return;
+  if (!rideId) {
+    showAlert('warning', 'Please enter a ride ID.');
+    return;
+  }
   await acceptRideById(rideId);
 }
 
