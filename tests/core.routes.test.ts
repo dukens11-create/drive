@@ -288,6 +288,38 @@ test('GET /users.html serves the dedicated rider login page', async () => {
   });
 });
 
+test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
+  await withServer(async baseUrl => {
+    const response = await fetch(`${baseUrl}/rider-dashboard.html`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /text\/html/);
+    const csp = response.headers.get('content-security-policy') ?? '';
+    assert.match(csp, /script-src 'self'/);
+    assert.match(csp, /connect-src 'self'/);
+    assert.match(csp, /api\.mapbox\.com/);
+
+    const body = await response.text();
+    [
+      'Drive Rider Dashboard',
+      '<script src="/rider-dashboard.js"></script>',
+      '<link rel="stylesheet" href="/rider-dashboard.css" />',
+      'id="mapbox"',
+      'id="pickup-input"',
+      'id="destination-input"',
+      'id="request-ride-button"',
+      'id="cancel-ride-button"',
+      'trip-timeline',
+      'Driver',
+      'Rider',
+      'Admin'
+    ].forEach(token => {
+      assert.match(body, new RegExp(token));
+    });
+    assert.doesNotMatch(body, /\s(onclick|onsubmit)=/);
+    assert.doesNotMatch(body, /<script>([\s\S]*?)<\/script>/i);
+  });
+});
+
 test('POST /api/auth/signup creates user and returns tokens', async () => {
   await withServer(async baseUrl => {
     const response = await postJson(baseUrl, '/api/auth/signup', {
