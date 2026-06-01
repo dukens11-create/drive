@@ -23,7 +23,13 @@ export const ridesApi = {
   },
 
   complete(rideId: string) {
-    return apiClient.post<ApiEnvelope<{ ride: RideSummary }>>('/api/rides/complete', { rideId }, { auth: true });
+    return apiClient.post<ApiEnvelope<{
+      ride: RideSummary;
+      grossCents: number;
+      discountCents: number;
+      amountCents: number;
+      receipt?: RideSummary['receipt'];
+    }>>('/api/rides/complete', { rideId }, { auth: true });
   },
 
   noShow(rideId: string) {

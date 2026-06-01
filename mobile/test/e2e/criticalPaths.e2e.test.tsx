@@ -176,7 +176,7 @@ describe('critical path e2e flows', () => {
       });
 
     const tripCard = render(<RideRequestCard />);
-    fireEvent.press(tripCard.getByText('Complete Trip'));
+    fireEvent.press(tripCard.getByText('End Trip'));
     expect(advanceTrip).toHaveBeenCalledTimes(1);
   });
 });
