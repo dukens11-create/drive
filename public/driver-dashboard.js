@@ -1913,7 +1913,6 @@ function closeRideDetailsModal() {
   queueMapRender();
 }
 
-<<<<<<< HEAD
 async function performRideFlowAction(actionPath, successMessage) {
   const ride = syncSelectedRideFromState();
   if (!ride?.id) {
@@ -2000,13 +1999,6 @@ async function handleSubmitRiderRating() {
   }
 }
 
-async function handleAcceptRide(event) {
-  event.preventDefault();
-  const rideIdInput = document.getElementById('ride-id-input');
-  const rideId = rideIdInput.value.trim();
-  if (!rideId) return;
-  const queuedRide = getRideById(rideId);
-=======
 async function acceptRideById(rawRideId) {
   const rideId = String(rawRideId || '').trim();
   if (!rideId) return false;
@@ -2017,7 +2009,6 @@ async function acceptRideById(rawRideId) {
   const rideIdInput = document.getElementById('ride-id-input');
   if (rideIdInput) rideIdInput.value = rideId;
   acceptingRideIds.add(rideId);
->>>>>>> origin/main
   try {
     const { data } = await fetchJson(`${API_BASE_URL}/api/rides/accept`, {
       method: 'POST',
@@ -2031,16 +2022,12 @@ async function acceptRideById(rawRideId) {
       showAlert('danger', data.error || 'Unable to accept ride.');
       return false;
     }
-    await Promise.all([loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
-<<<<<<< HEAD
-    const acceptedRide = getRideById(rideId) || normalizeRide(data.ride || { ...queuedRide, id: rideId, status: 'accepted' }, 0);
-    renderRideDetailsModal(acceptedRide);
     showAlert('success', `Ride ${rideId} accepted.`);
-    event.target.reset();
-=======
+    const acceptedRide = getRideById(rideId) || normalizeRide({ id: rideId, status: 'accepted' }, 0);
+    renderRideDetailsModal(acceptedRide);
+    await Promise.all([loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
     document.getElementById('accept-ride-form')?.reset();
     return true;
->>>>>>> origin/main
   } catch (_error) {
     showAlert('danger', 'Unable to accept ride.');
     return false;
