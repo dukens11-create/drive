@@ -12,9 +12,10 @@ const SHARED_RIDE_STATUS_KEY    = 'drive_shared_ride_status';     // driver → 
 const MAPBOX_TOKEN_META        = 'mapbox-token';
 const STATUS_POLL_INTERVAL_MS  = 2000;   // fallback polling when storage event unreliable
 const ALERT_DURATION_MS        = 4000;
-const FARE_BASE                = 2.50;
-const FARE_PER_KM              = 1.90;
-const FARE_PER_MIN             = 0.25;
+const FARE_BASE        = 2.50;
+const FARE_PER_KM      = 1.90;
+const FARE_PER_MIN     = 0.25;
+const FARE_AVG_SPEED_KMH = 30;  // assumed average city speed for ETA estimate
 
 const DEMO_RIDER_PROFILE = {
   name: 'Demo Rider',
@@ -127,7 +128,7 @@ function estimateFare(pickupLat, pickupLng, destLat, destLng, rideTypeId) {
   const a = Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(pickupLat)) * Math.cos(toRad(destLat)) * Math.sin(dLng / 2) ** 2;
   const km = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const mins = (km / 30) * 60;   // assume 30 km/h average
+  const mins = (km / FARE_AVG_SPEED_KMH) * 60;
   const surge = RIDE_TYPES.find(t => t.id === rideTypeId)?.surgeMultiplier ?? 1;
   const raw = Math.max(FARE_BASE, FARE_BASE + km * FARE_PER_KM + mins * FARE_PER_MIN) * surge;
   return Math.round(raw * 100) / 100;
@@ -282,10 +283,11 @@ async function handleRequestRide() {
   updateFareEstimate();
 
   const user = currentUser || DEMO_RIDER_PROFILE;
+  const riderName = user.name || user.email?.split('@')[0] || 'Rider';
   const rideRequest = {
     id:           generateRideId(),
     riderId:      user.id || user.email || 'demo-rider',
-    riderName:    user.name || user.email?.split('@')[0] || 'Rider',
+    riderName,
     pickup:       pickupInput,
     pickupLat:    pickupCoords.lat,
     pickupLng:    pickupCoords.lng,
@@ -294,8 +296,8 @@ async function handleRequestRide() {
     destLng:      destCoords.lng,
     rideType:     selectedRideType,
     fareEstimate: fareEstimate,
-    // Driver-dashboard normalizeRide() reads these field names:
-    passengerName: user.name || user.email?.split('@')[0] || 'Rider',
+    // Driver-dashboard normalizeRide() reads passengerName:
+    passengerName: riderName,
     status:       'requested',
     requestedAt:  new Date().toISOString()
   };
@@ -368,35 +370,62 @@ function stopStatusPolling() {
 }
 
 // ─── Incoming Driver Status ───────────────────────────────────────────────────
+// Status ordering — only forward transitions are applied.
+const RIDE_STATUS_ORDER = ['searching', 'accepted', 'arriving', 'started', 'completed'];
+
 function applyDriverStatusUpdate(entry) {
   if (!entry || entry.rideId !== currentRideId) return;
 
   const prev = rideStatus;
+  const prevIdx = RIDE_STATUS_ORDER.indexOf(prev);
 
-  if (entry.status === 'accepted' && prev !== 'accepted' && prev !== 'arriving' && prev !== 'started' && prev !== 'completed') {
-    rideStatus = 'accepted';
-    showRideStatusPanel('assigned', entry);
+  // Map driver-side status values to rider-side phase names
+  const STATUS_TO_PHASE = {
+    accepted:         'assigned',
+    arrived_at_pickup: 'arriving',
+    started:          'started',
+    completed:        'completed'
+  };
+  // Map driver-side status to the internal rideStatus string
+  const STATUS_TO_RIDER = {
+    accepted:         'accepted',
+    arrived_at_pickup: 'arriving',
+    started:          'started',
+    completed:        'completed'
+  };
+
+  if (entry.status === 'rejected' || entry.status === 'declined') {
+    // Driver rejected → keep rider in searching state
+    showAlert('warning', 'Driver unavailable, still searching…');
+    // The request stays in SHARED_PENDING_RIDES_KEY so other drivers can pick it up.
+    return;
+  }
+
+  const nextRiderStatus = STATUS_TO_RIDER[entry.status];
+  if (!nextRiderStatus) return;
+
+  const nextIdx = RIDE_STATUS_ORDER.indexOf(nextRiderStatus);
+  // Only apply forward transitions to avoid flicker from stale storage events
+  if (nextIdx <= prevIdx) return;
+
+  rideStatus = nextRiderStatus;
+  const phase = STATUS_TO_PHASE[entry.status];
+
+  if (phase === 'assigned') {
+    showRideStatusPanel(phase, entry);
     showAlert('success', `Driver assigned: ${entry.driverName || 'Your driver'} is on the way!`);
     if (entry.driverLat && entry.driverLng) setDriverMarker(entry.driverLng, entry.driverLat);
-  } else if (entry.status === 'arrived_at_pickup' && prev !== 'arriving' && prev !== 'started' && prev !== 'completed') {
-    rideStatus = 'arriving';
-    showRideStatusPanel('arriving', entry);
+  } else if (phase === 'arriving') {
+    showRideStatusPanel(phase, entry);
     showAlert('info', 'Your driver has arrived at the pickup point!');
-  } else if (entry.status === 'started' && prev !== 'started' && prev !== 'completed') {
-    rideStatus = 'started';
-    showRideStatusPanel('started', entry);
+  } else if (phase === 'started') {
+    showRideStatusPanel(phase, entry);
     showAlert('success', 'Trip started! Enjoy your ride.');
-  } else if (entry.status === 'completed' && prev !== 'completed') {
-    rideStatus = 'completed';
-    showRideStatusPanel('completed', entry);
+  } else if (phase === 'completed') {
+    showRideStatusPanel(phase, entry);
     showAlert('success', `Trip complete! Fare: $${Number(entry.fare || fareEstimate).toFixed(2)}`);
     stopStatusPolling();
     currentRideId = null;
-  } else if (entry.status === 'rejected' || entry.status === 'declined') {
-    // Driver rejected → keep rider in searching state (re-publish request)
-    showAlert('warning', 'Driver unavailable, still searching…');
-    // The current request stays in SHARED_PENDING_RIDES_KEY so other drivers can see it.
-    // No status change needed; rider continues waiting.
   }
 }
 
