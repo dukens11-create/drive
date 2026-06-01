@@ -98,6 +98,12 @@ test('dispatch backend compatibility endpoints expose realtime driver, rider, re
     response = await requestJson(baseUrl, `/api/drivers/${driverTwo.user.id}/status`, 'PUT', { status: 'online' }, driverTwo.accessToken);
     assert.equal((await response.json()).profile.availabilityStatus, 'online');
 
+    let realtimeSnapshot = getRealtimeDispatchSnapshot();
+    assert.deepEqual(
+      realtimeSnapshot.drivers.map(driver => driver.userId).sort(),
+      [driverOne.user.id, driverTwo.user.id].sort()
+    );
+
     response = await requestJson(baseUrl, '/api/riders/location', 'POST', {
       lat: 37.781,
       lng: -122.409,
@@ -139,6 +145,15 @@ test('dispatch backend compatibility endpoints expose realtime driver, rider, re
     assert.equal(acceptBody.ok, true);
     assert.equal(acceptBody.ride.status, 'accepted');
     assert.equal(acceptBody.request.acceptedDriverId, driverOne.user.id);
+
+    realtimeSnapshot = getRealtimeDispatchSnapshot();
+    assert.equal(realtimeSnapshot.drivers.some(driver => driver.userId === driverOne.user.id), false);
+    assert.equal(realtimeSnapshot.drivers.some(driver => driver.userId === driverTwo.user.id), true);
+
+    response = await requestJson(baseUrl, `/api/drivers/${driverTwo.user.id}/status`, 'PUT', { status: 'offline' }, driverTwo.accessToken);
+    assert.equal((await response.json()).profile.availabilityStatus, 'offline');
+    realtimeSnapshot = getRealtimeDispatchSnapshot();
+    assert.equal(realtimeSnapshot.drivers.some(driver => driver.userId === driverTwo.user.id), false);
 
     response = await requestJson(baseUrl, `/api/rides/${rideId}/accept`, 'POST', {}, driverTwo.accessToken);
     const secondAcceptBody = await response.json();

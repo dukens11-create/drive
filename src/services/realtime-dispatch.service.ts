@@ -51,6 +51,34 @@ function emitToRoom(room: string, event: string, payload: unknown) {
   realtimeServer?.to(room).emit(event, payload);
 }
 
+function isDispatchVisibleDriver(profile: any) {
+  return (
+    profile?.status === 'approved' &&
+    profile?.verificationState === 'verified' &&
+    profile?.availabilityStatus === 'online' &&
+    profile?.available === true &&
+    Number.isFinite(Number(profile?.lat)) &&
+    Number.isFinite(Number(profile?.lng))
+  );
+}
+
+function getDispatchVisibleDrivers() {
+  return Array.from(store.drivers.values())
+    .filter(isDispatchVisibleDriver)
+    .map(profile => ({
+      userId: profile.userId,
+      status: profile.status,
+      availabilityStatus: profile.availabilityStatus,
+      available: profile.available,
+      rating: profile.rating,
+      acceptanceRate: profile.acceptanceRate,
+      cancellationRate: profile.cancellationRate,
+      earningsCents: profile.earningsCents,
+      currentTripId: profile.currentTripId,
+      location: getDriverRealtimeLocation(profile.userId)
+    }));
+}
+
 function normalizeRide(ride: Ride): DriverRealtimeRide {
   return {
     ...ride,
@@ -182,18 +210,7 @@ export function getDriverRealtimeDispatchSnapshot(driverId: string) {
 export function getRealtimeDispatchSnapshot() {
   return {
     provider: 'firebase',
-    drivers: Array.from(store.drivers.values()).map(profile => ({
-      userId: profile.userId,
-      status: profile.status,
-      availabilityStatus: profile.availabilityStatus,
-      available: profile.available,
-      rating: profile.rating,
-      acceptanceRate: profile.acceptanceRate,
-      cancellationRate: profile.cancellationRate,
-      earningsCents: profile.earningsCents,
-      currentTripId: profile.currentTripId,
-      location: getDriverRealtimeLocation(profile.userId)
-    })),
+    drivers: getDispatchVisibleDrivers(),
     riders: Array.from(store.riders.keys())
       .map(getRiderRealtimeProfile)
       .filter(Boolean),
@@ -246,11 +263,12 @@ export function publishDriverRealtimeEarnings(driverId: string) {
 export function publishDriverStatusChanged(driverId: string) {
   const profile = store.drivers.get(driverId);
   if (!profile) return null;
+  const updatedAt = timestamp();
   const payload = {
     driverId,
     status: profile.availabilityStatus,
     available: profile.available,
-    updatedAt: timestamp()
+    updatedAt
   };
   emitToRoom(`driver:${driverId}`, 'dispatch:driver_status', payload);
   emitToRoom(`user:${driverId}`, 'dispatch:driver_status', payload);

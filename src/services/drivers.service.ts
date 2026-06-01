@@ -252,6 +252,7 @@ export function markDriverAssigned(userId: string) {
   if (profile.availabilityStatus !== 'online') return { ok: false, error: 'driver is not available for assignment' as const };
   setAvailability(profile, 'assigned');
   markStoreDirty();
+  publishDriverStatusChanged(userId);
   return { ok: true, profile } as const;
 }
 
@@ -261,6 +262,7 @@ export function releaseDriverFromRide(userId: string) {
   syncProfileState(profile);
   if (profile.verificationState === 'verified' && profile.availabilityStatus === 'assigned') {
     setAvailability(profile, 'online');
+    publishDriverStatusChanged(userId);
   }
   markStoreDirty();
   return profile;
