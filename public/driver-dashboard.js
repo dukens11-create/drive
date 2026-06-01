@@ -15,6 +15,14 @@ const GPS_LOG_KEY = 'driverGpsLog';
 const LAST_KNOWN_LOCATION_KEY = 'driverLastKnownLocation';
 const MAX_GPS_LOG_ENTRIES = 200;
 const ROUTE_CACHE_TTL_MS = 30000;
+const MAPBOX_TOKEN_STORAGE_KEY = 'drive.mapboxToken';
+const MAPBOX_STYLE_STREETS = 'mapbox://styles/mapbox/navigation-night-v1';
+const MAPBOX_STYLE_SATELLITE = 'mapbox://styles/mapbox/satellite-streets-v12';
+const RIDE_REQUEST_ALERT_WINDOW_MS = 18000;
+const RIDE_REQUEST_COUNTDOWN_TICK_MS = 1000;
+const RIDE_REQUEST_EXPIRING_THRESHOLD_MS = 7000;
+const SWIPE_ACCEPT_THRESHOLD = 0.72;
+const SWIPE_ACCEPT_TRACK_PADDING = 14;
 const SWIPE_VERTICAL_THRESHOLD = 80;
 const SWIPE_HORIZONTAL_THRESHOLD = 60;
 
@@ -88,6 +96,14 @@ let mapState = {
   isDragging: false,
   dragStartX: 0,
   dragStartY: 0,
+  mapboxToken: '',
+  mapboxInstance: null,
+  mapboxReady: false,
+  mapboxInitPromise: null,
+  markers: {
+    driver: null,
+    passengers: new Map(),
+  },
   activePointerId: null
 };
 
@@ -109,7 +125,21 @@ let gpsPollIntervalId = null;
 let gpsSimulationIntervalId = null;
 let gpsSimulationIndex = 0;
 let wakeLockSentinel = null;
-let routeCache = { pickupEta: null, dropoffEta: null, pickupDistKm: null, dropoffDistKm: null, cachedAt: 0 };
+let routeCache = {
+  pickupEta: null,
+  dropoffEta: null,
+  pickupDistKm: null,
+  dropoffDistKm: null,
+  pickupGeometry: null,
+  dropoffGeometry: null,
+  cachedAt: 0,
+};
+let rideRequestCountdownIntervalId = null;
+let rideRequestFeedInitialized = false;
+let knownRideRequestIds = new Set();
+const rideRequestExpirations = new Map();
+const acceptingRideIds = new Set();
+let incomingRideAudioContext = null;
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 function showAlert(kind, message) {
@@ -565,6 +595,45 @@ function getDriverDisplayName(email) {
     .join(' ');
 }
 
+function getPassengerInitials(name) {
+  const parts = String(name || 'Passenger')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+  if (!parts.length) return 'P';
+  return parts.map(part => part.charAt(0).toUpperCase()).join('');
+}
+
+function createPassengerAvatarDataUrl(name) {
+  const initials = getPassengerInitials(name);
+  const safeInitials = escapeHtml(initials);
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" role="img" aria-label="${safeInitials}">
+      <defs>
+        <linearGradient id="avatarGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#26d07c" />
+          <stop offset="100%" stop-color="#1b80ff" />
+        </linearGradient>
+      </defs>
+      <rect width="96" height="96" rx="28" fill="url(#avatarGradient)" />
+      <text x="50%" y="54%" text-anchor="middle" dominant-baseline="middle" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="700" fill="#071018">${safeInitials}</text>
+    </svg>
+  `.trim();
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+function getPassengerPhotoUrl(ride) {
+  const candidate = String(
+    ride.passengerPhotoUrl ||
+    ride.passengerAvatarUrl ||
+    ride.avatarUrl ||
+    ride.photoUrl ||
+    ''
+  ).trim();
+  return candidate || createPassengerAvatarDataUrl(ride.passengerName);
+}
+
 function formatCoordinate(lat, lng) {
   if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return 'Unknown location';
   return `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`;
@@ -599,9 +668,12 @@ function normalizeRide(ride, index) {
     dropoffLat: Number.isFinite(dropoffLat) ? dropoffLat : DEFAULT_FALLBACK_LAT + 0.01,
     dropoffLng: Number.isFinite(dropoffLng) ? dropoffLng : DEFAULT_FALLBACK_LNG + 0.01,
     fareEstimate: Number(ride.fareEstimate || 0),
+    estimatedEarnings: Number(ride.driverEarningsEstimate ?? ride.earningsEstimate ?? ride.fareEstimate ?? 0),
     minutes: Number(ride.minutes || 18),
     passengerRating: Number(ride.passengerRating || 4.8),
     passengerName: ride.passengerName || `Passenger ${index + 1}`,
+    passengerPhotoUrl: ride.passengerPhotoUrl || ride.passengerAvatarUrl || ride.avatarUrl || ride.photoUrl || '',
+    requestExpiresAt: ride.requestExpiresAt || ride.expiresAt || null,
     completedAt: ride.completedAt || ride.updatedAt || new Date().toISOString()
   };
 }
@@ -662,6 +734,97 @@ function formatDistance(km) {
   return `${km.toFixed(2)} km / ${miles.toFixed(2)} mi`;
 }
 
+function formatRideRequestCountdown(msRemaining) {
+  const totalSeconds = Math.max(0, Math.ceil(msRemaining / 1000));
+  const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+  const seconds = String(totalSeconds % 60).padStart(2, '0');
+  return `${minutes}:${seconds}`;
+}
+
+function getDriverReferenceLocation() {
+  if (Number.isFinite(mapState.lastPosition?.lat) && Number.isFinite(mapState.lastPosition?.lng)) {
+    return mapState.lastPosition;
+  }
+  if (Number.isFinite(Number(currentProfile?.lat)) && Number.isFinite(Number(currentProfile?.lng))) {
+    return { lat: Number(currentProfile.lat), lng: Number(currentProfile.lng) };
+  }
+  return getLastKnownLocation();
+}
+
+function getRidePickupDistanceKm(ride) {
+  const reference = getDriverReferenceLocation();
+  if (!reference) return NaN;
+  return calculateDistance(reference.lat, reference.lng, Number(ride.pickupLat), Number(ride.pickupLng));
+}
+
+function getRideRequestExpiryTimestamp(ride) {
+  const explicitExpiry = Date.parse(String(ride.requestExpiresAt || ''));
+  if (Number.isFinite(explicitExpiry) && explicitExpiry > Date.now()) {
+    return explicitExpiry;
+  }
+  if (!rideRequestExpirations.has(ride.id)) {
+    rideRequestExpirations.set(ride.id, Date.now() + RIDE_REQUEST_ALERT_WINDOW_MS);
+  }
+  return rideRequestExpirations.get(ride.id);
+}
+
+function pruneRideRequestState(rides) {
+  const activeIds = new Set(rides.map(ride => ride.id));
+  Array.from(rideRequestExpirations.keys()).forEach(rideId => {
+    if (!activeIds.has(rideId)) rideRequestExpirations.delete(rideId);
+  });
+  knownRideRequestIds = new Set(Array.from(knownRideRequestIds).filter(rideId => activeIds.has(rideId)));
+}
+
+async function primeIncomingRideAudio() {
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextCtor) return;
+  if (!incomingRideAudioContext) incomingRideAudioContext = new AudioContextCtor();
+  if (incomingRideAudioContext.state === 'suspended') {
+    await incomingRideAudioContext.resume();
+  }
+}
+
+async function playIncomingRideAlert() {
+  try {
+    await primeIncomingRideAudio();
+  } catch (_error) {
+    return;
+  }
+  if (!incomingRideAudioContext) return;
+  const now = incomingRideAudioContext.currentTime;
+  [0, 0.2].forEach((offset, index) => {
+    const oscillator = incomingRideAudioContext.createOscillator();
+    const gain = incomingRideAudioContext.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(index === 0 ? 880 : 1174, now + offset);
+    gain.gain.setValueAtTime(0.0001, now + offset);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + offset + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.16);
+    oscillator.connect(gain);
+    gain.connect(incomingRideAudioContext.destination);
+    oscillator.start(now + offset);
+    oscillator.stop(now + offset + 0.18);
+  });
+}
+
+function updateRideRequestCountdowns() {
+  document.querySelectorAll('[data-request-countdown]').forEach(element => {
+    const expiresAt = Number(element.getAttribute('data-expires-at'));
+    const remainingMs = expiresAt - Date.now();
+    element.textContent = formatRideRequestCountdown(remainingMs);
+    const isExpiring = remainingMs <= RIDE_REQUEST_EXPIRING_THRESHOLD_MS;
+    element.classList.toggle('is-expiring', isExpiring);
+    element.closest('[data-ride-request-card]')?.classList.toggle('is-expiring', isExpiring);
+  });
+}
+
+function startRideRequestCountdowns() {
+  if (rideRequestCountdownIntervalId !== null) return;
+  updateRideRequestCountdowns();
+  rideRequestCountdownIntervalId = window.setInterval(updateRideRequestCountdowns, RIDE_REQUEST_COUNTDOWN_TICK_MS);
+}
+
 function headingToCardinal(degrees) {
   const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW', 'N'];
   return dirs[Math.round(degrees / 45) % 8];
@@ -693,26 +856,279 @@ function appendGpsLogEntry(lat, lng, accuracy, heading, speed) {
   } catch (_e) { /* quota exceeded – ignore */ }
 }
 
+function readMapboxToken() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const queryToken = String(params.get('mapboxToken') || '').trim();
+    const savedToken = String(localStorage.getItem(MAPBOX_TOKEN_STORAGE_KEY) || '').trim();
+    const metaToken = String(document.querySelector('meta[name="mapbox-token"]')?.content || '').trim();
+    const windowToken = String(window.MAPBOX_TOKEN || '').trim();
+    return queryToken || savedToken || metaToken || windowToken;
+  } catch (_error) {
+    return '';
+  }
+}
+
+function showMapTokenOverlay(show) {
+  const overlay = document.getElementById('map-token-overlay');
+  if (!overlay) return;
+  overlay.classList.toggle('show', Boolean(show));
+}
+
+function createPassengerMarkerElement() {
+  const el = document.createElement('div');
+  el.style.width = '12px';
+  el.style.height = '12px';
+  el.style.borderRadius = '50%';
+  el.style.background = '#1b80ff';
+  el.style.boxShadow = '0 0 0 8px rgba(27, 128, 255, 0.16)';
+  return el;
+}
+
+function createDriverMarkerElement() {
+  const el = document.createElement('div');
+  el.style.width = '16px';
+  el.style.height = '16px';
+  el.style.borderRadius = '50%';
+  el.style.background = '#26d07c';
+  el.style.boxShadow = '0 0 0 10px rgba(38, 208, 124, 0.16)';
+  return el;
+}
+
+function ensureTrafficLayer() {
+  const map = mapState.mapboxInstance;
+  if (!map || !mapState.mapboxReady) return;
+  if (map.getSource('mapbox-traffic')) return;
+  try {
+    map.addSource('mapbox-traffic', {
+      type: 'vector',
+      url: 'mapbox://mapbox.mapbox-traffic-v1',
+    });
+    map.addLayer({
+      id: 'mapbox-traffic-layer',
+      type: 'line',
+      source: 'mapbox-traffic',
+      'source-layer': 'traffic',
+      paint: {
+        'line-color': [
+          'match',
+          ['get', 'congestion'],
+          'low', '#35d07f',
+          'moderate', '#f9d65c',
+          'heavy', '#ff8a3c',
+          'severe', '#ff5f62',
+          '#5f738f',
+        ],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1.2, 16, 3],
+        'line-opacity': 0.78,
+      },
+    });
+  } catch (error) {
+    console.warn('Traffic layer unavailable:', error);
+  }
+}
+
+function ensureRouteLayer() {
+  const map = mapState.mapboxInstance;
+  if (!map || !mapState.mapboxReady) return;
+  if (!map.getSource('driver-live-route')) {
+    map.addSource('driver-live-route', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+  }
+  if (!map.getLayer('driver-live-route-to-pickup')) {
+    map.addLayer({
+      id: 'driver-live-route-to-pickup',
+      type: 'line',
+      source: 'driver-live-route',
+      filter: ['==', ['get', 'segment'], 'pickup'],
+      paint: { 'line-color': '#5b8cff', 'line-width': 5, 'line-opacity': 0.9 },
+    });
+  }
+  if (!map.getLayer('driver-live-route-to-dropoff')) {
+    map.addLayer({
+      id: 'driver-live-route-to-dropoff',
+      type: 'line',
+      source: 'driver-live-route',
+      filter: ['==', ['get', 'segment'], 'dropoff'],
+      paint: { 'line-color': '#26d07c', 'line-width': 4, 'line-dasharray': [1, 1.2], 'line-opacity': 0.9 },
+    });
+  }
+}
+
+function updateMapboxRoute() {
+  const map = mapState.mapboxInstance;
+  if (!map || !mapState.mapboxReady) return;
+  ensureRouteLayer();
+
+  const trackedRide = selectedRideForDetails || nearbyRideRequests[0] || null;
+  const driverPos = mapState.lastPosition;
+  const features = [];
+
+  const pickupGeometry = Array.isArray(routeCache.pickupGeometry) && routeCache.pickupGeometry.length > 1
+    ? routeCache.pickupGeometry
+    : (trackedRide && driverPos
+      ? [[driverPos.lng, driverPos.lat], [trackedRide.pickupLng, trackedRide.pickupLat]]
+      : null);
+  const dropoffGeometry = Array.isArray(routeCache.dropoffGeometry) && routeCache.dropoffGeometry.length > 1
+    ? routeCache.dropoffGeometry
+    : (trackedRide
+      ? [[trackedRide.pickupLng, trackedRide.pickupLat], [trackedRide.dropoffLng, trackedRide.dropoffLat]]
+      : null);
+
+  if (pickupGeometry) {
+    features.push({
+      type: 'Feature',
+      properties: { segment: 'pickup' },
+      geometry: { type: 'LineString', coordinates: pickupGeometry },
+    });
+  }
+  if (dropoffGeometry) {
+    features.push({
+      type: 'Feature',
+      properties: { segment: 'dropoff' },
+      geometry: { type: 'LineString', coordinates: dropoffGeometry },
+    });
+  }
+
+  const source = map.getSource('driver-live-route');
+  if (source) source.setData({ type: 'FeatureCollection', features });
+}
+
+function updateMapboxMarkers() {
+  const map = mapState.mapboxInstance;
+  if (!map || !mapState.mapboxReady || !window.mapboxgl) return;
+
+  if (!mapState.markers.driver) {
+    mapState.markers.driver = new window.mapboxgl.Marker({ element: createDriverMarkerElement() });
+  }
+
+  const driverPos = mapState.lastPosition;
+  if (driverPos) {
+    mapState.markers.driver
+      .setLngLat([driverPos.lng, driverPos.lat])
+      .addTo(map);
+  }
+
+  const activePassengerIds = new Set();
+  nearbyRideRequests.forEach((ride) => {
+    activePassengerIds.add(ride.id);
+    let marker = mapState.markers.passengers.get(ride.id);
+    if (!marker) {
+      marker = new window.mapboxgl.Marker({ element: createPassengerMarkerElement() });
+      marker.setPopup(new window.mapboxgl.Popup({ offset: 14 }).setText(
+        `${ride.passengerName || ride.id} • pickup ${ride.pickupLat.toFixed(4)}, ${ride.pickupLng.toFixed(4)}`
+      ));
+      mapState.markers.passengers.set(ride.id, marker);
+    }
+    marker.setLngLat([ride.pickupLng, ride.pickupLat]).addTo(map);
+  });
+
+  for (const [rideId, marker] of mapState.markers.passengers.entries()) {
+    if (!activePassengerIds.has(rideId)) {
+      marker.remove();
+      mapState.markers.passengers.delete(rideId);
+    }
+  }
+}
+
+function applyMapboxStyle() {
+  const map = mapState.mapboxInstance;
+  if (!map) return;
+  const style = mapState.satelliteView ? MAPBOX_STYLE_SATELLITE : MAPBOX_STYLE_STREETS;
+  map.setStyle(style);
+}
+
+function loadMapboxSdk() {
+  if (window.mapboxgl) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-mapbox-sdk="1"]');
+    if (existing) {
+      existing.addEventListener('load', resolve, { once: true });
+      existing.addEventListener('error', () => reject(new Error('Mapbox SDK failed to load')), { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.js';
+    script.async = true;
+    script.dataset.mapboxSdk = '1';
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('Mapbox SDK failed to load'));
+    document.head.appendChild(script);
+  });
+}
+
+async function initializeMapbox() {
+  if (mapState.mapboxInstance) return;
+  if (mapState.mapboxInitPromise) return mapState.mapboxInitPromise;
+  if (!mapState.mapboxToken) {
+    showMapTokenOverlay(true);
+    return;
+  }
+
+  mapState.mapboxInitPromise = (async () => {
+    await loadMapboxSdk();
+    window.mapboxgl.accessToken = mapState.mapboxToken;
+    const container = document.getElementById('mapbox');
+    if (!container) throw new Error('Mapbox container missing');
+
+    mapState.mapboxInstance = new window.mapboxgl.Map({
+      container,
+      style: MAPBOX_STYLE_STREETS,
+      center: [DEFAULT_FALLBACK_LNG, DEFAULT_FALLBACK_LAT],
+      zoom: mapState.zoom,
+      pitch: 45,
+      bearing: 0,
+      antialias: true,
+    });
+    mapState.mapboxInstance.addControl(new window.mapboxgl.NavigationControl({ showCompass: true }), 'top-right');
+
+    mapState.mapboxInstance.on('load', () => {
+      mapState.mapboxReady = true;
+      showMapTokenOverlay(false);
+      ensureTrafficLayer();
+      updateMapboxMarkers();
+      updateMapboxRoute();
+      queueMapRender();
+    });
+    mapState.mapboxInstance.on('style.load', () => {
+      ensureTrafficLayer();
+      updateMapboxRoute();
+      updateMapboxMarkers();
+    });
+    mapState.mapboxInstance.on('moveend', () => {
+      mapState.zoom = Math.max(10, Math.min(20, mapState.mapboxInstance.getZoom()));
+    });
+  })().catch(error => {
+    console.error('Failed to initialize Mapbox map:', error);
+    showAlert('warning', 'Unable to load Mapbox map.');
+    mapState.mapboxInitPromise = null;
+  });
+
+  return mapState.mapboxInitPromise;
+}
+
 // ─── Route Estimation ─────────────────────────────────────────────────────────
 async function fetchRouteEstimate(originLat, originLng, destLat, destLng) {
-  // Prefer Mapbox Directions API when the public token is available.
-  // Token is read from the <meta name="mapbox-token"> tag set in the HTML
-  // (CSP-safe, no inline script) or from window.MAPBOX_TOKEN if overridden.
-  // Falls back to Google Maps Directions API, then to haversine estimate.
-  const mapboxToken =
-    (typeof document !== 'undefined' && document.querySelector('meta[name="mapbox-token"]')?.content) ||
-    (typeof window !== 'undefined' && window.MAPBOX_TOKEN) ||
-    '';
-  if (mapboxToken) {
+  if (mapState.mapboxToken) {
     try {
-      const coords = `${originLng},${originLat};${destLng},${destLat}`;
-      const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${encodeURIComponent(coords)}?access_token=${encodeURIComponent(mapboxToken)}&overview=false`;
-      const { data } = await fetchJson(url, {});
-      if (data?.routes?.[0]) {
-        const route = data.routes[0];
-        const distKm = (route.distance || 0) / 1000;
-        const durMin = (route.duration || 0) / 60;
-        return { distKm, etaMin: durMin };
+      const url = new URL(`https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${originLng},${originLat};${destLng},${destLat}`);
+      url.searchParams.set('geometries', 'geojson');
+      url.searchParams.set('overview', 'full');
+      url.searchParams.set('steps', 'false');
+      url.searchParams.set('access_token', mapState.mapboxToken);
+      const response = await fetch(url.toString());
+      if (response.ok) {
+        const payload = await response.json();
+        const route = payload?.routes?.[0];
+        if (route) {
+          return {
+            distKm: Number(route.distance || 0) / 1000,
+            etaMin: Number(route.duration || 0) / 60,
+            geometry: Array.isArray(route.geometry?.coordinates) ? route.geometry.coordinates : null,
+          };
+        }
       }
     } catch (_e) { /* fall through to next provider */ }
   }
@@ -724,22 +1140,21 @@ async function fetchRouteEstimate(originLat, originLng, destLat, destLng) {
     try {
       const origin = `${originLat},${originLng}`;
       const dest = `${destLat},${destLng}`;
-      // NOTE: Google Maps Directions API keys used here are browser-restricted
-      // (HTTP referrer rules) and only read public map data. For stricter
-      // environments, proxy this request through /api/route-estimate instead.
       const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(dest)}&mode=driving&key=${encodeURIComponent(apiKey)}`;
       const { data } = await fetchJson(url, {});
       if (data?.routes?.[0]?.legs?.[0]) {
         const leg = data.routes[0].legs[0];
-        const distKm = (leg.distance?.value || 0) / 1000;
-        const durMin = (leg.duration?.value || 0) / 60;
-        return { distKm, etaMin: durMin };
+        return {
+          distKm: Number(leg.distance?.value || 0) / 1000,
+          etaMin: Number(leg.duration?.value || 0) / 60,
+          geometry: null,
+        };
       }
     } catch (_e) { /* fall through to haversine */ }
   }
   const distKm = calculateDistance(originLat, originLng, destLat, destLng);
   const speedKmh = mapState.lastPosition?.speed > 2 ? mapState.lastPosition.speed : DEFAULT_LOCATION_SPEED_KMH;
-  return { distKm, etaMin: calculateETA(distKm, speedKmh) };
+  return { distKm, etaMin: calculateETA(distKm, speedKmh), geometry: null };
 }
 
 async function recalculateRouteData() {
@@ -755,8 +1170,17 @@ async function recalculateRouteData() {
 
   const trackedRide = selectedRideForDetails || nearbyRideRequests[0] || null;
   if (!trackedRide) {
-    routeCache = { pickupEta: null, dropoffEta: null, pickupDistKm: null, dropoffDistKm: null, cachedAt: now };
+    routeCache = {
+      pickupEta: null,
+      dropoffEta: null,
+      pickupDistKm: null,
+      dropoffDistKm: null,
+      pickupGeometry: null,
+      dropoffGeometry: null,
+      cachedAt: now,
+    };
     updateMapUiReadouts();
+    updateMapboxRoute();
     return;
   }
 
@@ -764,16 +1188,19 @@ async function recalculateRouteData() {
     const pickupResult = await fetchRouteEstimate(driverLat, driverLng, trackedRide.pickupLat, trackedRide.pickupLng);
     routeCache.pickupDistKm = pickupResult.distKm;
     routeCache.pickupEta = pickupResult.etaMin;
+    routeCache.pickupGeometry = pickupResult.geometry;
 
     const dropoffResult = await fetchRouteEstimate(trackedRide.pickupLat, trackedRide.pickupLng, trackedRide.dropoffLat, trackedRide.dropoffLng);
     routeCache.dropoffDistKm = dropoffResult.distKm;
     routeCache.dropoffEta = dropoffResult.etaMin;
+    routeCache.dropoffGeometry = dropoffResult.geometry;
 
     routeCache.cachedAt = Date.now();
   } catch (_e) {
     // Keep previous cache values
   }
   updateMapUiReadouts();
+  updateMapboxRoute();
 }
 
 // ─── Map UI Readouts ──────────────────────────────────────────────────────────
@@ -860,177 +1287,22 @@ function queueMapRender() {
 }
 
 function renderMap() {
-  const mapShell = document.getElementById('map-shell');
-  const caption = document.getElementById('map-caption');
-  const routeLayer = document.getElementById('map-route-layer');
-  if (!mapShell || !caption || !routeLayer) return;
+  const map = mapState.mapboxInstance;
+  if (!map || !mapState.mapboxReady) return;
 
-  // Satellite toggle class
-  mapShell.classList.toggle('satellite-view', mapState.satelliteView);
+  updateMapboxMarkers();
+  updateMapboxRoute();
 
-  // Clear dynamic DOM elements and SVG route paths
-  mapShell.querySelectorAll('.map-dynamic').forEach(node => node.remove());
-  routeLayer.innerHTML = '';
+  const driverPos = mapState.lastPosition;
+  if (!driverPos) return;
 
-  const driverLat = Number(mapState.lastPosition?.lat ?? currentProfile?.lat);
-  const driverLng = Number(mapState.lastPosition?.lng ?? currentProfile?.lng);
-  const hasDriverLocation = Number.isFinite(driverLat) && Number.isFinite(driverLng);
-
-  // Initialise map centre on first render
-  if (!Number.isFinite(mapState.centerLat) || !Number.isFinite(mapState.centerLng)) {
-    const fallback = getLastKnownLocation() || { lat: DEFAULT_FALLBACK_LAT, lng: DEFAULT_FALLBACK_LNG };
-    mapState.centerLat = hasDriverLocation ? driverLat : fallback.lat;
-    mapState.centerLng = hasDriverLocation ? driverLng : fallback.lng;
-  }
-
-  // Follow mode: keep driver centred
-  if (hasDriverLocation && mapState.followMode) {
-    mapState.centerLat = driverLat;
-    mapState.centerLng = driverLng;
-    mapState.panX = 0;
-    mapState.panY = 0;
-  }
-
-  // Projection helper: lat/lng → {left%, top%}
-  // 50% is the map centre; -5/105 allow markers to render just outside the
-  // visible area so they don't abruptly appear/disappear at the edge.
-  const MAP_CENTER_PCT = 50;
-  const MAP_OVERFLOW_MIN = -5;
-  const MAP_OVERFLOW_MAX = 105;
-  const scale = BASE_PROJECTION_SCALE * Math.max(MIN_SCALE_MULTIPLIER, Math.min(MAX_SCALE_MULTIPLIER, 2 ** (mapState.zoom - REFERENCE_ZOOM_LEVEL)));
-  function project(lat, lng) {
-    const left = MAP_CENTER_PCT + ((Number(lng) - mapState.centerLng) * scale) + mapState.panX;
-    const top = MAP_CENTER_PCT - ((Number(lat) - mapState.centerLat) * scale) + mapState.panY;
-    return { left: Math.max(MAP_OVERFLOW_MIN, Math.min(MAP_OVERFLOW_MAX, left)), top: Math.max(MAP_OVERFLOW_MIN, Math.min(MAP_OVERFLOW_MAX, top)) };
-  }
-
-  const trackedRide = selectedRideForDetails || nearbyRideRequests[0] || null;
-
-  // ── Draw route polylines ──────────────────────────────────────────────────
-  if (hasDriverLocation && trackedRide) {
-    const driverPt = project(driverLat, driverLng);
-    const pickupPt = project(trackedRide.pickupLat, trackedRide.pickupLng);
-    const dropoffPt = project(trackedRide.dropoffLat, trackedRide.dropoffLng);
-
-    // Driver → Pickup (blue)
-    const toPickup = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    toPickup.setAttribute('x1', `${driverPt.left}%`);
-    toPickup.setAttribute('y1', `${driverPt.top}%`);
-    toPickup.setAttribute('x2', `${pickupPt.left}%`);
-    toPickup.setAttribute('y2', `${pickupPt.top}%`);
-    toPickup.setAttribute('stroke', '#0d6efd');
-    toPickup.setAttribute('stroke-width', '2.5');
-    toPickup.setAttribute('stroke-dasharray', '6 4');
-    toPickup.setAttribute('stroke-linecap', 'round');
-    routeLayer.appendChild(toPickup);
-
-    // Pickup → Dropoff (green)
-    const toDropoff = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    toDropoff.setAttribute('x1', `${pickupPt.left}%`);
-    toDropoff.setAttribute('y1', `${pickupPt.top}%`);
-    toDropoff.setAttribute('x2', `${dropoffPt.left}%`);
-    toDropoff.setAttribute('y2', `${dropoffPt.top}%`);
-    toDropoff.setAttribute('stroke', '#198754');
-    toDropoff.setAttribute('stroke-width', '2.5');
-    toDropoff.setAttribute('stroke-linecap', 'round');
-    routeLayer.appendChild(toDropoff);
-  }
-
-  // ── Accuracy circle ───────────────────────────────────────────────────────
-  const accuracy = mapState.lastPosition?.accuracy;
-  if (hasDriverLocation && Number.isFinite(accuracy) && accuracy > 0) {
-    const driverPt = project(driverLat, driverLng);
-    // accuracy in metres → degrees → scaled percentage
-    const accDeg = accuracy / 111000;
-    const accPct = accDeg * scale * 2; // diameter in %
-    const circle = document.createElement('div');
-    circle.className = 'accuracy-circle map-dynamic';
-    circle.style.left = `${driverPt.left}%`;
-    circle.style.top = `${driverPt.top}%`;
-    circle.style.width = `${accPct}%`;
-    circle.style.height = `${accPct}%`;
-    mapShell.appendChild(circle);
-  }
-
-  // ── Driver marker ─────────────────────────────────────────────────────────
-  const driverPt = project(
-    hasDriverLocation ? driverLat : DEFAULT_FALLBACK_LAT,
-    hasDriverLocation ? driverLng : DEFAULT_FALLBACK_LNG
-  );
-  const driverDot = document.createElement('div');
-  driverDot.className = 'point-driver map-dynamic';
-  driverDot.title = hasDriverLocation ? `You: ${formatCoordinate(driverLat, driverLng)}` : 'Your location (estimated)';
-  driverDot.style.left = `${driverPt.left}%`;
-  driverDot.style.top = `${driverPt.top}%`;
-  mapShell.appendChild(driverDot);
-
-  // Direction arrow (rotated to show heading)
-  const heading = mapState.lastPosition?.heading;
-  if (Number.isFinite(heading)) {
-    const arrow = document.createElement('div');
-    arrow.className = 'driver-arrow map-dynamic';
-    // Position arrow just above the driver dot
-    arrow.style.left = `${driverPt.left}%`;
-    arrow.style.top = `${driverPt.top}%`;
-    arrow.style.transform = `translate(-50%, calc(-100% - 10px)) rotate(${heading}deg)`;
-    mapShell.appendChild(arrow);
-  }
-
-  // ── Pickup pin ────────────────────────────────────────────────────────────
-  if (trackedRide) {
-    const pickupPt = project(trackedRide.pickupLat, trackedRide.pickupLng);
-    const pickupPin = document.createElement('div');
-    pickupPin.className = 'point-pickup map-dynamic';
-    pickupPin.title = `Pickup: ${formatCoordinate(trackedRide.pickupLat, trackedRide.pickupLng)}`;
-    pickupPin.style.left = `${pickupPt.left}%`;
-    pickupPin.style.top = `${pickupPt.top}%`;
-    mapShell.appendChild(pickupPin);
-
-    const pickupLabel = document.createElement('div');
-    pickupLabel.className = 'map-label map-dynamic';
-    pickupLabel.textContent = 'Pickup';
-    pickupLabel.style.left = `${pickupPt.left}%`;
-    pickupLabel.style.top = `${pickupPt.top - 4}%`;
-    mapShell.appendChild(pickupLabel);
-
-    // ── Dropoff pin ─────────────────────────────────────────────────────────
-    const dropoffPt = project(trackedRide.dropoffLat, trackedRide.dropoffLng);
-    const dropoffPin = document.createElement('div');
-    dropoffPin.className = 'point-dropoff map-dynamic';
-    dropoffPin.title = `Dropoff: ${formatCoordinate(trackedRide.dropoffLat, trackedRide.dropoffLng)}`;
-    dropoffPin.style.left = `${dropoffPt.left}%`;
-    dropoffPin.style.top = `${dropoffPt.top}%`;
-    mapShell.appendChild(dropoffPin);
-
-    const dropoffLabel = document.createElement('div');
-    dropoffLabel.className = 'map-label map-dynamic';
-    dropoffLabel.textContent = 'Dropoff';
-    dropoffLabel.style.left = `${dropoffPt.left}%`;
-    dropoffLabel.style.top = `${dropoffPt.top - 4}%`;
-    mapShell.appendChild(dropoffLabel);
-  }
-
-  // ── Nearby ride request dots ───────────────────────────────────────────────
-  const rejected = new Set(getRejectedRideIds());
-  nearbyRideRequests
-    .filter(ride => !rejected.has(ride.id) && ride !== trackedRide)
-    .slice(0, 8)
-    .forEach(ride => {
-      const pt = project(ride.pickupLat, ride.pickupLng);
-      if (pt.left < -4 || pt.left > 104 || pt.top < -4 || pt.top > 104) return;
-      const dot = document.createElement('div');
-      dot.className = 'point-nearby map-dynamic';
-      dot.title = `${ride.id} • ${formatCoordinate(ride.pickupLat, ride.pickupLng)}`;
-      dot.style.left = `${pt.left}%`;
-      dot.style.top = `${pt.top}%`;
-      mapShell.appendChild(dot);
+  if (mapState.followMode) {
+    map.easeTo({
+      center: [driverPos.lng, driverPos.lat],
+      bearing: Number.isFinite(driverPos.heading) ? driverPos.heading : 0,
+      duration: 120,
+      easing: t => t,
     });
-
-  // ── Caption ───────────────────────────────────────────────────────────────
-  if (hasDriverLocation) {
-    caption.textContent = `Driver at ${formatCoordinate(roundCoord(driverLat), roundCoord(driverLng))} · ${nearbyRideRequests.length} nearby request(s) · Zoom ${mapState.zoom}`;
-  } else {
-    caption.textContent = `Location pending · ${nearbyRideRequests.length} nearby request(s) (mock data)`;
   }
 }
 
@@ -1407,10 +1679,87 @@ async function loadDriverProfile() {
 }
 
 // ─── Ride Rendering ───────────────────────────────────────────────────────────
+function attachRideRequestSwipeControls(listDiv) {
+  listDiv.querySelectorAll('[data-swipe-accept]').forEach(control => {
+    const track = control.querySelector('.swipe-accept-track');
+    const thumb = control.querySelector('[data-swipe-thumb]');
+    const rideId = control.getAttribute('data-ride-id') || '';
+    const passengerName = control.getAttribute('data-passenger-name') || 'passenger';
+    if (!track || !thumb || !rideId) return;
+
+    let pointerId = null;
+    let currentOffset = 0;
+    let startX = 0;
+    const getMaxOffset = () => Math.max(track.clientWidth - thumb.clientWidth - SWIPE_ACCEPT_TRACK_PADDING, 0);
+    const resetSwipe = () => {
+      currentOffset = 0;
+      thumb.style.transform = 'translateX(0px)';
+      control.classList.remove('is-armed');
+    };
+    const updateSwipe = clientX => {
+      const maxOffset = getMaxOffset();
+      currentOffset = Math.max(0, Math.min(maxOffset, clientX - startX));
+      thumb.style.transform = `translateX(${currentOffset}px)`;
+      const progress = maxOffset > 0 ? currentOffset / maxOffset : 0;
+      control.classList.toggle('is-armed', progress >= SWIPE_ACCEPT_THRESHOLD);
+    };
+    const commitSwipe = async () => {
+      const maxOffset = getMaxOffset();
+      thumb.style.transform = `translateX(${maxOffset}px)`;
+      control.classList.add('is-armed');
+      await acceptRideById(rideId);
+      resetSwipe();
+    };
+    const finalizeSwipe = async event => {
+      if (pointerId !== event.pointerId) return;
+      const maxOffset = getMaxOffset();
+      const progress = maxOffset > 0 ? currentOffset / maxOffset : 0;
+      const shouldAccept = progress >= SWIPE_ACCEPT_THRESHOLD;
+      pointerId = null;
+      thumb.releasePointerCapture?.(event.pointerId);
+      if (shouldAccept) {
+        await commitSwipe();
+      } else {
+        resetSwipe();
+      }
+    };
+
+    resetSwipe();
+    track.tabIndex = 0;
+    track.setAttribute('role', 'button');
+    track.setAttribute('aria-label', `Swipe to accept ride request from ${passengerName}`);
+
+    thumb.addEventListener('pointerdown', event => {
+      if (acceptingRideIds.has(rideId)) return;
+      pointerId = event.pointerId;
+      startX = event.clientX - currentOffset;
+      thumb.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+    thumb.addEventListener('pointermove', event => {
+      if (pointerId !== event.pointerId) return;
+      updateSwipe(event.clientX);
+    });
+    thumb.addEventListener('pointerup', event => {
+      finalizeSwipe(event).catch(() => {});
+    });
+    thumb.addEventListener('pointercancel', event => {
+      finalizeSwipe(event).catch(() => {});
+    });
+    track.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      if (acceptingRideIds.has(rideId)) return;
+      commitSwipe().catch(() => {});
+    });
+  });
+}
+
 function renderAvailableRideRequests() {
   const listDiv = document.getElementById('available-rides');
   const rejected = new Set(getRejectedRideIds());
   const rides = nearbyRideRequests.filter(ride => !rejected.has(ride.id));
+  pruneRideRequestState(rides);
 
   if (!rides.length) {
     listDiv.innerHTML = '<div class="text-muted">No available ride requests right now.</div>';
@@ -1420,13 +1769,29 @@ function renderAvailableRideRequests() {
   }
 
   listDiv.innerHTML = rides.map(ride => `
-    <div class="ride-item">
+    <div class="ride-item incoming-request" data-ride-request-card data-ride-id="${escapeHtml(ride.id)}">
       <div class="ride-item-top">
-        <div>
-          <div class="ride-passenger">${escapeHtml(ride.passengerName || 'Passenger')}</div>
-          <div class="ride-id">${escapeHtml(ride.id)} &bull; ${Number(ride.passengerRating || 0).toFixed(1)} &star;</div>
+        <div class="ride-request-passenger">
+          <img class="passenger-photo" src="${escapeHtml(getPassengerPhotoUrl(ride))}" alt="${escapeHtml(`${ride.passengerName || 'Passenger'} photo`)}">
+          <div>
+            <div class="ride-passenger">${escapeHtml(ride.passengerName || 'Passenger')}</div>
+            <div class="ride-id">${escapeHtml(ride.id)} &bull; ${Number(ride.passengerRating || 0).toFixed(1)} &star;</div>
+          </div>
         </div>
-        <span class="ride-status">${escapeHtml(ride.status)}</span>
+        <div class="ride-request-status">
+          <span class="countdown-pill" data-request-countdown data-expires-at="${getRideRequestExpiryTimestamp(ride)}"><i class="bi bi-stopwatch"></i> 00:00</span>
+          <span class="ride-status">${escapeHtml(ride.status)}</span>
+        </div>
+      </div>
+      <div class="ride-request-highlights">
+        <div class="ride-meta ride-meta-highlight">
+          <span>Estimated earnings</span>
+          <strong>$${Number(ride.estimatedEarnings || 0).toFixed(2)}</strong>
+        </div>
+        <div class="ride-meta ride-meta-highlight">
+          <span>Pickup distance</span>
+          <strong>${escapeHtml(formatDistance(getRidePickupDistanceKm(ride)))}</strong>
+        </div>
       </div>
       <div class="ride-route">
         <span><i class="bi bi-geo-alt"></i> Pickup</span>
@@ -1447,6 +1812,15 @@ function renderAvailableRideRequests() {
             <strong>${Number(ride.minutes || 0)} mins</strong>
           </div>
         </div>
+        <span class="ride-request-pill"><i class="bi bi-broadcast-pin"></i> Live incoming request</span>
+      </div>
+      <div class="swipe-accept" data-swipe-accept data-ride-id="${escapeHtml(ride.id)}" data-passenger-name="${escapeHtml(ride.passengerName || 'Passenger')}">
+        <div class="swipe-accept-track">
+          <span class="swipe-accept-label"><i class="bi bi-chevron-double-right"></i> Swipe accept</span>
+          <button class="swipe-accept-thumb" data-swipe-thumb type="button" aria-label="Accept ride request"><i class="bi bi-arrow-right"></i></button>
+        </div>
+      </div>
+      <div class="ride-footer mt-3">
         <button class="secondary-action choose-ride-button" data-ride-id="${escapeHtml(ride.id)}">Use Ride ID</button>
       </div>
     </div>
@@ -1460,6 +1834,8 @@ function renderAvailableRideRequests() {
     });
   });
 
+  attachRideRequestSwipeControls(listDiv);
+  updateRideRequestCountdowns();
   queueMapRender();
 }
 
@@ -1472,6 +1848,19 @@ async function loadAvailableRideRequests() {
       nearbyRideRequests = data.rides
         .filter(ride => ['requested', 'accepted', 'started'].includes(ride.status))
         .map(normalizeRide);
+      const nextRideIds = new Set(nearbyRideRequests.map(ride => ride.id));
+      const newRideRequests = nearbyRideRequests.filter(ride => !knownRideRequestIds.has(ride.id));
+      if (rideRequestFeedInitialized && newRideRequests.length) {
+        playIncomingRideAlert().catch(() => {});
+        showAlert(
+          'info',
+          newRideRequests.length === 1
+            ? `Incoming ride request from ${newRideRequests[0].passengerName || 'Passenger'}.`
+            : `${newRideRequests.length} incoming ride requests are waiting.`
+        );
+      }
+      knownRideRequestIds = nextRideIds;
+      rideRequestFeedInitialized = true;
       cacheRealtimeSection('activeRides', nearbyRideRequests);
       publishRealtimeSnapshot('rides', data.rides).catch(() => {});
     } else {
@@ -1585,11 +1974,16 @@ function closeRideDetailsModal() {
   queueMapRender();
 }
 
-async function handleAcceptRide(event) {
-  event.preventDefault();
+async function acceptRideById(rawRideId) {
+  const rideId = String(rawRideId || '').trim();
+  if (!rideId) return false;
+  if (acceptingRideIds.has(rideId)) {
+    showAlert('info', `Ride ${rideId} is already being accepted.`);
+    return false;
+  }
   const rideIdInput = document.getElementById('ride-id-input');
-  const rideId = rideIdInput.value.trim();
-  if (!rideId) return;
+  if (rideIdInput) rideIdInput.value = rideId;
+  acceptingRideIds.add(rideId);
   try {
     const { data } = await fetchJson(`${API_BASE_URL}/api/rides/accept`, {
       method: 'POST',
@@ -1601,16 +1995,30 @@ async function handleAcceptRide(event) {
     });
     if (!data?.ok) {
       showAlert('danger', data.error || 'Unable to accept ride.');
-      return;
+      return false;
     }
     showAlert('success', `Ride ${rideId} accepted.`);
     const acceptedRide = getRideById(rideId) || normalizeRide({ id: rideId, status: 'accepted' }, 0);
     renderRideDetailsModal(acceptedRide);
     await Promise.all([loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
-    event.target.reset();
+    document.getElementById('accept-ride-form')?.reset();
+    return true;
   } catch (_error) {
     showAlert('danger', 'Unable to accept ride.');
+    return false;
+  } finally {
+    acceptingRideIds.delete(rideId);
   }
+}
+
+async function handleAcceptRide(event) {
+  event.preventDefault();
+  const rideId = document.getElementById('ride-id-input').value.trim();
+  if (!rideId) {
+    showAlert('warning', 'Please enter a ride ID.');
+    return;
+  }
+  await acceptRideById(rideId);
 }
 
 function handleRejectRide() {
@@ -1974,12 +2382,12 @@ function setupMapControls() {
     mapState.followMode = !mapState.followMode;
     const btn = document.getElementById('follow-mode-button');
     if (mapState.followMode) {
-      btn.innerHTML = '<i class="bi bi-geo-alt-fill"></i> Follow: ON';
+      btn.innerHTML = '<i class="bi bi-geo-alt-fill"></i> Follow Driver: ON';
       btn.classList.replace('btn-outline-primary', 'btn-primary');
       mapState.panX = 0;
       mapState.panY = 0;
     } else {
-      btn.innerHTML = '<i class="bi bi-geo-alt"></i> Follow: OFF';
+      btn.innerHTML = '<i class="bi bi-geo-alt"></i> Follow Driver: OFF';
       btn.classList.replace('btn-primary', 'btn-outline-primary');
     }
     queueMapRender();
@@ -1991,23 +2399,35 @@ function setupMapControls() {
     const btn = document.getElementById('satellite-toggle-button');
     btn.classList.toggle('btn-secondary', mapState.satelliteView);
     btn.classList.toggle('btn-outline-secondary', !mapState.satelliteView);
+    applyMapboxStyle();
     queueMapRender();
   });
 
   // Zoom in
   document.getElementById('zoom-in-button').addEventListener('click', () => {
-    mapState.zoom = Math.min(20, mapState.zoom + 1);
+    if (mapState.mapboxInstance) {
+      mapState.mapboxInstance.zoomIn({ duration: 250 });
+      mapState.zoom = Math.min(20, mapState.mapboxInstance.getZoom() + 1);
+    } else {
+      mapState.zoom = Math.min(20, mapState.zoom + 1);
+    }
     queueMapRender();
   });
 
   // Zoom out
   document.getElementById('zoom-out-button').addEventListener('click', () => {
-    mapState.zoom = Math.max(10, mapState.zoom - 1);
+    if (mapState.mapboxInstance) {
+      mapState.mapboxInstance.zoomOut({ duration: 250 });
+      mapState.zoom = Math.max(10, mapState.mapboxInstance.getZoom() - 1);
+    } else {
+      mapState.zoom = Math.max(10, mapState.zoom - 1);
+    }
     queueMapRender();
   });
 
   // Mouse wheel zoom on map
   document.getElementById('map-shell').addEventListener('wheel', event => {
+    if (mapState.mapboxInstance) return;
     event.preventDefault();
     mapState.zoom = Math.max(10, Math.min(20, mapState.zoom + (event.deltaY < 0 ? 1 : -1)));
     queueMapRender();
@@ -2019,6 +2439,7 @@ function setupMapControls() {
     && typeof shell.releasePointerCapture === 'function'
     && typeof shell.hasPointerCapture === 'function';
   shell.addEventListener('pointerdown', event => {
+    if (mapState.mapboxInstance) return;
     if (mapState.activePointerId !== null && mapState.activePointerId !== event.pointerId) return;
     mapState.isDragging = true;
     mapState.activePointerId = event.pointerId;
@@ -2031,6 +2452,7 @@ function setupMapControls() {
     }
   });
   window.addEventListener('pointermove', event => {
+    if (mapState.mapboxInstance) return;
     if (!mapState.isDragging) return;
     if (mapState.activePointerId !== event.pointerId) return;
     mapState.panX += event.clientX - mapState.dragStartX;
@@ -2061,6 +2483,19 @@ function setupMapControls() {
 
   // GPS simulation
   document.getElementById('simulate-gps-button').addEventListener('click', toggleGpsSimulation);
+  document.getElementById('mapbox-token-save')?.addEventListener('click', () => {
+    const input = document.getElementById('mapbox-token-input');
+    const token = String(input?.value || '').trim();
+    if (!token) return;
+    mapState.mapboxToken = token;
+    localStorage.setItem(MAPBOX_TOKEN_STORAGE_KEY, token);
+    showMapTokenOverlay(false);
+    initializeMapbox().then(() => {
+      routeCache.cachedAt = 0;
+      recalculateRouteData().catch(() => {});
+      queueMapRender();
+    });
+  });
 }
 
 // ─── Periodic UI Refresh ──────────────────────────────────────────────────────
@@ -2069,6 +2504,7 @@ function startUiRefreshLoop() {
   window.setInterval(() => {
     if (mapState.lastUpdateAt) updateMapUiReadouts();
   }, 5000);
+  startRideRequestCountdowns();
 }
 
 // ─── Page Lifecycle ───────────────────────────────────────────────────────────
@@ -2101,6 +2537,9 @@ window.addEventListener('load', async () => {
   }
 
   // Wire up static UI controls
+  document.addEventListener('pointerdown', () => {
+    primeIncomingRideAudio().catch(() => {});
+  }, { once: true });
   document.getElementById('logout-button').addEventListener('click', handleLogout);
   document.getElementById('accept-ride-form').addEventListener('submit', handleAcceptRide);
   document.getElementById('reject-ride-button').addEventListener('click', handleRejectRide);
@@ -2121,6 +2560,14 @@ window.addEventListener('load', async () => {
 
   // Map controls
   setupMapControls();
+  mapState.mapboxToken = readMapboxToken();
+  const mapboxTokenInput = document.getElementById('mapbox-token-input');
+  if (mapboxTokenInput && mapState.mapboxToken) {
+    mapboxTokenInput.value = mapState.mapboxToken;
+  }
+  if (!mapState.mapboxToken) {
+    showMapTokenOverlay(true);
+  }
 
   document.getElementById('driver-role').textContent = `Role: ${String(currentUser.role || 'driver').toUpperCase()}`;
   setActivePane('map');
@@ -2142,11 +2589,13 @@ window.addEventListener('load', async () => {
   window.addEventListener('beforeunload', () => {
     stopLocationTracking();
     if (gpsSimulationIntervalId !== null) window.clearInterval(gpsSimulationIntervalId);
+    if (rideRequestCountdownIntervalId !== null) window.clearInterval(rideRequestCountdownIntervalId);
     if (wakeLockSentinel && typeof wakeLockSentinel.release === 'function') wakeLockSentinel.release().catch(() => {});
   });
 
   // Load data
   await Promise.all([loadDriverProfile(), loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
+  await initializeMapbox();
   await ensureDriverLocation();
   await requestWakeLock();
   startUiRefreshLoop();
