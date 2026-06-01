@@ -359,7 +359,7 @@ export async function location(body: any, _params?: any, _query?: any) {
   const updatedAt = timestamp();
   profile.lat = lat;
   profile.lng = lng;
-  (profile as any).lastLocationUpdatedAt = updatedAt;
+  profile.lastLocationUpdatedAt = updatedAt;
   markStoreDirty();
   publishDriverRealtimeLocation(userId);
   return { module: 'drivers', action: 'location', ok: true, profile };

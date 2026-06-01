@@ -40,7 +40,7 @@ function getDriverRealtimeLocation(driverId: string): DriverRealtimeLocation | n
   const lat = Number(profile?.lat);
   const lng = Number(profile?.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  const locationUpdatedAt = (profile as any)?.lastLocationUpdatedAt || timestamp();
+  const locationUpdatedAt = profile?.lastLocationUpdatedAt || timestamp();
   return {
     lat,
     lng,
@@ -58,11 +58,16 @@ function getDriverRealtimeRides(driverId: string): DriverRealtimeRide[] {
 function getDriverRealtimeEarnings(driverId: string): DriverRealtimeEarnings {
   const rideEarnings = store.walletTx
     .filter(tx => tx.userId === driverId && tx.kind === 'credit' && tx.reason.startsWith('ride:') && tx.reason.endsWith(':payout'))
-    .map(tx => ({
-      rideId: tx.reason.split(':')[1],
-      amountCents: tx.amountCents,
-      createdAt: tx.createdAt
-    }))
+    .map(tx => {
+      const [, rideId] = tx.reason.split(':');
+      if (!rideId) return null;
+      return {
+        rideId,
+        amountCents: tx.amountCents,
+        createdAt: tx.createdAt
+      };
+    })
+    .filter(Boolean)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   return {
     earningsCents: rideEarnings.reduce((sum, tx) => sum + tx.amountCents, 0),

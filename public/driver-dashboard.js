@@ -370,16 +370,25 @@ function clearRealtimeConnections() {
 }
 
 function startSocketRealtimeSync() {
-  if (typeof window.io !== 'function' || !accessToken) return false;
-  realtimeSocket = window.io({
-    auth: { token: accessToken }
-  });
+  if (!accessToken) return false;
+  if (typeof window.io === 'undefined') {
+    setRealtimeStatus('Realtime websocket client unavailable. Falling back to cached sync.', 'warning');
+    return false;
+  }
+  try {
+    realtimeSocket = window.io({
+      auth: { token: accessToken }
+    });
+  } catch (_error) {
+    setRealtimeStatus('Realtime websocket failed to initialize. Falling back to cached sync.', 'warning');
+    return false;
+  }
   realtimeSocket.on('connect', () => {
     realtimeSocket.emit('dispatch:subscribe');
     setRealtimeStatus('Realtime dispatch connected.', 'success');
   });
   realtimeSocket.on('dispatch:rides', payload => {
-    applyRealtimeRides(payload?.items || payload);
+    applyRealtimeRides(payload?.items ?? payload);
   });
   realtimeSocket.on('dispatch:earnings', payload => {
     applyRealtimeEarnings(payload);
@@ -387,10 +396,16 @@ function startSocketRealtimeSync() {
   realtimeSocket.on('dispatch:location', payload => {
     applyRealtimeLocation(payload);
   });
+  realtimeSocket.on('connect_error', () => {
+    setRealtimeStatus('Realtime dispatch connection failed. Using cached sync fallback.', 'warning');
+  });
   realtimeSocket.on('disconnect', () => {
-    if (navigator.onLine) {
-      setRealtimeStatus('Realtime dispatch disconnected. Using cached sync fallback.', 'warning');
-    }
+    setRealtimeStatus(
+      navigator.onLine
+        ? 'Realtime dispatch disconnected. Using cached sync fallback.'
+        : 'Offline mode: realtime dispatch paused while your device is offline.',
+      'warning'
+    );
   });
   return true;
 }
