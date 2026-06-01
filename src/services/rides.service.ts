@@ -88,10 +88,10 @@ function buildFareDetails(miles: number, minutes: number) {
 
 function getRideAvailableActions(ride: Ride) {
   return {
-    canCancel: ride.status === 'requested' || ride.status === 'accepted',
+    canCancel: ride.status === 'requested' || ride.status === 'accepted' || ride.status === 'arrived_at_pickup',
     canRate: ride.status === 'completed' && typeof ride.rating !== 'number',
     canViewReceipt: ride.status === 'completed' || ride.status === 'canceled',
-    canTrackDriver: ride.status === 'accepted' || ride.status === 'started'
+    canTrackDriver: ride.status === 'accepted' || ride.status === 'arrived_at_pickup' || ride.status === 'started'
   };
 }
 
@@ -388,12 +388,26 @@ export async function accept(body: any, _params?: any, _query?: any) {
   return { module: 'rides', action: 'accept', ok: true, ride };
 }
 
+export async function arrive(body: any, _params?: any, _query?: any) {
+  const ride = getRide(body?.rideId);
+  if (!ride) return { module: 'rides', action: 'arrive', error: 'ride not found' };
+  const driverId = getDriverId(body);
+  if (!driverId || ride.driverId !== driverId) return { module: 'rides', action: 'arrive', error: 'only assigned driver can mark arrival' };
+  if (ride.status !== 'accepted') return { module: 'rides', action: 'arrive', error: 'ride must be accepted to mark arrival' };
+  const now = timestamp();
+  ride.status = 'arrived_at_pickup';
+  ride.arrivedAt = now;
+  ride.waitingSince = now;
+  appendRideEvent(ride, 'driver_arrived', 'Driver arrived', 'Your driver has arrived at the pickup point.', 'driver', driverId, now);
+  return { module: 'rides', action: 'arrive', ok: true, ride, arrivedAt: now };
+}
+
 export async function start(body: any, _params?: any, _query?: any) {
   const ride = getRide(body?.rideId);
   if (!ride) return { module: 'rides', action: 'start', error: 'ride not found' };
   const driverId = getDriverId(body);
   if (!driverId || ride.driverId !== driverId) return { module: 'rides', action: 'start', error: 'only assigned driver can start ride' };
-  if (ride.status !== 'accepted') return { module: 'rides', action: 'start', error: 'ride not accepted' };
+  if (ride.status !== 'accepted' && ride.status !== 'arrived_at_pickup') return { module: 'rides', action: 'start', error: 'ride not accepted' };
   ride.status = 'started';
   appendRideEvent(ride, 'passenger_onboard', 'Passenger onboard', 'Passenger has been picked up and the trip is now in progress.', 'driver', driverId);
   await pushRideNotification(
@@ -464,6 +478,65 @@ export async function complete(body: any, _params?: any, _query?: any) {
   return { module: 'rides', action: 'complete', ok: true, ride, grossCents, discountCents, amountCents, receipt: getRideReceipt(ride) };
 }
 
+export async function noShow(body: any, _params?: any, _query?: any) {
+  const ride = getRide(body?.rideId);
+  if (!ride) return { module: 'rides', action: 'no-show', error: 'ride not found' };
+  const driverId = getDriverId(body);
+  if (!driverId || ride.driverId !== driverId) return { module: 'rides', action: 'no-show', error: 'only assigned driver can report no-show' };
+  if (ride.status !== 'arrived_at_pickup') return { module: 'rides', action: 'no-show', error: 'driver must be at pickup to report no-show' };
+  const now = timestamp();
+  ride.status = 'canceled';
+  ride.canceledAt = now;
+  ride.cancellationReason = 'rider_no_show';
+  ride.cancellationActorRole = 'driver';
+  ride.noShowReportedAt = now;
+  appendRideEvent(ride, 'rider_no_show', 'Rider no-show', 'Driver waited at pickup but rider did not appear.', 'driver', driverId, now);
+  if (ride.driverId) releaseDriverFromRide(ride.driverId);
+  return {
+    module: 'rides',
+    action: 'no-show',
+    ok: true,
+    ride,
+    cancellation: {
+      canceledAt: now,
+      cancellationReason: 'rider_no_show',
+      cancellationActorRole: 'driver',
+      cancellationFeeCents: 0
+    }
+  };
+}
+
+export async function driverCancel(body: any, _params?: any, _query?: any) {
+  const ride = getRide(body?.rideId);
+  if (!ride) return { module: 'rides', action: 'driver-cancel', error: 'ride not found' };
+  const driverId = getDriverId(body);
+  if (!driverId || ride.driverId !== driverId) return { module: 'rides', action: 'driver-cancel', error: 'only assigned driver can cancel ride' };
+  if (ride.status === 'canceled') return { module: 'rides', action: 'driver-cancel', error: 'ride already canceled' };
+  if (ride.status === 'completed') return { module: 'rides', action: 'driver-cancel', error: 'cannot cancel completed ride' };
+  if (ride.status === 'started') return { module: 'rides', action: 'driver-cancel', error: 'cannot cancel ride in progress' };
+  const reason: string = typeof body?.reason === 'string' && body.reason.trim() ? body.reason.trim() : 'canceled_by_driver';
+  const now = timestamp();
+  ride.status = 'canceled';
+  ride.canceledAt = now;
+  ride.cancellationReason = reason;
+  ride.cancellationActorRole = 'driver';
+  appendRideEvent(ride, 'ride_canceled', 'Ride canceled by driver', `Driver canceled the ride: ${reason}.`, 'driver', driverId, now);
+  releaseDriverFromRide(driverId);
+  return {
+    module: 'rides',
+    action: 'driver-cancel',
+    ok: true,
+    ride,
+    cancellation: {
+      canceledAt: now,
+      cancellationReason: reason,
+      cancellationActorRole: 'driver',
+      cancellationFeeCents: 0
+    },
+    receipt: getRideReceipt(ride)
+  };
+}
+
 export async function cancel(body: any, _params?: any, _query?: any) {
   const ride = getRide(body?.rideId);
   if (!ride) return { module: 'rides', action: 'cancel', error: 'ride not found' };
@@ -475,6 +548,7 @@ export async function cancel(body: any, _params?: any, _query?: any) {
   ride.status = 'canceled';
   ride.canceledAt = timestamp();
   ride.cancellationReason = body?.reason || 'canceled_by_rider';
+  ride.cancellationActorRole = 'rider';
   appendRideEvent(ride, 'ride_canceled', 'Ride canceled', 'Your ride was canceled before pickup.', 'rider', riderId, ride.canceledAt);
   await pushRideNotification(
     ride.riderId,

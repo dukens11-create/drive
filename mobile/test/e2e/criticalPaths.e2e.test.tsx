@@ -120,6 +120,10 @@ describe('critical path e2e flows', () => {
         setOnline: jest.fn(),
         updatePreferences: jest.fn(),
         refreshData: jest.fn(),
+        waitingSeconds: 0,
+        arriveAtPickup: jest.fn(),
+        reportNoShow: jest.fn(),
+        cancelTrip: jest.fn(),
       });
 
     const requestCard = render(<RideRequestCard />);
@@ -165,6 +169,10 @@ describe('critical path e2e flows', () => {
         setOnline: jest.fn(),
         updatePreferences: jest.fn(),
         refreshData: jest.fn(),
+        waitingSeconds: 0,
+        arriveAtPickup: jest.fn(),
+        reportNoShow: jest.fn(),
+        cancelTrip: jest.fn(),
       });
 
     const tripCard = render(<RideRequestCard />);

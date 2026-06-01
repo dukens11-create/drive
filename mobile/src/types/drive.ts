@@ -1,4 +1,4 @@
-export type DriverStatus = 'offline' | 'onboarding' | 'waiting' | 'accepted' | 'in-progress' | 'completed';
+export type DriverStatus = 'offline' | 'onboarding' | 'waiting' | 'accepted' | 'arrived_at_pickup' | 'in-progress' | 'completed';
 
 export type RideType = 'standard' | 'comfort' | 'xl';
 export type DirectionPreference = 'any' | 'toward_downtown' | 'away_from_downtown';
@@ -63,11 +63,12 @@ export type RideRequest = {
 };
 
 export type ActiveTrip = Omit<RideRequest, 'expiresAt'> & {
-  status: Extract<DriverStatus, 'accepted' | 'in-progress' | 'completed'>;
+  status: Extract<DriverStatus, 'accepted' | 'arrived_at_pickup' | 'in-progress' | 'completed'>;
   rideId: string;
   timeline: Array<{ id: string; title: string; message: string; createdAt: string }>;
   passengerRating?: number;
   passengerReview?: string;
+  waitingSince?: string;
 };
 
 export type RideHistoryItem = {

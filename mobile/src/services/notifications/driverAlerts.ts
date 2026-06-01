@@ -3,29 +3,45 @@ import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import { AppState, Platform, Vibration } from 'react-native';
 
-type DriverAlertKind = 'incoming-request' | 'accepted' | 'trip-started' | 'trip-ended';
+type DriverAlertKind =
+  | 'incoming-request'
+  | 'accepted'
+  | 'driver-arrived'
+  | 'trip-started'
+  | 'trip-ended'
+  | 'rider-no-show'
+  | 'trip-canceled';
 
 const driverAlertSound = require('../../../assets/sounds/incoming-request.wav');
 
 const foregroundSounds: Record<DriverAlertKind, number | null> = {
   'incoming-request': driverAlertSound,
   accepted: driverAlertSound,
+  'driver-arrived': null,
   'trip-started': driverAlertSound,
   'trip-ended': driverAlertSound,
+  'rider-no-show': null,
+  'trip-canceled': null,
 };
 
 const vibrationPatterns: Record<DriverAlertKind, number[] | number> = {
   'incoming-request': [0, 350, 180, 350],
   accepted: 80,
+  'driver-arrived': 80,
   'trip-started': [0, 120, 80, 120],
   'trip-ended': [0, 180, 60, 180, 60, 180],
+  'rider-no-show': [0, 200, 100, 200],
+  'trip-canceled': [0, 200, 100, 200],
 };
 
 const notificationSounds: Record<DriverAlertKind, 'default' | 'incoming-request.wav'> = {
   'incoming-request': 'incoming-request.wav',
   accepted: 'default',
+  'driver-arrived': 'default',
   'trip-started': 'default',
   'trip-ended': 'default',
+  'rider-no-show': 'default',
+  'trip-canceled': 'default',
 };
 
 let audioModeReady = false;

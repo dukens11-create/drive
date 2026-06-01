@@ -14,12 +14,24 @@ export const ridesApi = {
     return apiClient.post<ApiEnvelope<{ ride: RideSummary }>>('/api/rides/accept', { rideId }, { auth: true });
   },
 
+  arrive(rideId: string) {
+    return apiClient.post<ApiEnvelope<{ ride: RideSummary; arrivedAt: string }>>('/api/rides/arrive', { rideId }, { auth: true });
+  },
+
   start(rideId: string) {
     return apiClient.post<ApiEnvelope<{ ride: RideSummary }>>('/api/rides/start', { rideId }, { auth: true });
   },
 
   complete(rideId: string) {
     return apiClient.post<ApiEnvelope<{ ride: RideSummary }>>('/api/rides/complete', { rideId }, { auth: true });
+  },
+
+  noShow(rideId: string) {
+    return apiClient.post<ApiEnvelope<{ ride: RideSummary }>>('/api/rides/no-show', { rideId }, { auth: true });
+  },
+
+  driverCancel(rideId: string, reason?: string) {
+    return apiClient.post<ApiEnvelope<{ ride: RideSummary }>>('/api/rides/driver-cancel', { rideId, reason }, { auth: true });
   },
 
   message(rideId: string, message: string) {

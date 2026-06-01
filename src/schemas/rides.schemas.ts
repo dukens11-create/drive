@@ -28,6 +28,11 @@ export const rideStartCompleteCancelSchema = z.object({
   rideId: z.string().min(1)
 }).passthrough();
 
+export const rideDriverCancelSchema = z.object({
+  rideId: z.string().min(1),
+  reason: z.string().trim().max(200).optional()
+}).passthrough();
+
 export const rideRateSchema = z.object({
   rideId: z.string().min(1),
   rating: z.number().min(1).max(5),

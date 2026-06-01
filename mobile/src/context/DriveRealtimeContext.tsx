@@ -25,6 +25,7 @@ type DriveContextValue = {
   rideHistory: RideHistoryItem[];
   notifications: Array<{ id: string; title: string; body: string; createdAt: string }>;
   requestTimeLeft: number;
+  waitingSeconds: number;
   isLoading: boolean;
   error: string | null;
   onboardingRequired: boolean;
@@ -34,6 +35,9 @@ type DriveContextValue = {
   acceptRequest: () => Promise<void>;
   declineRequest: () => void;
   advanceTrip: () => Promise<void>;
+  arriveAtPickup: () => Promise<void>;
+  reportNoShow: () => Promise<void>;
+  cancelTrip: (reason?: string) => Promise<void>;
   refreshData: () => Promise<void>;
 };
 
@@ -144,7 +148,14 @@ const isDriverOnlineState = (availabilityStatus: 'offline' | 'online' | 'assigne
   availabilityStatus === 'online' || availabilityStatus === 'assigned';
 
 const mapRideToActiveTrip = (ride: RideSummary): ActiveTrip => {
-  const backendStatus = ride.status === 'started' ? 'in-progress' : ride.status === 'accepted' ? 'accepted' : 'completed';
+  const backendStatus =
+    ride.status === 'started'
+      ? 'in-progress'
+      : ride.status === 'arrived_at_pickup'
+        ? 'arrived_at_pickup'
+        : ride.status === 'accepted'
+          ? 'accepted'
+          : 'completed';
   return {
     rideId: ride.id,
     id: ride.id,
@@ -171,6 +182,7 @@ const mapRideToActiveTrip = (ride: RideSummary): ActiveTrip => {
     timeline: (ride.events ?? []).map((event) => ({ id: event.id, title: event.title, message: event.message, createdAt: event.createdAt })),
     passengerRating: ride.passengerRating,
     passengerReview: ride.passengerReview,
+    waitingSince: ride.waitingSince,
   };
 };
 
@@ -245,23 +257,31 @@ const mapRequestToMockTrip = (request: RideRequest): ActiveTrip => {
 const appendMockTripEvent = (trip: ActiveTrip, nextStatus: ActiveTrip['status']): ActiveTrip => {
   const createdAt = new Date().toISOString();
   const nextEvent =
-    nextStatus === 'in-progress'
+    nextStatus === 'arrived_at_pickup'
       ? {
-          id: `${trip.rideId}-started-${trip.timeline.length + 1}`,
-          title: 'Rider onboard',
-          message: `Trip started toward ${trip.dropoffAddress}.`,
+          id: `${trip.rideId}-arrived-${trip.timeline.length + 1}`,
+          title: 'Arrived at pickup',
+          message: `Waiting for ${trip.riderName} at pickup.`,
           createdAt,
         }
-      : {
-          id: `${trip.rideId}-completed-${trip.timeline.length + 1}`,
-          title: 'Dropoff complete',
-          message: 'Trip complete. Earnings are ready and you can go back online for the next request.',
-          createdAt,
-        };
+      : nextStatus === 'in-progress'
+        ? {
+            id: `${trip.rideId}-started-${trip.timeline.length + 1}`,
+            title: 'Rider onboard',
+            message: `Trip started toward ${trip.dropoffAddress}.`,
+            createdAt,
+          }
+        : {
+            id: `${trip.rideId}-completed-${trip.timeline.length + 1}`,
+            title: 'Dropoff complete',
+            message: 'Trip complete. Earnings are ready and you can go back online for the next request.',
+            createdAt,
+          };
 
   return {
     ...trip,
     status: nextStatus,
+    waitingSince: nextStatus === 'arrived_at_pickup' ? createdAt : trip.waitingSince,
     timeline: [...trip.timeline, nextEvent],
   };
 };
@@ -297,6 +317,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
   const [rideHistory, setRideHistory] = useState<RideHistoryItem[]>([]);
   const [notifications, setNotifications] = useState<DriverNotification[]>([]);
   const [requestTimeLeft, setRequestTimeLeft] = useState(0);
+  const [waitingSeconds, setWaitingSeconds] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [onboardingRequired, setOnboardingRequired] = useState(false);
@@ -641,6 +662,20 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
   }, [activeRequest]);
 
   useEffect(() => {
+    if (activeTrip?.status !== 'arrived_at_pickup' || !activeTrip.waitingSince) {
+      setWaitingSeconds(0);
+      return;
+    }
+    const waitingStart = Date.parse(activeTrip.waitingSince);
+    const updateWaiting = () => {
+      setWaitingSeconds(Math.floor((Date.now() - waitingStart) / 1000));
+    };
+    updateWaiting();
+    const waitInterval = setInterval(updateWaiting, 1000);
+    return () => clearInterval(waitInterval);
+  }, [activeTrip?.status, activeTrip?.waitingSince]);
+
+  useEffect(() => {
     if (!activeRequest || lastIncomingRequestIdRef.current === activeRequest.id) {
       return;
     }
@@ -794,6 +829,10 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
     try {
       if (activeTrip.rideId.startsWith(MOCK_REQUEST_PREFIX)) {
         if (activeTrip.status === 'accepted') {
+          trackDriverEvent('trip_status_advanced', { rideId: activeTrip.rideId, nextStatus: 'arrived_at_pickup', mock: true });
+          setMockActiveTrip(appendMockTripEvent(activeTrip, 'arrived_at_pickup'));
+          toStatus = 'arrived_at_pickup';
+        } else if (activeTrip.status === 'arrived_at_pickup') {
           trackDriverEvent('trip_status_advanced', { rideId: activeTrip.rideId, nextStatus: 'in-progress', mock: true });
           setMockActiveTrip(appendMockTripEvent(activeTrip, 'in-progress'));
           toStatus = 'in-progress';
@@ -806,6 +845,11 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
           toStatus = 'cleared';
         }
       } else if (activeTrip.status === 'accepted') {
+        await ridesApi.arrive(activeTrip.rideId);
+        trackDriverEvent('trip_status_advanced', { rideId: activeTrip.rideId, nextStatus: 'arrived_at_pickup', mock: false });
+        await sendDriverAlert('driver-arrived', 'Arrived at pickup', `Waiting for ${activeTrip.riderName}.`);
+        toStatus = 'arrived_at_pickup';
+      } else if (activeTrip.status === 'arrived_at_pickup') {
         await ridesApi.start(activeTrip.rideId);
         suppressedTripAlertRef.current = buildSuppressedTripAlertKey(activeTrip.rideId, 'in-progress');
         trackDriverEvent('trip_status_advanced', { rideId: activeTrip.rideId, nextStatus: 'in-progress', mock: false });
@@ -842,6 +886,70 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
     }
   }, [activeTrip, refreshData]);
 
+  const arriveAtPickup = useCallback(async () => {
+    if (!activeTrip || activeTrip.status !== 'accepted') {
+      return;
+    }
+    try {
+      if (activeTrip.rideId.startsWith(MOCK_REQUEST_PREFIX)) {
+        setMockActiveTrip(appendMockTripEvent(activeTrip, 'arrived_at_pickup'));
+      } else {
+        await ridesApi.arrive(activeTrip.rideId);
+        await sendDriverAlert('driver-arrived', 'Arrived at pickup', `Waiting for ${activeTrip.riderName}.`);
+        await refreshData();
+      }
+      await vibrateForAction('success');
+    } catch (err) {
+      setError(toErrorMessage(err));
+      logDriverError('arrive_at_pickup', err, { rideId: activeTrip.rideId });
+    }
+  }, [activeTrip, refreshData]);
+
+  const reportNoShow = useCallback(async () => {
+    if (!activeTrip || activeTrip.status !== 'arrived_at_pickup') {
+      return;
+    }
+    try {
+      if (activeTrip.rideId.startsWith(MOCK_REQUEST_PREFIX)) {
+        setMockActiveTrip(null);
+        trackDriverEvent('rider_no_show', { rideId: activeTrip.rideId, mock: true });
+      } else {
+        await ridesApi.noShow(activeTrip.rideId);
+        trackDriverEvent('rider_no_show', { rideId: activeTrip.rideId, mock: false });
+        await sendDriverAlert('rider-no-show', 'Rider no-show', 'Trip canceled. You are now free to accept new requests.');
+        await refreshData();
+      }
+      await vibrateForAction('warning');
+    } catch (err) {
+      setError(toErrorMessage(err));
+      logDriverError('report_no_show', err, { rideId: activeTrip.rideId });
+    }
+  }, [activeTrip, refreshData]);
+
+  const cancelTrip = useCallback(async (reason?: string) => {
+    if (!activeTrip) {
+      return;
+    }
+    if (activeTrip.status === 'in-progress' || activeTrip.status === 'completed') {
+      return;
+    }
+    try {
+      if (activeTrip.rideId.startsWith(MOCK_REQUEST_PREFIX)) {
+        setMockActiveTrip(null);
+        trackDriverEvent('driver_canceled_trip', { rideId: activeTrip.rideId, reason, mock: true });
+      } else {
+        await ridesApi.driverCancel(activeTrip.rideId, reason);
+        trackDriverEvent('driver_canceled_trip', { rideId: activeTrip.rideId, reason, mock: false });
+        await sendDriverAlert('trip-canceled', 'Trip canceled', 'You have canceled the trip.');
+        await refreshData();
+      }
+      await vibrateForAction('warning');
+    } catch (err) {
+      setError(toErrorMessage(err));
+      logDriverError('cancel_trip', err, { rideId: activeTrip.rideId });
+    }
+  }, [activeTrip, refreshData]);
+
   const value = useMemo(
     () => ({
       profile,
@@ -853,6 +961,7 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       rideHistory,
       notifications,
       requestTimeLeft,
+      waitingSeconds,
       isLoading,
       error,
       onboardingRequired,
@@ -862,9 +971,12 @@ export const DriveRealtimeProvider = ({ children }: { children: React.ReactNode 
       acceptRequest,
       declineRequest,
       advanceTrip,
+      arriveAtPickup,
+      reportNoShow,
+      cancelTrip,
       refreshData,
     }),
-    [acceptRequest, activeRequest, activeTrip, advanceTrip, declineRequest, error, isLoading, isOfflineMode, location, metrics, nearbyRequests, notifications, onboardingRequired, profile, refreshData, requestTimeLeft, rideHistory, setOnline, updatePreferences]
+    [acceptRequest, activeRequest, activeTrip, advanceTrip, arriveAtPickup, cancelTrip, declineRequest, error, isLoading, isOfflineMode, location, metrics, nearbyRequests, notifications, onboardingRequired, profile, refreshData, reportNoShow, requestTimeLeft, rideHistory, setOnline, updatePreferences, waitingSeconds]
   );
 
   return <DriveRealtimeContext.Provider value={value}>{children}</DriveRealtimeContext.Provider>;

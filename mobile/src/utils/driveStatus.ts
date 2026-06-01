@@ -1,9 +1,10 @@
 import type { ActiveTrip, DriverStatus } from '../types/drive';
 
-export const tripStatusOrder: ActiveTrip['status'][] = ['accepted', 'in-progress', 'completed'];
+export const tripStatusOrder: ActiveTrip['status'][] = ['accepted', 'arrived_at_pickup', 'in-progress', 'completed'];
 
 export const tripStepLabels: Record<ActiveTrip['status'], string> = {
   accepted: 'To pickup',
+  arrived_at_pickup: 'Waiting',
   'in-progress': 'On trip',
   completed: 'Wrap up',
 };
@@ -26,8 +27,14 @@ export const driverStatusMeta: Record<DriverStatus, { label: string; subtitle: s
   },
   accepted: {
     label: 'Head to pickup',
-    subtitle: 'Navigate to pickup, confirm your rider, then start the trip.',
+    subtitle: 'Navigate to pickup. Tap "Arrived" when you reach the pickup point.',
     accentColor: '#10B981',
+    actionLabel: 'Arrived at Pickup',
+  },
+  arrived_at_pickup: {
+    label: 'Waiting at pickup',
+    subtitle: 'You are at the pickup point. Confirm the rider and start the trip.',
+    accentColor: '#3B82F6',
     actionLabel: 'Start Trip',
   },
   'in-progress': {
@@ -48,3 +55,13 @@ export const getNextTripStatus = (status: ActiveTrip['status']): ActiveTrip['sta
   const currentIndex = tripStatusOrder.indexOf(status);
   return tripStatusOrder[currentIndex + 1] ?? null;
 };
+
+export const DRIVER_CANCEL_REASONS = [
+  { value: 'vehicle_issue', label: 'Vehicle issue' },
+  { value: 'personal_emergency', label: 'Personal emergency' },
+  { value: 'rider_not_found', label: 'Cannot find rider' },
+  { value: 'safety_concern', label: 'Safety concern' },
+  { value: 'other', label: 'Other' },
+] as const;
+
+export type DriverCancelReason = typeof DRIVER_CANCEL_REASONS[number]['value'];

@@ -25,7 +25,7 @@ export type RefreshTokenSession = {
   deviceName?: string;
 };
 
-export type RideStatus = 'requested' | 'accepted' | 'started' | 'completed' | 'canceled';
+export type RideStatus = 'requested' | 'accepted' | 'arrived_at_pickup' | 'started' | 'completed' | 'canceled';
 
 export type RideEvent = {
   id: string;
@@ -58,8 +58,12 @@ export type Ride = {
   passengerRating?: number;
   passengerReview?: string;
   passengerRatedAt?: string;
+  arrivedAt?: string;
+  waitingSince?: string;
+  noShowReportedAt?: string;
   canceledAt?: string;
   cancellationReason?: string;
+  cancellationActorRole?: 'rider' | 'driver' | 'system';
   events?: RideEvent[];
   createdAt: string;
   updatedAt: string;

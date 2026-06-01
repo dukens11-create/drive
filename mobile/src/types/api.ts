@@ -57,7 +57,8 @@ export type RideSummary = {
   miles: number;
   minutes: number;
   fareEstimate: number;
-  status: 'requested' | 'accepted' | 'started' | 'completed' | 'canceled';
+  status: 'requested' | 'accepted' | 'arrived_at_pickup' | 'started' | 'completed' | 'canceled';
+  waitingSince?: string;
   passengerRating?: number;
   passengerReview?: string;
   events?: RideEvent[];

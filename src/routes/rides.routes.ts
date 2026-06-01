@@ -3,6 +3,7 @@ import * as controller from '../controllers/rides.controller';
 import { validateBody } from '../utils/validate';
 import {
   rideAcceptSchema,
+  rideDriverCancelSchema,
   rideEstimateSchema,
   rideHistorySchema,
   rideLookupSchema,
@@ -26,8 +27,11 @@ router.post('/detail', requireRole('rider'), validateBody(rideLookupSchema), con
 router.post('/receipt', requireRole('rider'), validateBody(rideLookupSchema), controller.receipt);
 router.post('/notifications', requireRole('rider'), validateBody(rideNotificationsSchema), controller.notifications);
 router.post('/accept', requireRole('driver'), validateBody(rideAcceptSchema), controller.accept);
+router.post('/arrive', requireRole('driver'), validateBody(rideStartCompleteCancelSchema), controller.arrive);
 router.post('/start', requireRole('driver'), validateBody(rideStartCompleteCancelSchema), controller.start);
 router.post('/complete', requireRole('driver'), validateBody(rideStartCompleteCancelSchema), controller.complete);
+router.post('/no-show', requireRole('driver'), validateBody(rideStartCompleteCancelSchema), controller.noShow);
+router.post('/driver-cancel', requireRole('driver'), validateBody(rideDriverCancelSchema), controller.driverCancel);
 router.post('/rate-passenger', requireRole('driver'), validateBody(ridePassengerRateSchema), controller.ratePassenger);
 router.post('/message', validateBody(rideMessageSchema), controller.message);
 router.post('/cancel', requireRole('rider'), validateBody(rideStartCompleteCancelSchema), controller.cancel);
