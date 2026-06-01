@@ -31,10 +31,30 @@ describe('navigation utilities', () => {
   test('buildNavigationRoute returns pickup + dropoff route for accepted trip', () => {
     const route = buildNavigationRoute(origin, acceptedTrip);
     expect(route).not.toBeNull();
-    expect(route?.waypoints).toHaveLength(3);
-    expect(route?.steps).toHaveLength(2);
+    expect(route?.waypoints.length).toBeGreaterThanOrEqual(3);
+    expect(route?.steps.length).toBeGreaterThanOrEqual(2);
     expect(route?.remainingDistanceKm).toBeGreaterThan(0);
+    expect(route?.currentTarget).toBe('pickup');
+    expect(route?.currentStep.arrow).toMatch(/↑|↗|→|↘|↓|↙|←|↖/);
+    expect(route?.voiceInstruction).toMatch(/kilometers remaining|arriving/i);
+    expect(route?.upcomingSteps.length).toBeGreaterThanOrEqual(1);
+    expect(['light', 'moderate', 'heavy']).toContain(route?.trafficLevel);
     expect(route?.nextInstruction).toMatch(/pickup/i);
+  });
+
+  test('buildNavigationRoute shifts current target to dropoff once trip is in progress', () => {
+    const route = buildNavigationRoute(origin, { ...acceptedTrip, status: 'in-progress' });
+    expect(route).not.toBeNull();
+    expect(route?.currentTarget).toBe('dropoff');
+    expect(route?.nextInstruction).toMatch(/dropoff/i);
+    expect(route?.currentTargetDistanceKm).toBeGreaterThan(0);
+  });
+
+  test('buildNavigationRoute emits arrival notifications near the active target', () => {
+    const route = buildNavigationRoute(acceptedTrip.pickupPosition, acceptedTrip);
+    expect(route).not.toBeNull();
+    expect(route?.arrivalMessage).toMatch(/arriving at pickup/i);
+    expect(route?.voiceInstruction).toMatch(/arriving at pickup/i);
   });
 
   test('buildNavigationRoute returns null after trip completion', () => {

@@ -1,5 +1,7 @@
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { useEffect, useState } from 'react';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 import { useAccessibilitySettings } from '../../context/AccessibilityContext';
 import { useDriveRealtime } from '../../context/DriveRealtimeContext';
@@ -8,6 +10,11 @@ import { useLocale } from '../../context/LocaleContext';
 import { driverStatusMeta, tripStatusOrder, tripStepLabels } from '../../utils/driveStatus';
 
 const COLOR_STEP_INACTIVE = '#E4E4E7'; // zinc-200
+const SWIPE_HANDLE_SIZE = 72;
+const SWIPE_TRACK_PADDING = 8;
+const SWIPE_COMPLETION_THRESHOLD = 0.74;
+
+const clampSwipeOffset = (value: number, maxOffset: number) => Math.max(0, Math.min(value, maxOffset));
 
 export const RideRequestCard = () => {
   const { activeRequest, activeTrip, requestTimeLeft, acceptRequest, declineRequest, advanceTrip } = useDriveRealtime();
@@ -16,12 +23,18 @@ export const RideRequestCard = () => {
   const [passengerRating, setPassengerRating] = useState(5);
   const [passengerComment, setPassengerComment] = useState('');
   const [ratingState, setRatingState] = useState<string | null>(null);
+  const [swipeTrackWidth, setSwipeTrackWidth] = useState(0);
+  const swipeOffset = useSharedValue(0);
 
   useEffect(() => {
     setPassengerRating(5);
     setPassengerComment('');
     setRatingState(null);
   }, [activeTrip?.rideId]);
+
+  useEffect(() => {
+    swipeOffset.value = 0;
+  }, [activeRequest?.id, swipeOffset]);
 
   if (!activeRequest && !activeTrip) {
     return null;
@@ -172,58 +185,133 @@ export const RideRequestCard = () => {
 
   const request = activeRequest;
   const urgentSeconds = requestTimeLeft <= 5;
+  const swipeLimit = Math.max(0, swipeTrackWidth - SWIPE_HANDLE_SIZE - SWIPE_TRACK_PADDING * 2);
+  const handleSwipeAccept = () => {
+    void acceptRequest();
+  };
+  const swipeGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      swipeOffset.value = clampSwipeOffset(event.translationX, swipeLimit);
+    })
+    .onEnd(() => {
+      if (swipeLimit > 0 && swipeOffset.value >= swipeLimit * SWIPE_COMPLETION_THRESHOLD) {
+        swipeOffset.value = withSpring(swipeLimit, { damping: 18, stiffness: 200 });
+        runOnJS(handleSwipeAccept)();
+        return;
+      }
+      swipeOffset.value = withSpring(0, { damping: 20, stiffness: 220 });
+    });
+  const swipeHandleStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: swipeOffset.value }],
+  }));
+  const swipePromptStyle = useAnimatedStyle(() => ({
+    opacity: 1 - Math.min(swipeOffset.value / Math.max(swipeLimit || 1, 1), 0.85),
+  }));
 
   return (
-    <View className={`absolute bottom-72 left-4 right-4 z-30 rounded-[28px] p-5 shadow-soft ${highContrastEnabled ? 'border border-white bg-black' : 'bg-white dark:bg-zinc-900'}`}>
-      {/* Header: rider + countdown */}
-      <View className="flex-row items-start justify-between gap-3">
-        <View className="flex-1">
-          <View className="self-start rounded-full bg-rose-100 px-3 py-1 dark:bg-rose-900/40">
-            <Text className="text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-500 dark:text-rose-300">New request</Text>
+    <View className={`absolute inset-0 z-40 ${highContrastEnabled ? 'bg-black' : 'bg-zinc-950/95'}`}>
+      <View className="flex-1 px-5 pb-8 pt-16">
+        <View className="flex-row items-start justify-between gap-4">
+          <View className="flex-1">
+            <View className="self-start rounded-full bg-rose-500/15 px-3 py-1">
+              <Text className="text-[11px] font-semibold uppercase tracking-[0.2em] text-rose-300">Incoming ride request</Text>
+            </View>
+            <Text className="mt-4 text-3xl font-semibold text-white" maxFontSizeMultiplier={maxFontSizeMultiplier}>{request.riderName}</Text>
+            <Text className="mt-2 text-base text-zinc-300" maxFontSizeMultiplier={maxFontSizeMultiplier}>
+              {request.rideType.toUpperCase()} · {formatNumber(request.pickupEtaMinutes)} min away · ⭐ {formatNumber(request.riderRating, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+            </Text>
+            <View className="mt-4 self-start rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1">
+              <Text className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Sound alert active</Text>
+            </View>
           </View>
-          <Text className={`mt-3 text-base font-semibold ${highContrastEnabled ? 'text-white' : 'text-zinc-950 dark:text-zinc-100'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{request.riderName}</Text>
-          <Text className={`mt-1 text-sm ${highContrastEnabled ? 'text-white' : 'text-zinc-600 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>
-            {request.rideType.toUpperCase()} · Pickup ETA {formatNumber(request.pickupEtaMinutes)} min · Trip payout {formatCurrency(request.estimatedFare)}
-          </Text>
-          <Text className="mt-2 text-xs uppercase tracking-[0.18em] text-zinc-400">Pickup</Text>
-          <Text className="mt-1 text-sm text-zinc-700 dark:text-zinc-200">{request.pickupAddress}</Text>
-          <Text className="mt-2 text-xs uppercase tracking-[0.18em] text-zinc-400">Drop-off</Text>
-          <Text className="mt-1 text-sm text-zinc-700 dark:text-zinc-200">{request.dropoffAddress}</Text>
+          <View className="items-center rounded-[28px] bg-white/8 px-4 py-3">
+            <Text className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-300">Respond in</Text>
+            <Text className="mt-2 text-4xl font-bold text-white" accessibilityLiveRegion="polite">
+              {requestTimeLeft}s
+            </Text>
+            <Text className={`mt-2 text-xs font-semibold uppercase tracking-[0.18em] ${urgentSeconds ? 'text-rose-300' : 'text-emerald-300'}`}>
+              {urgentSeconds ? 'Urgent' : 'On time'}
+            </Text>
+          </View>
         </View>
-        <View
-          className="items-center rounded-2xl px-3 py-2"
-          style={{ backgroundColor: urgentSeconds ? '#FEF2F2' : '#F0FDF4' }}
-        >
-          <Text className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: urgentSeconds ? '#EF4444' : '#16A34A' }}>
-            Respond in
-          </Text>
-          <Text className="mt-1 text-2xl font-bold" style={{ color: urgentSeconds ? '#DC2626' : '#15803D' }} accessibilityLiveRegion="polite">
-            {requestTimeLeft}s
-          </Text>
+
+        <View className="mt-8 rounded-[32px] bg-white/8 p-5">
+          <Text className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">Route overview</Text>
+          <View className="mt-4 flex-row gap-4">
+            <View className="items-center pt-1">
+              <View className="h-3 w-3 rounded-full bg-emerald-400" />
+              <View className="h-12 w-0.5 bg-zinc-600" />
+              <View className="h-3 w-3 rounded-full bg-amber-400" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">Pickup</Text>
+              <Text className="mt-2 text-base font-semibold text-white" maxFontSizeMultiplier={maxFontSizeMultiplier}>{request.pickupAddress}</Text>
+              <Text className="mt-1 text-sm text-zinc-400" maxFontSizeMultiplier={maxFontSizeMultiplier}>
+                {formatNumber(request.pickupDistanceKm, { maximumFractionDigits: 1 })} km away
+              </Text>
+              <Text className="mt-5 text-[11px] uppercase tracking-[0.2em] text-zinc-500">Destination</Text>
+              <Text className="mt-2 text-base font-semibold text-white" maxFontSizeMultiplier={maxFontSizeMultiplier}>{request.dropoffAddress}</Text>
+              <Text className="mt-1 text-sm text-zinc-400" maxFontSizeMultiplier={maxFontSizeMultiplier}>
+                {formatNumber(request.tripDistanceKm, { maximumFractionDigits: 1 })} km trip · surge x{formatNumber(request.surgeMultiplier, { maximumFractionDigits: 1 })}
+              </Text>
+            </View>
+          </View>
         </View>
-      </View>
 
-      {/* Trip details strip */}
-      <View className="mt-4 flex-row justify-between rounded-2xl bg-zinc-100 p-3 dark:bg-zinc-800">
-        <InfoItem label="Pickup ETA" value={`${formatNumber(request.pickupEtaMinutes)} min`} />
-        <InfoItem label="Trip" value={`${formatNumber(request.tripDistanceKm, { maximumFractionDigits: 1 })} km`} />
-        <InfoItem label="Fare" value={formatCurrency(request.estimatedFare)} />
-        <InfoItem label="Surge" value={`x${formatNumber(request.surgeMultiplier, { maximumFractionDigits: 1 })}`} />
-        <InfoItem label="Rating" value={`⭐ ${formatNumber(request.riderRating, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`} />
-      </View>
+        <View className="mt-5 flex-row gap-3">
+          <MetricCard label="Pickup ETA" value={`${formatNumber(request.pickupEtaMinutes)} min`} />
+          <MetricCard label="Estimated earnings" value={formatCurrency(request.estimatedFare)} valueClassName="text-emerald-300" />
+        </View>
+        <View className="mt-3 flex-row gap-3">
+          <MetricCard label="Ride type" value={request.rideType.toUpperCase()} />
+          <MetricCard
+            label="Passenger rating"
+            value={`⭐ ${formatNumber(request.riderRating, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`}
+          />
+        </View>
 
-      <View className="mt-4 rounded-2xl bg-zinc-100 p-3 dark:bg-zinc-800">
-        <Text className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 dark:text-zinc-300">Decision needed</Text>
-        <Text className="mt-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">Accept to start navigation to pickup now.</Text>
-        <Text className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Declining keeps you online so the next nearby request can appear right away.</Text>
-      </View>
-      <View className="mt-4 flex-row gap-3">
-        <Pressable className={`flex-1 rounded-2xl px-4 py-3 ${highContrastEnabled ? 'border border-white bg-black' : 'bg-zinc-200 dark:bg-zinc-800'}`} onPress={declineRequest} accessibilityRole="button" accessibilityLabel="Decline ride request">
-          <Text className={`text-center font-semibold ${highContrastEnabled ? 'text-white' : 'text-zinc-800 dark:text-zinc-100'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>Decline</Text>
-        </Pressable>
-        <Pressable className="flex-[2] rounded-2xl bg-emerald-500 px-4 py-3" onPress={acceptRequest} accessibilityRole="button" accessibilityLabel="Accept ride request">
-          <Text className="text-center text-base font-bold text-white" maxFontSizeMultiplier={maxFontSizeMultiplier}>Accept</Text>
-        </Pressable>
+        <View className="mt-auto rounded-[32px] bg-white/8 p-5">
+          <Text className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">Decision needed</Text>
+          <Text className="mt-3 text-lg font-semibold text-white" maxFontSizeMultiplier={maxFontSizeMultiplier}>Swipe to accept and begin pickup navigation.</Text>
+          <Text className="mt-2 text-sm text-zinc-300" maxFontSizeMultiplier={maxFontSizeMultiplier}>
+            Reject to stay online and receive the next nearby request immediately.
+          </Text>
+
+          <Pressable
+            className="mt-5 rounded-2xl border border-white/15 bg-white/5 px-4 py-4"
+            onPress={declineRequest}
+            accessibilityRole="button"
+            accessibilityLabel="Decline ride request"
+          >
+            <Text className="text-center text-base font-semibold text-white" maxFontSizeMultiplier={maxFontSizeMultiplier}>Reject</Text>
+          </Pressable>
+
+          <View
+            className="mt-4 rounded-[28px] bg-emerald-500/20 p-2"
+            onLayout={(event) => setSwipeTrackWidth(event.nativeEvent.layout.width)}
+          >
+            <Animated.Text
+              style={swipePromptStyle}
+              className="absolute inset-x-0 top-0 py-6 text-center text-sm font-semibold uppercase tracking-[0.22em] text-emerald-100"
+              maxFontSizeMultiplier={maxFontSizeMultiplier}
+            >
+              Swipe to accept
+            </Animated.Text>
+            <GestureDetector gesture={swipeGesture}>
+              <Animated.View style={swipeHandleStyle}>
+                <Pressable
+                  className="h-[72px] w-[72px] items-center justify-center rounded-[24px] bg-emerald-500"
+                  onPress={handleSwipeAccept}
+                  accessibilityRole="button"
+                  accessibilityLabel="Accept ride request"
+                  accessibilityHint="Swipe right or double tap to accept this ride request"
+                >
+                  <Text className="text-center text-xs font-bold uppercase tracking-[0.18em] text-white" maxFontSizeMultiplier={maxFontSizeMultiplier}>Accept</Text>
+                </Pressable>
+              </Animated.View>
+            </GestureDetector>
+          </View>
+        </View>
       </View>
     </View>
   );
@@ -233,5 +321,20 @@ const InfoItem = ({ label, value }: { label: string; value: string }) => (
   <View>
     <Text className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{label}</Text>
     <Text className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{value}</Text>
+  </View>
+);
+
+const MetricCard = ({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) => (
+  <View className="flex-1 rounded-[28px] bg-white/8 p-4">
+    <Text className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-400">{label}</Text>
+    <Text className={`mt-3 text-lg font-semibold text-white ${valueClassName ?? ''}`}>{value}</Text>
   </View>
 );

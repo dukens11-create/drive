@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Linking, Pressable, Share, Text, useColorScheme, View } from 'react-native';
+import { AccessibilityInfo, Alert, Linking, Pressable, Share, Text, useColorScheme, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
 import { BottomStatsPanel } from '../../src/components/drive/BottomStatsPanel';
@@ -26,6 +26,9 @@ const MIN_ZOOM_LEVEL = 12;
 const MAX_ZOOM_LEVEL = 19;
 const ROUTE_OVERVIEW_EDGE_PADDING = { top: 170, right: 60, bottom: 360, left: 60 };
 const MIN_ROUTE_OVERVIEW_POINTS = 2;
+// Keep the arrival banner directly beneath the expanded navigation card (top-36 plus card height)
+// while leaving space above the support sheet entry point.
+const ARRIVAL_NOTIFICATION_TOP_OFFSET = 456;
 
 type ExpoExtra = {
   emergencyNumber?: string;
@@ -51,6 +54,7 @@ export default function DriveHomeScreen() {
   const [tripTrace, setTripTrace] = useState<LatLng[]>([]);
   const [mapReady, setMapReady] = useState(false);
   const activeTripSnapshotRef = useRef<string | null>(null);
+  const announcedInstructionRef = useRef<string | null>(null);
   const routeData = useMemo(() => buildNavigationRoute(location, activeTrip), [activeTrip, location]);
   useScreenTracking('home');
 
@@ -117,6 +121,15 @@ export default function DriveHomeScreen() {
     });
     activeTripSnapshotRef.current = snapshot;
   }, [activeTrip, routeData]);
+
+  useEffect(() => {
+    if (!routeData?.voiceInstruction || routeData.voiceInstruction === announcedInstructionRef.current) {
+      return;
+    }
+
+    announcedInstructionRef.current = routeData.voiceInstruction;
+    AccessibilityInfo.announceForAccessibility(routeData.voiceInstruction);
+  }, [routeData?.voiceInstruction]);
 
   const updateZoom = (nextZoom: number) => {
     const boundedZoom = Math.min(MAX_ZOOM_LEVEL, Math.max(MIN_ZOOM_LEVEL, nextZoom));
@@ -270,11 +283,80 @@ export default function DriveHomeScreen() {
 
       <TopOverlay />
       {routeData ? (
-        <View className={`absolute left-4 right-20 top-44 z-30 rounded-2xl px-4 py-3 shadow-soft ${highContrastEnabled ? 'border border-white bg-black' : 'bg-white/95 dark:bg-zinc-900/95'}`}>
-          <Text className={`text-xs font-semibold uppercase tracking-wider ${highContrastEnabled ? 'text-white' : 'text-zinc-500 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('home.turnByTurn')}</Text>
-          <Text className={`mt-1 text-sm font-semibold ${highContrastEnabled ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{routeData.nextInstruction}</Text>
-          <Text className={`mt-1 text-xs ${highContrastEnabled ? 'text-white' : 'text-zinc-600 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>
-            {formatNumber(routeData.remainingDistanceKm, { maximumFractionDigits: 1 })} km · {formatNumber(routeData.remainingDurationMinutes)} min
+        <View className={`absolute left-4 right-20 top-36 z-30 rounded-3xl px-4 py-4 shadow-soft ${highContrastEnabled ? 'border border-white bg-black' : 'bg-white/95 dark:bg-zinc-900/95'}`}>
+          <View className="flex-row gap-3">
+            <View className="h-14 w-14 items-center justify-center rounded-2xl bg-blue-600">
+              <Text className="text-3xl font-bold text-white" maxFontSizeMultiplier={maxFontSizeMultiplier}>{routeData.currentStep.arrow}</Text>
+            </View>
+            <View className="flex-1">
+              <Text className={`text-xs font-semibold uppercase tracking-wider ${highContrastEnabled ? 'text-white' : 'text-zinc-500 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('home.turnByTurn')}</Text>
+              <Text className={`mt-1 text-sm font-semibold ${highContrastEnabled ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{routeData.nextInstruction}</Text>
+              <Text className={`mt-1 text-xs ${highContrastEnabled ? 'text-white' : 'text-zinc-600 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>
+                Voice guidance enabled for the next turn
+              </Text>
+            </View>
+          </View>
+
+          <View className="mt-3 flex-row gap-2">
+            <NavigationStat
+              label="Remaining"
+              value={`${formatNumber(routeData.remainingDistanceKm, { maximumFractionDigits: 1 })} km`}
+              highContrastEnabled={highContrastEnabled}
+              maxFontSizeMultiplier={maxFontSizeMultiplier}
+            />
+            <NavigationStat
+              label="ETA"
+              value={`${formatNumber(routeData.remainingDurationMinutes)} min`}
+              highContrastEnabled={highContrastEnabled}
+              maxFontSizeMultiplier={maxFontSizeMultiplier}
+            />
+            <NavigationStat
+              label={routeData.currentTarget === 'pickup' ? 'Pickup' : 'Dropoff'}
+              value={`${formatNumber(routeData.currentTargetDistanceKm, { maximumFractionDigits: 1 })} km · ${formatNumber(routeData.currentTargetEtaMinutes)} min`}
+              highContrastEnabled={highContrastEnabled}
+              maxFontSizeMultiplier={maxFontSizeMultiplier}
+            />
+          </View>
+
+          <View className={`mt-3 rounded-2xl px-3 py-2 ${highContrastEnabled ? 'border border-white bg-black' : 'bg-zinc-100 dark:bg-zinc-800'}`}>
+            <Text className={`text-xs font-medium ${highContrastEnabled ? 'text-white' : 'text-zinc-700 dark:text-zinc-200'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>
+              Traffic-aware routing · {routeData.trafficLevel} traffic
+              {routeData.trafficDelayMinutes > 0 ? ` · +${formatNumber(routeData.trafficDelayMinutes)} min` : ''}
+            </Text>
+          </View>
+
+          {routeData.upcomingSteps.length ? (
+            <View className="mt-3">
+              <Text className={`text-[11px] font-semibold uppercase tracking-wider ${highContrastEnabled ? 'text-white' : 'text-zinc-500 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>
+                Upcoming turns
+              </Text>
+              <View className="mt-2 gap-2">
+                {routeData.upcomingSteps.map((step, index) => (
+                  <View key={`${step.target}-${index}-${step.instruction}`} className={`flex-row items-center gap-3 rounded-2xl px-3 py-2 ${highContrastEnabled ? 'border border-white bg-black' : 'bg-zinc-100/90 dark:bg-zinc-800/90'}`}>
+                    <Text className={`w-5 text-base font-semibold ${highContrastEnabled ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{step.arrow}</Text>
+                    <View className="flex-1">
+                      <Text className={`text-xs font-medium ${highContrastEnabled ? 'text-white' : 'text-zinc-800 dark:text-zinc-100'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{step.instruction}</Text>
+                      <Text className={`mt-0.5 text-[11px] ${highContrastEnabled ? 'text-white' : 'text-zinc-500 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>
+                        {formatNumber(step.distanceKm, { maximumFractionDigits: 1 })} km · {formatNumber(step.etaMinutes)} min
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+      {routeData?.arrivalMessage ? (
+        <View
+          style={{ top: ARRIVAL_NOTIFICATION_TOP_OFFSET }}
+          className={`absolute left-4 right-20 z-30 rounded-2xl px-4 py-3 ${highContrastEnabled ? 'border border-white bg-black' : 'bg-emerald-500/95'}`}
+        >
+          <Text className={`text-xs font-semibold uppercase tracking-wider ${highContrastEnabled ? 'text-white' : 'text-emerald-50'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>
+            Arrival notification
+          </Text>
+          <Text className={`mt-1 text-sm font-semibold ${highContrastEnabled ? 'text-white' : 'text-white'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>
+            {routeData.arrivalMessage}
           </Text>
         </View>
       ) : null}
@@ -360,3 +442,24 @@ const highContrastMapStyle = [
   { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#FACC15' }] },
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#111827' }] },
 ];
+
+const NavigationStat = ({
+  label,
+  value,
+  highContrastEnabled,
+  maxFontSizeMultiplier,
+}: {
+  label: string;
+  value: string;
+  highContrastEnabled: boolean;
+  maxFontSizeMultiplier?: number;
+}) => (
+  <View className={`flex-1 rounded-2xl px-3 py-2 ${highContrastEnabled ? 'border border-white bg-black' : 'bg-zinc-100 dark:bg-zinc-800'}`}>
+    <Text className={`text-[11px] font-semibold uppercase tracking-wider ${highContrastEnabled ? 'text-white' : 'text-zinc-500 dark:text-zinc-300'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>
+      {label}
+    </Text>
+    <Text className={`mt-1 text-xs font-semibold ${highContrastEnabled ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>
+      {value}
+    </Text>
+  </View>
+);
