@@ -2,9 +2,7 @@ const API_BASE_URL = '';
 const REJECTED_RIDES_KEY = 'driverRejectedRideIds';
 const DRIVER_DOCS_KEY = 'driverDashboardDocs';
 const DRIVER_SUPPORT_KEY = 'driverDashboardSupportLog';
-<<<<<<< HEAD
 const MAX_VERIFICATION_DOCUMENTS = 15;
-=======
 const GPS_LOG_KEY = 'driverGpsTraceLog';
 const LAST_LOCATION_KEY = 'driverLastKnownLocation';
 const ROUTE_CACHE_TTL_MS = 60_000;
@@ -29,7 +27,6 @@ const DEFAULT_FALLBACK_LNG = -122.4194;
 const DEFAULT_LOCATION_ACCURACY_M = 150;
 const SIM_PATH_FREQUENCY = 5;
 const SIM_COORDINATE_OFFSET = 0.00055;
->>>>>>> origin/main
 
 const MOCK_COMPLETED_RIDES = [
   { id: 'ride_hist_101', pickupLat: 37.775, pickupLng: -122.418, dropoffLat: 37.789, dropoffLng: -122.401, fareEstimate: 24.5, minutes: 21, passengerRating: 4.9, completedAt: '2026-05-31T10:12:00.000Z' },
@@ -1311,15 +1308,11 @@ window.addEventListener('load', async () => {
   renderSupportLog();
 
   await Promise.all([loadDriverProfile(), loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
-<<<<<<< HEAD
   renderVerificationSummary();
   renderDocumentList();
-  renderMap();
-=======
   await ensureDriverLocation();
   await recalculateRouteData();
   await startLocationTracking();
   await requestWakeLock();
   queueMapRender();
->>>>>>> origin/main
 });
