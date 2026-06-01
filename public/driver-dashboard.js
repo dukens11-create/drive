@@ -13,6 +13,8 @@ const GPS_LOG_KEY = 'driverGpsLog';
 const LAST_KNOWN_LOCATION_KEY = 'driverLastKnownLocation';
 const MAX_GPS_LOG_ENTRIES = 200;
 const ROUTE_CACHE_TTL_MS = 30000;
+const SWIPE_VERTICAL_THRESHOLD = 80;
+const SWIPE_HORIZONTAL_THRESHOLD = 60;
 
 const DEFAULT_FALLBACK_LAT = 37.7749;
 const DEFAULT_FALLBACK_LNG = -122.4194;
@@ -1611,7 +1613,8 @@ function setupPaneSwipeNavigation() {
     tracking = false;
     const deltaX = event.clientX - touchStartX;
     const deltaY = event.clientY - touchStartY;
-    if (Math.abs(deltaY) > 80 || Math.abs(deltaX) < 60) return;
+    if (Math.abs(deltaY) > SWIPE_VERTICAL_THRESHOLD) return;
+    if (Math.abs(deltaX) < SWIPE_HORIZONTAL_THRESHOLD) return;
     const index = PANE_ORDER.indexOf(activePane);
     if (index < 0) return;
     if (deltaX < 0 && index < PANE_ORDER.length - 1) setActivePane(PANE_ORDER[index + 1]);
@@ -1857,6 +1860,9 @@ function setupMapControls() {
 
   // Pan by dragging
   const shell = document.getElementById('map-shell');
+  const supportsPointerCapture = typeof shell.setPointerCapture === 'function'
+    && typeof shell.releasePointerCapture === 'function'
+    && typeof shell.hasPointerCapture === 'function';
   shell.addEventListener('pointerdown', event => {
     if (mapState.activePointerId !== null && mapState.activePointerId !== event.pointerId) return;
     mapState.isDragging = true;
@@ -1865,9 +1871,11 @@ function setupMapControls() {
     mapState.dragStartY = event.clientY;
     shell.style.cursor = 'grabbing';
     disableFollowMode();
-    shell.setPointerCapture?.(event.pointerId);
+    if (supportsPointerCapture) {
+      shell.setPointerCapture(event.pointerId);
+    }
   });
-  shell.addEventListener('pointermove', event => {
+  window.addEventListener('pointermove', event => {
     if (!mapState.isDragging) return;
     if (mapState.activePointerId !== event.pointerId) return;
     mapState.panX += event.clientX - mapState.dragStartX;
@@ -1878,12 +1886,15 @@ function setupMapControls() {
   });
   const stopDragging = event => {
     if (typeof event?.pointerId === 'number' && event.pointerId !== mapState.activePointerId) return;
+    if (supportsPointerCapture && mapState.activePointerId !== null && shell.hasPointerCapture(mapState.activePointerId)) {
+      shell.releasePointerCapture(mapState.activePointerId);
+    }
     mapState.isDragging = false;
     mapState.activePointerId = null;
     shell.style.cursor = 'grab';
   };
-  shell.addEventListener('pointerup', stopDragging);
-  shell.addEventListener('pointercancel', stopDragging);
+  window.addEventListener('pointerup', stopDragging);
+  window.addEventListener('pointercancel', stopDragging);
 
   // Update frequency
   document.getElementById('update-frequency-input').addEventListener('change', event => {
