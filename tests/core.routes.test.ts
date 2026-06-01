@@ -214,7 +214,7 @@ test('GET /driver-dashboard.js includes realtime and offline sync hooks', async 
       'GPS_ACQUISITION_TIMEOUT_MS',
       'scheduleGpsRetry',
       'getGpsAccuracyDetails',
-      'rawSpeedKmh = positionLike.speed',
+      'payloadSpeedKmh = positionLike.speed',
       'parsedTimestamp',
       'Started navigator.geolocation.watchPosition.',
       'Location permission denied. Enable location access in your browser settings.',
