@@ -1,6 +1,9 @@
 // ─── Constants ────────────────────────────────────────────────────────────────
 const API_BASE_URL = '';
 const REJECTED_RIDES_KEY = 'driverRejectedRideIds';
+const RIDE_REQUEST_HISTORY_KEY = 'driverRideRequestHistory';
+const RIDE_REQUEST_ANALYTICS_KEY = 'driverRideRequestAnalytics';
+const RIDE_ALERT_MUTE_UNTIL_KEY = 'driverRideAlertMuteUntil';
 const DRIVER_DOCS_KEY = 'driverDashboardDocs';
 const DRIVER_SUPPORT_KEY = 'driverDashboardSupportLog';
 const DRIVER_REALTIME_CONFIG_KEY = 'driverRealtimeConfig';
@@ -34,6 +37,10 @@ const SWIPE_ACCEPT_TRACK_PADDING = 14;
 const SWIPE_VERTICAL_THRESHOLD = 80;
 const SWIPE_HORIZONTAL_THRESHOLD = 60;
 const SHEET_DRAG_THRESHOLD = 18;
+const RIDE_REQUEST_HISTORY_LIMIT = 60;
+const RIDE_REQUEST_ANALYTICS_LIMIT = 120;
+const RIDE_POPUP_TERMINAL_STATE_MS = 1500;
+const RIDE_ALERT_MUTE_WINDOW_MS = 5 * 60 * 1000;
 
 const DEFAULT_FALLBACK_LAT = 37.7749;
 const DEFAULT_FALLBACK_LNG = -122.4194;
@@ -184,6 +191,14 @@ let knownRideRequestIds = new Set();
 const rideRequestExpirations = new Map();
 const acceptingRideIds = new Set();
 let incomingRideAudioContext = null;
+let rideRequestPopupState = {
+  rideId: null,
+  rideSnapshot: null,
+  phase: 'hidden',
+  expiresAt: null,
+  autoHideTimerId: null,
+  lowTimeCuePlayed: false
+};
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 function showAlert(kind, message) {
@@ -650,6 +665,57 @@ function setStoredList(storageKey, value) {
   localStorage.setItem(storageKey, JSON.stringify(value));
 }
 
+function getRideAlertMuteUntil() {
+  return Number(localStorage.getItem(RIDE_ALERT_MUTE_UNTIL_KEY) || 0);
+}
+
+function isRideAlertMuted() {
+  return getRideAlertMuteUntil() > Date.now();
+}
+
+function setRideAlertMuteUntil(timestamp) {
+  if (timestamp > Date.now()) {
+    localStorage.setItem(RIDE_ALERT_MUTE_UNTIL_KEY, String(timestamp));
+  } else {
+    localStorage.removeItem(RIDE_ALERT_MUTE_UNTIL_KEY);
+  }
+}
+
+function appendStoredEntry(storageKey, entry, limit) {
+  const entries = getStoredList(storageKey);
+  entries.unshift(entry);
+  if (entries.length > limit) entries.length = limit;
+  setStoredList(storageKey, entries);
+}
+
+function emitRideRequestAction(action, ride, extra = {}) {
+  if (!ride?.id) return;
+  const detail = {
+    action,
+    rideId: ride.id,
+    phase: rideRequestPopupState.phase,
+    passengerName: ride.passengerName || 'Passenger',
+    fareEstimate: Number(ride.fareEstimate || 0),
+    estimatedEarnings: Number(ride.estimatedEarnings || 0),
+    pickupDistanceKm: getRidePickupDistanceKm(ride),
+    tripDistanceKm: calculateDistance(ride.pickupLat, ride.pickupLng, ride.dropoffLat, ride.dropoffLng),
+    recordedAt: new Date().toISOString(),
+    ...extra
+  };
+  appendStoredEntry(RIDE_REQUEST_HISTORY_KEY, detail, RIDE_REQUEST_HISTORY_LIMIT);
+  appendStoredEntry(RIDE_REQUEST_ANALYTICS_KEY, {
+    rideId: detail.rideId,
+    action: detail.action,
+    fareEstimate: detail.fareEstimate,
+    estimatedEarnings: detail.estimatedEarnings,
+    pickupDistanceKm: detail.pickupDistanceKm,
+    tripDistanceKm: detail.tripDistanceKm,
+    remainingMs: detail.remainingMs ?? null,
+    recordedAt: detail.recordedAt
+  }, RIDE_REQUEST_ANALYTICS_LIMIT);
+  window.dispatchEvent(new CustomEvent('driver:ride-request-action', { detail }));
+}
+
 function getDriverDisplayName(email) {
   if (!email) return 'Driver';
   return email
@@ -922,7 +988,9 @@ async function primeIncomingRideAudio() {
   }
 }
 
-async function playIncomingRideAlert() {
+async function playIncomingRideAlert(options = {}) {
+  if (isRideAlertMuted()) return;
+  const lowTimeCue = Boolean(options.lowTimeCue);
   try {
     await primeIncomingRideAudio();
   } catch (_error) {
@@ -930,18 +998,24 @@ async function playIncomingRideAlert() {
   }
   if (!incomingRideAudioContext) return;
   const now = incomingRideAudioContext.currentTime;
-  [0, 0.2].forEach((offset, index) => {
+  const tones = lowTimeCue
+    ? [{ offset: 0, frequency: 698, end: 0.12, gain: 0.045 }]
+    : [
+      { offset: 0, frequency: 880, end: 0.18, gain: 0.08 },
+      { offset: 0.2, frequency: 1174, end: 0.18, gain: 0.08 }
+    ];
+  tones.forEach(({ offset, frequency, end, gain: peakGain }) => {
     const oscillator = incomingRideAudioContext.createOscillator();
     const gain = incomingRideAudioContext.createGain();
     oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(index === 0 ? 880 : 1174, now + offset);
+    oscillator.frequency.setValueAtTime(frequency, now + offset);
     gain.gain.setValueAtTime(0.0001, now + offset);
-    gain.gain.exponentialRampToValueAtTime(0.08, now + offset + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.16);
+    gain.gain.exponentialRampToValueAtTime(peakGain, now + offset + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + end - 0.02);
     oscillator.connect(gain);
     gain.connect(incomingRideAudioContext.destination);
     oscillator.start(now + offset);
-    oscillator.stop(now + offset + 0.18);
+    oscillator.stop(now + offset + end);
   });
 }
 
@@ -954,12 +1028,386 @@ function updateRideRequestCountdowns() {
     element.classList.toggle('is-expiring', isExpiring);
     element.closest('[data-ride-request-card]')?.classList.toggle('is-expiring', isExpiring);
   });
+  updateIncomingRidePopupCountdown();
 }
 
 function startRideRequestCountdowns() {
   if (rideRequestCountdownIntervalId !== null) return;
   updateRideRequestCountdowns();
   rideRequestCountdownIntervalId = window.setInterval(updateRideRequestCountdowns, RIDE_REQUEST_COUNTDOWN_TICK_MS);
+}
+
+function clearRideRequestPopupAutoHide() {
+  if (rideRequestPopupState.autoHideTimerId !== null) {
+    window.clearTimeout(rideRequestPopupState.autoHideTimerId);
+    rideRequestPopupState.autoHideTimerId = null;
+  }
+}
+
+function getPopupRideSnapshot() {
+  if (rideRequestPopupState.rideId) {
+    return getRideById(rideRequestPopupState.rideId) || rideRequestPopupState.rideSnapshot;
+  }
+  return rideRequestPopupState.rideSnapshot;
+}
+
+function getActiveIncomingRide() {
+  const rejected = new Set(getRejectedRideIds());
+  return nearbyRideRequests.find(ride => ride.status === 'requested' && !rejected.has(ride.id)) || null;
+}
+
+function getRideTripDistanceKm(ride) {
+  if (!ride) return NaN;
+  return calculateDistance(ride.pickupLat, ride.pickupLng, ride.dropoffLat, ride.dropoffLng);
+}
+
+function getRidePickupEtaMinutes(ride) {
+  const pickupDistanceKm = getRidePickupDistanceKm(ride);
+  return calculateETA(pickupDistanceKm, mapState.lastPosition?.speed);
+}
+
+function getRidePopupStateMessage(phase, passengerName) {
+  switch (phase) {
+    case 'accepting':
+      return `Accepting ${passengerName}'s trip…`;
+    case 'accepted':
+      return `Ride accepted for ${passengerName}.`;
+    case 'declined':
+      return `Request declined for ${passengerName}.`;
+    case 'expired':
+      return `Request expired for ${passengerName}.`;
+    default:
+      return `${passengerName} is waiting for pickup.`;
+  }
+}
+
+function hideRideRequestPopup() {
+  clearRideRequestPopupAutoHide();
+  rideRequestPopupState = {
+    rideId: null,
+    rideSnapshot: null,
+    phase: 'hidden',
+    expiresAt: null,
+    autoHideTimerId: null,
+    lowTimeCuePlayed: false
+  };
+  const host = document.getElementById('ride-request-popup-layer');
+  if (host) host.innerHTML = '';
+}
+
+function setRideRequestPopupPhase(phase, ride, options = {}) {
+  clearRideRequestPopupAutoHide();
+  rideRequestPopupState.rideId = ride?.id || rideRequestPopupState.rideId;
+  rideRequestPopupState.rideSnapshot = ride ? { ...ride } : rideRequestPopupState.rideSnapshot;
+  rideRequestPopupState.phase = phase;
+  if (typeof options.expiresAt === 'number') {
+    rideRequestPopupState.expiresAt = options.expiresAt;
+  } else if (ride && phase === 'requesting') {
+    rideRequestPopupState.expiresAt = getRideRequestExpiryTimestamp(ride);
+  } else if (phase !== 'requesting') {
+    rideRequestPopupState.expiresAt = null;
+  }
+  if (typeof options.lowTimeCuePlayed === 'boolean') {
+    rideRequestPopupState.lowTimeCuePlayed = options.lowTimeCuePlayed;
+  } else if (phase !== 'requesting') {
+    rideRequestPopupState.lowTimeCuePlayed = false;
+  }
+  renderIncomingRideRequestPopup();
+  if (['accepted', 'declined', 'expired'].includes(phase)) {
+    rideRequestPopupState.autoHideTimerId = window.setTimeout(() => {
+      hideRideRequestPopup();
+      syncIncomingRideRequestPopup();
+    }, RIDE_POPUP_TERMINAL_STATE_MS);
+  }
+}
+
+function setRideAlertMute(enabled) {
+  setRideAlertMuteUntil(enabled ? Date.now() + RIDE_ALERT_MUTE_WINDOW_MS : 0);
+  renderIncomingRideRequestPopup();
+  showAlert('info', enabled ? 'Ride alerts muted for 5 minutes.' : 'Ride alerts restored.');
+}
+
+function declineRideRequest(ride, reason = 'declined') {
+  if (!ride?.id) return;
+  const ids = getRejectedRideIds();
+  if (!ids.includes(ride.id)) ids.push(ride.id);
+  setRejectedRideIds(ids);
+  emitRideRequestAction(reason, ride, {
+    remainingMs: rideRequestPopupState.expiresAt ? Math.max(rideRequestPopupState.expiresAt - Date.now(), 0) : null
+  });
+  setRideRequestPopupPhase(reason === 'expired' ? 'expired' : 'declined', ride);
+  renderAvailableRideRequests();
+  showAlert(reason === 'expired' ? 'warning' : 'info', reason === 'expired'
+    ? `Ride ${ride.id} expired.`
+    : `Ride ${ride.id} rejected from your local queue.`);
+}
+
+function updateIncomingRidePopupCountdown() {
+  if (rideRequestPopupState.phase !== 'requesting' || !rideRequestPopupState.expiresAt) return;
+  const ride = getPopupRideSnapshot();
+  if (!ride) {
+    hideRideRequestPopup();
+    return;
+  }
+  const remainingMs = rideRequestPopupState.expiresAt - Date.now();
+  if (remainingMs <= 0) {
+    declineRideRequest(ride, 'expired');
+    return;
+  }
+  const remainingPercent = `${Math.max(6, Math.min((remainingMs / RIDE_REQUEST_ALERT_WINDOW_MS) * 100, 100)).toFixed(1)}%`;
+  const isUrgent = remainingMs <= RIDE_REQUEST_EXPIRING_THRESHOLD_MS;
+  document.querySelectorAll('[data-popup-countdown]').forEach(element => {
+    element.textContent = formatRideRequestCountdown(remainingMs);
+  });
+  document.querySelectorAll('[data-popup-progress]').forEach(element => {
+    element.style.setProperty('--progress', remainingPercent);
+  });
+  const card = document.getElementById('ride-request-popup-card');
+  const timer = document.getElementById('ride-request-popup-timer');
+  if (card) card.setAttribute('data-urgent', String(isUrgent));
+  if (timer) timer.classList.toggle('is-urgent', isUrgent);
+  if (isUrgent && !rideRequestPopupState.lowTimeCuePlayed) {
+    rideRequestPopupState.lowTimeCuePlayed = true;
+    playIncomingRideAlert({ lowTimeCue: true }).catch(() => {});
+  }
+}
+
+function attachIncomingRidePopupSwipeControls(ride) {
+  const popup = document.querySelector('[data-popup-swipe]');
+  const track = popup?.querySelector('.ride-popup-swipe-track');
+  const thumb = popup?.querySelector('[data-popup-swipe-thumb]');
+  if (!popup || !track || !thumb || !ride?.id) return;
+
+  let pointerId = null;
+  let currentOffset = 0;
+  let startX = 0;
+  const getMaxOffset = () => Math.max((track.clientWidth - thumb.clientWidth) / 2 - 12, 0);
+  const setSwipeProgress = offset => {
+    currentOffset = Math.max(-getMaxOffset(), Math.min(getMaxOffset(), offset));
+    thumb.style.transform = `translateX(${currentOffset}px)`;
+    const progress = getMaxOffset() > 0 ? Math.abs(currentOffset) / getMaxOffset() : 0;
+    track.style.setProperty('--swipe-progress', `${(progress * 50).toFixed(1)}%`);
+    popup.dataset.direction = currentOffset > 0 ? 'accept' : currentOffset < 0 ? 'decline' : '';
+  };
+  const resetSwipe = () => {
+    track.style.setProperty('--swipe-progress', '0%');
+    popup.dataset.direction = '';
+    setSwipeProgress(0);
+  };
+  const commitSwipe = async direction => {
+    if (direction === 'accept') {
+      setRideRequestPopupPhase('accepting', ride);
+      const accepted = await acceptRideById(ride.id, { source: 'popup-swipe' });
+      if (accepted) {
+        setRideRequestPopupPhase('accepted', ride);
+      } else {
+        setRideRequestPopupPhase('requesting', ride, { expiresAt: getRideRequestExpiryTimestamp(ride) });
+      }
+      return;
+    }
+    declineRideRequest(ride, 'declined');
+  };
+  const finalizeSwipe = async event => {
+    if (pointerId !== event.pointerId) return;
+    const maxOffset = getMaxOffset();
+    const progress = maxOffset > 0 ? Math.abs(currentOffset) / maxOffset : 0;
+    const direction = currentOffset > 0 ? 'accept' : currentOffset < 0 ? 'decline' : '';
+    pointerId = null;
+    thumb.releasePointerCapture?.(event.pointerId);
+    resetSwipe();
+    if (progress >= SWIPE_ACCEPT_THRESHOLD && direction) {
+      await commitSwipe(direction);
+    }
+  };
+
+  resetSwipe();
+  track.tabIndex = 0;
+  track.setAttribute('role', 'slider');
+  track.setAttribute('aria-valuemin', '-100');
+  track.setAttribute('aria-valuemax', '100');
+  track.setAttribute('aria-valuenow', '0');
+  track.setAttribute('aria-label', `Swipe right to accept or left to decline ride request from ${ride.passengerName || 'Passenger'}`);
+
+  thumb.addEventListener('pointerdown', event => {
+    if (rideRequestPopupState.phase !== 'requesting') return;
+    pointerId = event.pointerId;
+    startX = event.clientX - currentOffset;
+    thumb.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  });
+  thumb.addEventListener('pointermove', event => {
+    if (pointerId !== event.pointerId) return;
+    setSwipeProgress(event.clientX - startX);
+    const maxOffset = getMaxOffset();
+    track.setAttribute('aria-valuenow', String(maxOffset > 0 ? Math.round((currentOffset / maxOffset) * 100) : 0));
+  });
+  thumb.addEventListener('pointerup', event => {
+    finalizeSwipe(event).catch(() => {});
+  });
+  thumb.addEventListener('pointercancel', event => {
+    finalizeSwipe(event).catch(() => {});
+  });
+  track.addEventListener('keydown', event => {
+    if (rideRequestPopupState.phase !== 'requesting') return;
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      commitSwipe('accept').catch(() => {});
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      commitSwipe('decline').catch(() => {});
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      setSwipeProgress(currentOffset + getMaxOffset() * 0.28);
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      setSwipeProgress(currentOffset - getMaxOffset() * 0.28);
+    } else if (event.key === ' ') {
+      event.preventDefault();
+      const direction = currentOffset >= 0 ? 'accept' : 'decline';
+      commitSwipe(direction).catch(() => {});
+    }
+  });
+  document.getElementById('ride-request-popup-decline')?.addEventListener('click', () => {
+    if (rideRequestPopupState.phase !== 'requesting') return;
+    declineRideRequest(ride, 'declined');
+  });
+  document.getElementById('ride-request-popup-mute')?.addEventListener('click', () => {
+    setRideAlertMute(!isRideAlertMuted());
+  });
+}
+
+function renderIncomingRideRequestPopup() {
+  const host = document.getElementById('ride-request-popup-layer');
+  if (!host) return;
+  const ride = getPopupRideSnapshot();
+  if (!ride || rideRequestPopupState.phase === 'hidden') {
+    host.innerHTML = '';
+    return;
+  }
+
+  const pickupDistanceKm = getRidePickupDistanceKm(ride);
+  const tripDistanceKm = getRideTripDistanceKm(ride);
+  const pickupEta = getRidePickupEtaMinutes(ride);
+  const countdown = rideRequestPopupState.expiresAt
+    ? formatRideRequestCountdown(rideRequestPopupState.expiresAt - Date.now())
+    : '00:00';
+  const isUrgent = rideRequestPopupState.phase === 'requesting'
+    && rideRequestPopupState.expiresAt
+    && rideRequestPopupState.expiresAt - Date.now() <= RIDE_REQUEST_EXPIRING_THRESHOLD_MS;
+  const progressPercent = rideRequestPopupState.expiresAt
+    ? `${Math.max(6, Math.min(((rideRequestPopupState.expiresAt - Date.now()) / RIDE_REQUEST_ALERT_WINDOW_MS) * 100, 100)).toFixed(1)}%`
+    : '100%';
+  const passengerName = ride.passengerName || 'Passenger';
+  const stateMessage = getRidePopupStateMessage(rideRequestPopupState.phase, passengerName);
+
+  host.innerHTML = `
+    <section id="ride-request-popup" class="ride-request-popup is-visible" aria-label="Incoming ride request">
+      <div id="ride-request-popup-card" class="ride-request-popup-card glass-panel" data-state="${escapeHtml(rideRequestPopupState.phase)}" data-urgent="${String(isUrgent)}" role="dialog" aria-modal="false" aria-describedby="ride-request-popup-state">
+        <div class="ride-popup-progress-bar" data-popup-progress style="--progress:${escapeHtml(progressPercent)}"><span></span></div>
+        <div class="ride-popup-body">
+          <div class="ride-popup-top">
+            <div class="ride-popup-passenger">
+              <img class="ride-popup-photo" src="${escapeHtml(getPassengerPhotoUrl(ride))}" alt="${escapeHtml(`${passengerName} profile photo`)}">
+              <div>
+                <div class="eyebrow">Incoming ride request</div>
+                <div class="ride-popup-name">${escapeHtml(passengerName)}</div>
+                <div class="ride-popup-subtitle">${escapeHtml(ride.id)} • ${escapeHtml(formatCoordinate(ride.pickupLat, ride.pickupLng))}</div>
+                <div class="ride-popup-rating"><i class="bi bi-star-fill"></i> ${Number(ride.passengerRating || 0).toFixed(1)} passenger rating</div>
+              </div>
+            </div>
+            <div id="ride-request-popup-timer" class="ride-popup-timer${isUrgent ? ' is-urgent' : ''}">
+              <span>Time left</span>
+              <strong data-popup-countdown>${escapeHtml(countdown)}</strong>
+            </div>
+          </div>
+
+          <div class="ride-popup-grid">
+            <div class="ride-popup-metric">
+              <span>Fare estimate</span>
+              <strong>$${Number(ride.fareEstimate || 0).toFixed(2)}</strong>
+            </div>
+            <div class="ride-popup-metric">
+              <span>Estimated earnings</span>
+              <strong>$${Number(ride.estimatedEarnings || 0).toFixed(2)}</strong>
+            </div>
+            <div class="ride-popup-metric">
+              <span>Pickup ETA</span>
+              <strong>${escapeHtml(formatEta(pickupEta))}</strong>
+            </div>
+            <div class="ride-popup-metric">
+              <span>Trip distance</span>
+              <strong>${escapeHtml(formatDistance(tripDistanceKm))}</strong>
+            </div>
+          </div>
+
+          <div class="ride-popup-route">
+            <div class="ride-popup-location pickup">
+              <i class="bi bi-geo-alt-fill"></i>
+              <div>
+                <small>Pickup • ${escapeHtml(formatDistance(pickupDistanceKm))} away</small>
+                <strong>${escapeHtml(formatCoordinate(ride.pickupLat, ride.pickupLng))}</strong>
+              </div>
+            </div>
+            <div class="ride-popup-location dropoff">
+              <i class="bi bi-pin-map-fill"></i>
+              <div>
+                <small>Dropoff • ${escapeHtml(formatEta(Number(ride.minutes || 0)))} trip</small>
+                <strong>${escapeHtml(formatCoordinate(ride.dropoffLat, ride.dropoffLng))}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="ride-popup-actions">
+            <button id="ride-request-popup-mute" class="ride-popup-mute" type="button">${isRideAlertMuted() ? '<i class="bi bi-volume-mute"></i> Unmute' : '<i class="bi bi-volume-up"></i> Mute 5 min'}</button>
+            <div class="ride-popup-swipe" data-popup-swipe data-direction="">
+              <div class="ride-popup-swipe-track" data-accept-label="Swipe right to accept" data-decline-label="Swipe left to decline">
+                <span class="ride-popup-swipe-fill"></span>
+                <span class="ride-popup-swipe-fill accept"></span>
+                <button class="ride-popup-swipe-thumb" data-popup-swipe-thumb type="button" aria-label="Swipe ride request action">
+                  <i class="bi bi-arrow-left-right"></i>
+                </button>
+              </div>
+            </div>
+            <button id="ride-request-popup-decline" class="ride-popup-ghost danger" type="button">Decline</button>
+          </div>
+
+          <div class="ride-popup-footer">
+            <div id="ride-request-popup-state" class="ride-popup-state"><strong>${escapeHtml(stateMessage)}</strong></div>
+            <span class="ride-request-pill"><i class="bi bi-broadcast-pin"></i> Keyboard: Enter accept • Esc decline</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+
+  const swipeTrack = host.querySelector('.ride-popup-swipe-track');
+  if (rideRequestPopupState.phase !== 'requesting') {
+    swipeTrack?.setAttribute('aria-disabled', 'true');
+    host.querySelector('[data-popup-swipe-thumb]')?.setAttribute('disabled', 'disabled');
+    host.querySelector('#ride-request-popup-decline')?.setAttribute('disabled', 'disabled');
+  }
+  attachIncomingRidePopupSwipeControls(ride);
+  updateIncomingRidePopupCountdown();
+}
+
+function syncIncomingRideRequestPopup() {
+  if (['accepted', 'declined', 'expired'].includes(rideRequestPopupState.phase)) return;
+  const activeRide = getActiveIncomingRide();
+  if (!activeRide) {
+    if (rideRequestPopupState.phase === 'requesting') hideRideRequestPopup();
+    return;
+  }
+  const nextExpiresAt = getRideRequestExpiryTimestamp(activeRide);
+  if (rideRequestPopupState.rideId !== activeRide.id || rideRequestPopupState.phase === 'hidden') {
+    rideRequestPopupState.lowTimeCuePlayed = false;
+    setRideRequestPopupPhase('requesting', activeRide, { expiresAt: nextExpiresAt, lowTimeCuePlayed: false });
+    return;
+  }
+  rideRequestPopupState.rideSnapshot = { ...activeRide };
+  if (rideRequestPopupState.phase === 'requesting') {
+    rideRequestPopupState.expiresAt = nextExpiresAt;
+    updateIncomingRidePopupCountdown();
+  }
 }
 
 function headingToCardinal(degrees) {
@@ -2223,6 +2671,7 @@ function renderAvailableRideRequests() {
   if (!rides.length) {
     listDiv.innerHTML = '<div class="text-muted">No available ride requests right now.</div>';
     renderPassengerInfoPane();
+    syncIncomingRideRequestPopup();
     renderDashboardSummary();
     queueMapRender();
     return;
@@ -2297,6 +2746,8 @@ function renderAvailableRideRequests() {
   attachRideRequestSwipeControls(listDiv);
   updateRideRequestCountdowns();
   renderPassengerInfoPane();
+  syncIncomingRideRequestPopup();
+  renderPassengerInfoPane();
   queueMapRender();
 }
 
@@ -2312,6 +2763,9 @@ async function loadAvailableRideRequests() {
       const nextRideIds = new Set(nearbyRideRequests.map(ride => ride.id));
       const newRideRequests = nearbyRideRequests.filter(ride => !knownRideRequestIds.has(ride.id));
       if (rideRequestFeedInitialized && newRideRequests.length) {
+        newRideRequests.forEach(ride => {
+          emitRideRequestAction('requesting', ride, { remainingMs: RIDE_REQUEST_ALERT_WINDOW_MS });
+        });
         playIncomingRideAlert().catch(() => {});
         showAlert(
           'info',
@@ -2574,12 +3028,16 @@ async function handleSubmitRiderRating() {
   }
 }
 
-async function acceptRideById(rawRideId) {
+async function acceptRideById(rawRideId, options = {}) {
   const rideId = String(rawRideId || '').trim();
   if (!rideId) return false;
   if (acceptingRideIds.has(rideId)) {
     showAlert('info', `Ride ${rideId} is already being accepted.`);
     return false;
+  }
+  const existingRide = getRideById(rideId);
+  if (rideRequestPopupState.rideId === rideId && rideRequestPopupState.phase === 'requesting') {
+    setRideRequestPopupPhase('accepting', existingRide || normalizeRide({ id: rideId, status: 'requested' }, 0));
   }
   const rideIdInput = document.getElementById('ride-id-input');
   if (rideIdInput) rideIdInput.value = rideId;
@@ -2599,11 +3057,20 @@ async function acceptRideById(rawRideId) {
     }
     showAlert('success', `Ride ${rideId} accepted.`);
     const acceptedRide = getRideById(rideId) || normalizeRide({ id: rideId, status: 'accepted' }, 0);
+    emitRideRequestAction('accepted', acceptedRide, { source: options.source || 'manual' });
+    if (rideRequestPopupState.rideId === rideId) {
+      setRideRequestPopupPhase('accepted', acceptedRide);
+    }
     renderRideDetailsModal(acceptedRide);
     await Promise.all([loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
     document.getElementById('accept-ride-form')?.reset();
     return true;
   } catch (_error) {
+    if (rideRequestPopupState.rideId === rideId) {
+      setRideRequestPopupPhase('requesting', existingRide || normalizeRide({ id: rideId, status: 'requested' }, 0), {
+        expiresAt: existingRide ? getRideRequestExpiryTimestamp(existingRide) : Date.now() + RIDE_REQUEST_ALERT_WINDOW_MS
+      });
+    }
     showAlert('danger', 'Unable to accept ride.');
     return false;
   } finally {
@@ -2627,11 +3094,26 @@ function handleRejectRide() {
     showAlert('warning', 'Enter a ride ID to reject.');
     return;
   }
-  const ids = getRejectedRideIds();
-  if (!ids.includes(rideId)) ids.push(rideId);
-  setRejectedRideIds(ids);
-  showAlert('info', `Ride ${rideId} rejected from your local queue.`);
-  renderAvailableRideRequests();
+  const ride = getRideById(rideId) || normalizeRide({ id: rideId, status: 'requested' }, 0);
+  declineRideRequest(ride, 'declined');
+}
+
+function handleRidePopupKeyboardShortcuts(event) {
+  if (rideRequestPopupState.phase !== 'requesting') return;
+  if (event.defaultPrevented) return;
+  const target = event.target;
+  const tagName = target?.tagName;
+  if (tagName === 'INPUT' || tagName === 'TEXTAREA' || target?.isContentEditable) return;
+  const ride = getPopupRideSnapshot();
+  if (!ride) return;
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    setRideRequestPopupPhase('accepting', ride);
+    acceptRideById(ride.id, { source: 'keyboard' }).catch(() => {});
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    declineRideRequest(ride, 'declined');
+  }
 }
 
 // ─── Earnings ─────────────────────────────────────────────────────────────────
@@ -3261,6 +3743,7 @@ window.addEventListener('load', async () => {
   document.addEventListener('pointerdown', () => {
     primeIncomingRideAudio().catch(() => {});
   }, { once: true });
+  document.addEventListener('keydown', handleRidePopupKeyboardShortcuts);
   document.getElementById('logout-button').addEventListener('click', handleLogout);
   document.getElementById('accept-ride-form').addEventListener('submit', handleAcceptRide);
   document.getElementById('reject-ride-button').addEventListener('click', handleRejectRide);

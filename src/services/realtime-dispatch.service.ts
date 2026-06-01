@@ -1,5 +1,5 @@
 import type { Server } from 'socket.io';
-import { store, timestamp, type Ride, type RideEvent } from '../database/data.store';
+import { makeId, store, timestamp, type DispatchEvent, type Ride, type RideEvent } from '../database/data.store';
 
 type DriverRealtimeLocation = {
   lat: number;
@@ -22,6 +22,29 @@ type DriverRealtimeRide = Ride & {
   events: RideEvent[];
 };
 
+export const DISPATCH_EVENT_HISTORY_LIMIT = 200;
+const LOCATION_SNAPSHOT_LIMIT = 200;
+const DISPATCH_EVENT_STORE_LIMIT = 1_000;
+
+type RiderRealtimeProfile = {
+  userId: string;
+  currentTripId?: string;
+  location: {
+    lat: number;
+    lng: number;
+    updatedAt?: string;
+  } | null;
+  vehiclePreference?: string;
+  routePreference?: string;
+  favoriteLocations: Array<{
+    label: string;
+    lat: number;
+    lng: number;
+  }>;
+  rating: number;
+  reviewCount: number;
+};
+
 let realtimeServer: Server | null = null;
 
 function emitToRoom(room: string, event: string, payload: unknown) {
@@ -33,6 +56,28 @@ function normalizeRide(ride: Ride): DriverRealtimeRide {
     ...ride,
     events: Array.isArray(ride.events) ? ride.events : []
   };
+}
+
+function getNextDispatchSequence() {
+  return (store.dispatchEvents[store.dispatchEvents.length - 1]?.sequence || 0) + 1;
+}
+
+function publishDispatchEvent(type: string, payload: Record<string, unknown>, roomIds: string[] = [], entityId?: string) {
+  const event: DispatchEvent = {
+    id: makeId('dispatch_evt'),
+    sequence: getNextDispatchSequence(),
+    type,
+    entityId,
+    createdAt: timestamp(),
+    payload
+  };
+  store.dispatchEvents.push(event);
+  if (store.dispatchEvents.length > DISPATCH_EVENT_STORE_LIMIT) {
+    store.dispatchEvents.splice(0, store.dispatchEvents.length - DISPATCH_EVENT_STORE_LIMIT);
+  }
+  realtimeServer?.emit('dispatch:event', event);
+  roomIds.forEach(roomId => emitToRoom(roomId, 'dispatch:event', event));
+  return event;
 }
 
 function getDriverRealtimeLocation(driverId: string): DriverRealtimeLocation | null {
@@ -53,6 +98,27 @@ function getDriverRealtimeRides(driverId: string): DriverRealtimeRide[] {
     .filter(ride => ride.driverId === driverId)
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
     .map(normalizeRide);
+}
+
+function getRiderRealtimeProfile(riderId: string): RiderRealtimeProfile | null {
+  const profile = store.riders.get(riderId);
+  if (!profile) return null;
+  return {
+    userId: riderId,
+    currentTripId: profile.currentTripId,
+    location: Number.isFinite(Number(profile.lat)) && Number.isFinite(Number(profile.lng))
+      ? {
+        lat: Number(profile.lat),
+        lng: Number(profile.lng),
+        updatedAt: profile.lastLocationUpdatedAt
+      }
+      : null,
+    vehiclePreference: profile.vehiclePreference,
+    routePreference: profile.routePreference,
+    favoriteLocations: Array.isArray(profile.favoriteLocations) ? profile.favoriteLocations : [],
+    rating: Number(profile.rating || 5),
+    reviewCount: Number(profile.reviewCount || 0)
+  };
 }
 
 function getDriverRealtimeEarnings(driverId: string): DriverRealtimeEarnings {
@@ -89,10 +155,41 @@ export function getDriverRealtimeDispatchSnapshot(driverId: string) {
   };
 }
 
+export function getRealtimeDispatchSnapshot() {
+  return {
+    provider: 'firebase',
+    drivers: Array.from(store.drivers.values()).map(profile => ({
+      userId: profile.userId,
+      status: profile.status,
+      availabilityStatus: profile.availabilityStatus,
+      available: profile.available,
+      rating: profile.rating,
+      acceptanceRate: profile.acceptanceRate,
+      cancellationRate: profile.cancellationRate,
+      earningsCents: profile.earningsCents,
+      currentTripId: profile.currentTripId,
+      location: getDriverRealtimeLocation(profile.userId)
+    })),
+    riders: Array.from(store.riders.keys())
+      .map(getRiderRealtimeProfile)
+      .filter(Boolean),
+    trips: Array.from(store.rides.values())
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .map(normalizeRide),
+    requests: Array.from(store.rideRequests.values()).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+    locations: Array.from(store.locationHistory.values()).sort((left, right) => right.timestamp.localeCompare(left.timestamp)).slice(0, LOCATION_SNAPSHOT_LIMIT),
+    events: [...store.dispatchEvents].sort((left, right) => left.sequence - right.sequence).slice(-DISPATCH_EVENT_HISTORY_LIMIT)
+  };
+}
+
 export function publishDriverRealtimeLocation(driverId: string) {
   const location = getDriverRealtimeLocation(driverId);
   if (!location) return null;
   emitToRoom(`driver:${driverId}`, 'dispatch:location', location);
+  publishDispatchEvent('driver_location_updated', {
+    driverId,
+    ...location
+  }, [`driver:${driverId}`, `user:${driverId}`], driverId);
   Array.from(store.rides.values())
     .filter(ride => ride.driverId === driverId && ['accepted', 'arrived_at_pickup', 'started'].includes(ride.status))
     .forEach(ride => {
@@ -104,11 +201,37 @@ export function publishDriverRealtimeLocation(driverId: string) {
   return location;
 }
 
+export function publishRiderRealtimeLocation(riderId: string) {
+  const rider = getRiderRealtimeProfile(riderId);
+  if (!rider?.location) return null;
+  emitToRoom(`user:${riderId}`, 'dispatch:rider_location', rider.location);
+  publishDispatchEvent('rider_location_updated', {
+    riderId,
+    ...rider.location
+  }, [`user:${riderId}`], riderId);
+  return rider.location;
+}
+
 export function publishDriverRealtimeEarnings(driverId: string) {
   const earnings = getDriverRealtimeEarnings(driverId);
   emitToRoom(`driver:${driverId}`, 'dispatch:earnings', earnings);
   emitToRoom(`user:${driverId}`, 'dispatch:earnings', earnings);
   return earnings;
+}
+
+export function publishDriverStatusChanged(driverId: string) {
+  const profile = store.drivers.get(driverId);
+  if (!profile) return null;
+  const payload = {
+    driverId,
+    status: profile.availabilityStatus,
+    available: profile.available,
+    updatedAt: timestamp()
+  };
+  emitToRoom(`driver:${driverId}`, 'dispatch:driver_status', payload);
+  emitToRoom(`user:${driverId}`, 'dispatch:driver_status', payload);
+  publishDispatchEvent('driver_status_changed', payload, [`driver:${driverId}`, `user:${driverId}`], driverId);
+  return payload;
 }
 
 export function publishRideRealtimeUpdate(ride: Ride, reason = 'trip_update') {
@@ -128,6 +251,23 @@ export function publishRideRealtimeUpdate(ride: Ride, reason = 'trip_update') {
     updatedAt
   });
   emitToRoom(`user:${ride.riderId}`, 'dispatch:trip_update', tripUpdatePayload);
+  const eventTypeMap: Record<string, string> = {
+    ride_requested: 'ride_requested',
+    accepted: 'ride_accepted',
+    arrived_at_pickup: 'ride_arrived',
+    started: 'ride_started',
+    completed: 'ride_completed',
+    canceled: 'ride_cancelled'
+  };
+  const eventType = eventTypeMap[reason] || 'ride_updated';
+  publishDispatchEvent(eventType, {
+    rideId: ride.id,
+    driverId: ride.driverId,
+    riderId: ride.riderId,
+    status: ride.status,
+    reason,
+    updatedAt
+  }, [`ride:${ride.id}`, `user:${ride.riderId}`, ...(ride.driverId ? [`driver:${ride.driverId}`, `user:${ride.driverId}`] : [])], ride.id);
 
   if (ride.driverId) {
     emitToRoom(`user:${ride.driverId}`, 'dispatch:trip_update', tripUpdatePayload);
@@ -140,4 +280,16 @@ export function publishRideRealtimeUpdate(ride: Ride, reason = 'trip_update') {
   }
 
   return tripUpdatePayload;
+}
+
+export function publishRiderRatingSubmitted(ride: Ride) {
+  if (!ride.riderId || typeof ride.rating !== 'number') return null;
+  return publishDispatchEvent('rider_rating_submitted', {
+    rideId: ride.id,
+    riderId: ride.riderId,
+    driverId: ride.driverId,
+    rating: ride.rating,
+    review: ride.review,
+    ratedAt: ride.ratedAt
+  }, [`ride:${ride.id}`, `user:${ride.riderId}`, ...(ride.driverId ? [`driver:${ride.driverId}`, `user:${ride.driverId}`] : [])], ride.id);
 }

@@ -91,6 +91,19 @@ The `public/driver-dashboard.js` page reads realtime config from `window.DRIVE_R
 
 The dashboard syncs `drivers/<driverId>/rides`, `drivers/<driverId>/location`, and `drivers/<driverId>/earnings` with live listeners plus cached offline recovery.
 
+The backend now also exposes Firebase-style dispatch compatibility payloads via:
+
+- `POST /api/drivers/register`
+- `POST /api/drivers/:id/location`
+- `PUT /api/drivers/:id/status`
+- `GET /api/drivers/nearby`
+- `POST /api/riders/register`
+- `POST /api/rides/:rideId/accept`
+- `PUT /api/rides/:rideId/status`
+- `POST /api/rides/:rideId/rate`
+
+Ride requests persist broadcast history, acceptance responses, 30-second expiry metadata, ordered realtime dispatch events, and driver location history for live dispatch synchronization.
+
 ## Backend quick start
 
 ```bash
