@@ -1,5 +1,16 @@
 // ─── Constants ────────────────────────────────────────────────────────────────
 const API_BASE_URL = '';
+
+// ─── Shared Rider ↔ Driver Demo-Mode Keys ─────────────────────────────────────
+// These two keys sync state between rider-dashboard.html and driver-dashboard.html
+// via localStorage + window storage events.
+// [REALTIME] Replace both with Firebase Realtime Database refs or Supabase channels
+// when moving to a production backend:
+//   - SHARED_PENDING_RIDES_KEY → firebase.database().ref('pendingRides')
+//   - SHARED_RIDE_STATUS_KEY   → firebase.database().ref('rideStatus')
+const SHARED_PENDING_RIDES_KEY = 'drive_shared_pending_rides';   // rider → driver
+const SHARED_RIDE_STATUS_KEY   = 'drive_shared_ride_status';     // driver → rider
+
 const REJECTED_RIDES_KEY = 'driverRejectedRideIds';
 const RIDE_REQUEST_HISTORY_KEY = 'driverRideRequestHistory';
 const RIDE_REQUEST_ANALYTICS_KEY = 'driverRideRequestAnalytics';
@@ -830,6 +841,124 @@ function emitRideRequestAction(action, ride, extra = {}) {
   window.dispatchEvent(new CustomEvent('driver:ride-request-action', { detail }));
 }
 
+// ─── Rider ↔ Driver Demo-Mode Sync ────────────────────────────────────────────
+// All functions in this section are demo-mode adapters.
+// [REALTIME] Replace each localStorage call with the corresponding
+//   Firebase Realtime Database or Supabase Realtime operation.
+
+/**
+ * Read all pending ride requests created by the rider dashboard.
+ * [REALTIME] Replace with: firebase.database().ref('pendingRides').once('value')
+ */
+function getSharedPendingRides() {
+  try {
+    const raw = localStorage.getItem(SHARED_PENDING_RIDES_KEY);
+    const parsed = JSON.parse(raw || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+/**
+ * Write driver action result back to the shared ride-status store so the
+ * rider dashboard can react (accepted → "Driver assigned", rejected → keep searching).
+ * [REALTIME] Replace with: firebase.database().ref(`rideStatus/${rideId}`).set(entry)
+ * or: supabase.channel('ride-status').send({ type: 'broadcast', event: 'status-update', payload: entry })
+ */
+function publishSharedRideStatus(rideId, status, extra = {}) {
+  try {
+    const map = JSON.parse(localStorage.getItem(SHARED_RIDE_STATUS_KEY) || '{}');
+    map[rideId] = {
+      rideId,
+      status,
+      updatedAt: new Date().toISOString(),
+      driverName:   currentProfile?.name || getDriverDisplayName(currentProfile?.email || ''),
+      driverRating: currentProfile?.rating ?? 4.8,
+      vehicleInfo:  currentProfile?.vehicle || 'Sedan',
+      driverLat:    mapState?.lastPosition?.lat ?? null,
+      driverLng:    mapState?.lastPosition?.lng ?? null,
+      ...extra
+    };
+    localStorage.setItem(SHARED_RIDE_STATUS_KEY, JSON.stringify(map));
+    // Notify same-tab listener; cross-tab storage events fire automatically.
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: SHARED_RIDE_STATUS_KEY,
+      newValue: JSON.stringify(map)
+    }));
+  } catch { /* silently ignore storage errors */ }
+}
+
+/**
+ * Merge rider-submitted pending rides into the nearbyRideRequests list so they
+ * appear instantly on the driver dashboard without a backend round-trip.
+ * [REALTIME] This merge step is replaced by the Firebase/Supabase push listener;
+ * remove it once the realtime backend is wired up.
+ */
+function mergePendingRiderRequests() {
+  const pending = getSharedPendingRides();
+  if (!pending.length) return;
+  const existingIds = new Set(nearbyRideRequests.map(r => r.id));
+  const rejected    = new Set(getRejectedRideIds());
+  let added = false;
+  for (const req of pending) {
+    if (existingIds.has(req.id) || rejected.has(req.id)) continue;
+    if (req.status !== 'requested') continue;
+    nearbyRideRequests.unshift(normalizeRide(req, 0));
+    added = true;
+  }
+  if (added) {
+    refreshRideRequestFeedState(nearbyRideRequests);
+    renderAvailableRideRequests();
+  }
+}
+
+/**
+ * Inject a demo ride request created right here on the driver dashboard,
+ * simulating what the rider dashboard would publish.
+ * This makes manual QA easy without opening a second tab.
+ */
+function injectDemoRideRequest() {
+  const demoRide = {
+    id:            `demo_ride_${Date.now()}`,
+    riderId:       'demo-rider',
+    riderName:     'Demo Rider',
+    passengerName: 'Demo Rider',
+    pickup:        '1 Market St, San Francisco, CA',
+    pickupLat:     37.7937,
+    pickupLng:    -122.3947,
+    destination:   'Golden Gate Park, San Francisco, CA',
+    destLat:       37.7694,
+    destLng:      -122.4862,
+    fareEstimate:  18.50,
+    minutes:       22,
+    rideType:      'economy',
+    status:        'requested',
+    requestedAt:   new Date().toISOString()
+  };
+
+  // Write to shared store (rider → driver channel)
+  try {
+    const existing = JSON.parse(localStorage.getItem(SHARED_PENDING_RIDES_KEY) || '[]');
+    existing.unshift(demoRide);
+    localStorage.setItem(SHARED_PENDING_RIDES_KEY, JSON.stringify(existing.slice(0, 20)));
+  } catch { /* ignore */ }
+
+  // Merge immediately into the local ride list
+  nearbyRideRequests.unshift(normalizeRide(demoRide, 0));
+  refreshRideRequestFeedState(nearbyRideRequests);
+  renderAvailableRideRequests();
+  showAlert('success', `Demo ride request added (ID: ${demoRide.id})`);
+}
+
+/**
+ * Handle storage events from the rider dashboard so new ride requests appear
+ * instantly on the driver dashboard.
+ * [REALTIME] Remove this listener once Firebase/Supabase push events are active.
+ */
+function handleSharedRiderStorageEvent(event) {
+  if (event.key !== SHARED_PENDING_RIDES_KEY) return;
+  mergePendingRiderRequests();
+}
+
 function getDriverDisplayName(email) {
   if (!email) return 'Driver';
   return email
@@ -1568,6 +1697,11 @@ function declineRideRequest(ride, reason = 'declined') {
     remainingMs: rideRequestPopupState.expiresAt ? Math.max(rideRequestPopupState.expiresAt - Date.now(), 0) : null
   });
   setRideRequestPopupPhase(reason === 'expired' ? 'expired' : 'declined', ride);
+  // [REALTIME] Replace publishSharedRideStatus with a Firebase/Supabase write so
+  // the rider dashboard knows to keep searching for another driver.
+  if (reason !== 'expired') {
+    publishSharedRideStatus(ride.id, 'rejected');
+  }
   renderAvailableRideRequests();
   showAlert(reason === 'expired' ? 'warning' : 'info', reason === 'expired'
     ? `Ride ${ride.id} expired.`
@@ -3372,6 +3506,9 @@ async function loadAvailableRideRequests() {
 
   renderAvailableRideRequests();
   scheduleRouteRefresh();
+  // Merge any pending rides from the rider dashboard that aren't yet in the backend.
+  // [REALTIME] Remove this call once Firebase/Supabase push delivers rides directly.
+  mergePendingRiderRequests();
 }
 
 function renderRideHistory() {
@@ -3786,6 +3923,12 @@ async function acceptRideById(rawRideId, options = {}) {
       etaMinutes: Number.isFinite(routeCache.pickupEta) ? Number(routeCache.pickupEta) : Number(acceptedRide.minutes || 0)
     });
     emitRideRequestAction('accepted', acceptedRide, { source: options.source || 'manual' });
+    // [REALTIME] Replace publishSharedRideStatus with a Firebase/Supabase write so
+    // the rider dashboard sees "Driver assigned" in real time.
+    publishSharedRideStatus(rideId, 'accepted', {
+      eta: Math.round(Number(acceptedRide.minutes || 8)),
+      distanceKm: getRidePickupDistanceKm(acceptedRide)
+    });
     if (rideRequestPopupState.rideId === rideId) {
       setRideRequestPopupPhase('accepted', acceptedRide);
     }
@@ -4573,6 +4716,17 @@ window.addEventListener('load', async () => {
   startRealtimeSync();
   await startLocationTracking();
   flushOfflineLocationQueue().catch(() => {});
+
+  // ─── Rider ↔ Driver demo-mode sync ─────────────────────────────────────────
+  // [REALTIME] Remove the storage listener below once Firebase/Supabase push
+  // events are wired up; those will deliver rider requests in real time.
+  window.addEventListener('storage', handleSharedRiderStorageEvent);
+  mergePendingRiderRequests();   // apply any rides already waiting in storage
+
+  // Demo ride button – lets QA inject a test request without opening rider page
+  document.getElementById('btn-demo-ride-request')?.addEventListener('click', injectDemoRideRequest);
+  // ────────────────────────────────────────────────────────────────────────────
+
   window.addEventListener('online', () => {
     flushOfflineLocationQueue().catch(() => {});
     startRealtimeSync();
