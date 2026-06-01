@@ -141,7 +141,7 @@ let mapState = {
   isDragging: false,
   dragStartX: 0,
   dragStartY: 0,
-  mapboxToken: '',
+  mapboxToken: 'pk.eyJ1IjoiZmx1cGZsYXAiLCJhIjoiY21wMjI3M3dpMDN5eTJycHMyeG8yaDZ3OCJ9.VUXlzIoU5Gxfj6-BVjnxag',
   mapboxInstance: null,
   mapboxReady: false,
   mapboxInitPromise: null,
@@ -4523,10 +4523,14 @@ window.addEventListener('load', async () => {
 
   // Map controls
   setupMapControls();
+<<<<<<< Updated upstream
   window.addEventListener('resize', () => {
     mapState.mapboxInstance?.resize?.();
   });
   mapState.mapboxToken = readMapboxToken();
+=======
+  mapState.mapboxToken = readMapboxToken() || mapState.mapboxToken;
+>>>>>>> Stashed changes
   const mapboxTokenInput = document.getElementById('mapbox-token-input');
   if (mapboxTokenInput && mapState.mapboxToken) {
     mapboxTokenInput.value = mapState.mapboxToken;
