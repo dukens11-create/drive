@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { markStoreDirty, store, timestamp, type DriverProfile, type DriverVerificationDocument } from '../database/data.store';
+import { publishDriverRealtimeLocation } from './realtime-dispatch.service';
 
 type DriverDocumentInput = string | {
   id?: string;
@@ -355,9 +356,12 @@ export async function location(body: any, _params?: any, _query?: any) {
   const lat = Number(body?.lat);
   const lng = Number(body?.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return { module: 'drivers', action: 'location', error: 'lat and lng must be valid finite numbers' };
+  const updatedAt = timestamp();
   profile.lat = lat;
   profile.lng = lng;
+  profile.lastLocationUpdatedAt = updatedAt;
   markStoreDirty();
+  publishDriverRealtimeLocation(userId);
   return { module: 'drivers', action: 'location', ok: true, profile };
 }
 

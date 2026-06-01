@@ -9,13 +9,25 @@ const DRIVER_OFFLINE_LOCATION_QUEUE_KEY = 'driverOfflineLocationQueue';
 const MAX_OFFLINE_LOCATION_QUEUE = 50;
 const REALTIME_POLL_INTERVAL_MS = 12_000;
 const ALERT_DISPLAY_DURATION = 4200;
+const PROFILE_LOAD_MAX_RETRIES = 2;
+const PROFILE_RETRY_DELAY_MS = 800;
 const GPS_LOG_KEY = 'driverGpsLog';
 const LAST_KNOWN_LOCATION_KEY = 'driverLastKnownLocation';
 const MAX_GPS_LOG_ENTRIES = 200;
 const ROUTE_CACHE_TTL_MS = 30000;
+<<<<<<< HEAD
 const MAPBOX_TOKEN_STORAGE_KEY = 'drive.mapboxToken';
 const MAPBOX_STYLE_STREETS = 'mapbox://styles/mapbox/navigation-night-v1';
 const MAPBOX_STYLE_SATELLITE = 'mapbox://styles/mapbox/satellite-streets-v12';
+=======
+const RIDE_REQUEST_ALERT_WINDOW_MS = 18000;
+const RIDE_REQUEST_COUNTDOWN_TICK_MS = 1000;
+const RIDE_REQUEST_EXPIRING_THRESHOLD_MS = 7000;
+const SWIPE_ACCEPT_THRESHOLD = 0.72;
+const SWIPE_ACCEPT_TRACK_PADDING = 14;
+const SWIPE_VERTICAL_THRESHOLD = 80;
+const SWIPE_HORIZONTAL_THRESHOLD = 60;
+>>>>>>> origin/main
 
 const DEFAULT_FALLBACK_LAT = 37.7749;
 const DEFAULT_FALLBACK_LNG = -122.4194;
@@ -59,12 +71,14 @@ const SIMULATION_WAYPOINTS = [
 let currentUser = null;
 let accessToken = null;
 let currentProfile = null;
+let isProfileLoading = false;
 let nearbyRideRequests = [];
 let completedRideHistory = [];
 let selectedRideForDetails = null;
 let earningsSnapshot = { earningsCents: 0, rideCount: 0 };
 let realtimeSubscriptions = [];
 let realtimePollers = [];
+let realtimeSocket = null;
 let geolocationWatchId = null;
 let alertTimeoutId = null;
 
@@ -85,6 +99,7 @@ let mapState = {
   isDragging: false,
   dragStartX: 0,
   dragStartY: 0,
+<<<<<<< HEAD
   mapboxToken: '',
   mapboxInstance: null,
   mapboxReady: false,
@@ -93,13 +108,30 @@ let mapState = {
     driver: null,
     passengers: new Map(),
   },
+=======
+  activePointerId: null
+>>>>>>> origin/main
 };
+
+let sheetState = {
+  minHeight: 108,
+  maxHeight: 620,
+  snapPoints: [],
+  currentHeight: 360,
+  isDragging: false,
+  dragStartY: 0,
+  dragStartHeight: 360
+};
+
+const PANE_ORDER = ['map', 'requests', 'earnings', 'more'];
+let activePane = 'map';
 
 let gpsWatchId = null;
 let gpsPollIntervalId = null;
 let gpsSimulationIntervalId = null;
 let gpsSimulationIndex = 0;
 let wakeLockSentinel = null;
+<<<<<<< HEAD
 let routeCache = {
   pickupEta: null,
   dropoffEta: null,
@@ -109,6 +141,15 @@ let routeCache = {
   dropoffGeometry: null,
   cachedAt: 0,
 };
+=======
+let routeCache = { pickupEta: null, dropoffEta: null, pickupDistKm: null, dropoffDistKm: null, cachedAt: 0 };
+let rideRequestCountdownIntervalId = null;
+let rideRequestFeedInitialized = false;
+let knownRideRequestIds = new Set();
+const rideRequestExpirations = new Map();
+const acceptingRideIds = new Set();
+let incomingRideAudioContext = null;
+>>>>>>> origin/main
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 function showAlert(kind, message) {
@@ -140,6 +181,12 @@ async function fetchJson(url, options) {
     throw new Error('Unexpected server response.');
   }
   return { response, data };
+}
+
+function sleep(ms) {
+  return new Promise(resolve => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
 function parseStoredJson(key, fallback) {
@@ -375,6 +422,10 @@ function addRealtimePoller(path, applyPayload) {
 }
 
 function clearRealtimeConnections() {
+  if (realtimeSocket) {
+    realtimeSocket.disconnect();
+    realtimeSocket = null;
+  }
   realtimeSubscriptions.forEach(unsub => {
     if (typeof unsub === 'function') unsub();
   });
@@ -383,11 +434,53 @@ function clearRealtimeConnections() {
   realtimePollers = [];
 }
 
+function startSocketRealtimeSync() {
+  if (!accessToken) return false;
+  if (typeof window.io === 'undefined') {
+    setRealtimeStatus('Realtime websocket client unavailable. Falling back to cached sync.', 'warning');
+    return false;
+  }
+  try {
+    realtimeSocket = window.io({
+      auth: { token: accessToken }
+    });
+  } catch (_error) {
+    setRealtimeStatus('Realtime websocket failed to initialize. Falling back to cached sync.', 'warning');
+    return false;
+  }
+  realtimeSocket.on('connect', () => {
+    realtimeSocket.emit('dispatch:subscribe');
+    setRealtimeStatus('Realtime dispatch connected.', 'success');
+  });
+  realtimeSocket.on('dispatch:rides', payload => {
+    applyRealtimeRides(payload?.items ?? payload);
+  });
+  realtimeSocket.on('dispatch:earnings', payload => {
+    applyRealtimeEarnings(payload);
+  });
+  realtimeSocket.on('dispatch:location', payload => {
+    applyRealtimeLocation(payload);
+  });
+  realtimeSocket.on('connect_error', () => {
+    setRealtimeStatus('Realtime dispatch connection failed. Using cached sync fallback.', 'warning');
+  });
+  realtimeSocket.on('disconnect', () => {
+    setRealtimeStatus(
+      navigator.onLine
+        ? 'Realtime dispatch disconnected. Using cached sync fallback.'
+        : 'Offline mode: realtime dispatch paused while your device is offline.',
+      'warning'
+    );
+  });
+  return true;
+}
+
 function startRealtimeSync() {
   clearRealtimeConnections();
+  const socketEnabled = startSocketRealtimeSync();
   const driverBasePath = getDriverRealtimeBasePath();
   const databaseUrl = getFirebaseDatabaseUrl();
-  if (!driverBasePath || !databaseUrl) return;
+  if (!driverBasePath || !databaseUrl) return socketEnabled;
 
   const ridesPath = `${driverBasePath}/rides`;
   const earningsPath = `${driverBasePath}/earnings`;
@@ -403,6 +496,7 @@ function startRealtimeSync() {
   addRealtimePoller(ridesPath, applyRealtimeRides);
   addRealtimePoller(earningsPath, applyRealtimeEarnings);
   addRealtimePoller(locationPath, applyRealtimeLocation);
+  return true;
 }
 
 async function publishRealtimeSnapshot(section, payload) {
@@ -511,6 +605,45 @@ function getDriverDisplayName(email) {
     .join(' ');
 }
 
+function getPassengerInitials(name) {
+  const parts = String(name || 'Passenger')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+  if (!parts.length) return 'P';
+  return parts.map(part => part.charAt(0).toUpperCase()).join('');
+}
+
+function createPassengerAvatarDataUrl(name) {
+  const initials = getPassengerInitials(name);
+  const safeInitials = escapeHtml(initials);
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" role="img" aria-label="${safeInitials}">
+      <defs>
+        <linearGradient id="avatarGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#26d07c" />
+          <stop offset="100%" stop-color="#1b80ff" />
+        </linearGradient>
+      </defs>
+      <rect width="96" height="96" rx="28" fill="url(#avatarGradient)" />
+      <text x="50%" y="54%" text-anchor="middle" dominant-baseline="middle" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="700" fill="#071018">${safeInitials}</text>
+    </svg>
+  `.trim();
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+function getPassengerPhotoUrl(ride) {
+  const candidate = String(
+    ride.passengerPhotoUrl ||
+    ride.passengerAvatarUrl ||
+    ride.avatarUrl ||
+    ride.photoUrl ||
+    ''
+  ).trim();
+  return candidate || createPassengerAvatarDataUrl(ride.passengerName);
+}
+
 function formatCoordinate(lat, lng) {
   if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return 'Unknown location';
   return `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`;
@@ -545,9 +678,12 @@ function normalizeRide(ride, index) {
     dropoffLat: Number.isFinite(dropoffLat) ? dropoffLat : DEFAULT_FALLBACK_LAT + 0.01,
     dropoffLng: Number.isFinite(dropoffLng) ? dropoffLng : DEFAULT_FALLBACK_LNG + 0.01,
     fareEstimate: Number(ride.fareEstimate || 0),
+    estimatedEarnings: Number(ride.driverEarningsEstimate ?? ride.earningsEstimate ?? ride.fareEstimate ?? 0),
     minutes: Number(ride.minutes || 18),
     passengerRating: Number(ride.passengerRating || 4.8),
     passengerName: ride.passengerName || `Passenger ${index + 1}`,
+    passengerPhotoUrl: ride.passengerPhotoUrl || ride.passengerAvatarUrl || ride.avatarUrl || ride.photoUrl || '',
+    requestExpiresAt: ride.requestExpiresAt || ride.expiresAt || null,
     completedAt: ride.completedAt || ride.updatedAt || new Date().toISOString()
   };
 }
@@ -606,6 +742,97 @@ function formatDistance(km) {
   const miles = km * 0.621371;
   if (km < 1) return `${Math.round(km * 1000)} m / ${(miles * 5280).toFixed(0)} ft`;
   return `${km.toFixed(2)} km / ${miles.toFixed(2)} mi`;
+}
+
+function formatRideRequestCountdown(msRemaining) {
+  const totalSeconds = Math.max(0, Math.ceil(msRemaining / 1000));
+  const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+  const seconds = String(totalSeconds % 60).padStart(2, '0');
+  return `${minutes}:${seconds}`;
+}
+
+function getDriverReferenceLocation() {
+  if (Number.isFinite(mapState.lastPosition?.lat) && Number.isFinite(mapState.lastPosition?.lng)) {
+    return mapState.lastPosition;
+  }
+  if (Number.isFinite(Number(currentProfile?.lat)) && Number.isFinite(Number(currentProfile?.lng))) {
+    return { lat: Number(currentProfile.lat), lng: Number(currentProfile.lng) };
+  }
+  return getLastKnownLocation();
+}
+
+function getRidePickupDistanceKm(ride) {
+  const reference = getDriverReferenceLocation();
+  if (!reference) return NaN;
+  return calculateDistance(reference.lat, reference.lng, Number(ride.pickupLat), Number(ride.pickupLng));
+}
+
+function getRideRequestExpiryTimestamp(ride) {
+  const explicitExpiry = Date.parse(String(ride.requestExpiresAt || ''));
+  if (Number.isFinite(explicitExpiry) && explicitExpiry > Date.now()) {
+    return explicitExpiry;
+  }
+  if (!rideRequestExpirations.has(ride.id)) {
+    rideRequestExpirations.set(ride.id, Date.now() + RIDE_REQUEST_ALERT_WINDOW_MS);
+  }
+  return rideRequestExpirations.get(ride.id);
+}
+
+function pruneRideRequestState(rides) {
+  const activeIds = new Set(rides.map(ride => ride.id));
+  Array.from(rideRequestExpirations.keys()).forEach(rideId => {
+    if (!activeIds.has(rideId)) rideRequestExpirations.delete(rideId);
+  });
+  knownRideRequestIds = new Set(Array.from(knownRideRequestIds).filter(rideId => activeIds.has(rideId)));
+}
+
+async function primeIncomingRideAudio() {
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextCtor) return;
+  if (!incomingRideAudioContext) incomingRideAudioContext = new AudioContextCtor();
+  if (incomingRideAudioContext.state === 'suspended') {
+    await incomingRideAudioContext.resume();
+  }
+}
+
+async function playIncomingRideAlert() {
+  try {
+    await primeIncomingRideAudio();
+  } catch (_error) {
+    return;
+  }
+  if (!incomingRideAudioContext) return;
+  const now = incomingRideAudioContext.currentTime;
+  [0, 0.2].forEach((offset, index) => {
+    const oscillator = incomingRideAudioContext.createOscillator();
+    const gain = incomingRideAudioContext.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(index === 0 ? 880 : 1174, now + offset);
+    gain.gain.setValueAtTime(0.0001, now + offset);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + offset + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.16);
+    oscillator.connect(gain);
+    gain.connect(incomingRideAudioContext.destination);
+    oscillator.start(now + offset);
+    oscillator.stop(now + offset + 0.18);
+  });
+}
+
+function updateRideRequestCountdowns() {
+  document.querySelectorAll('[data-request-countdown]').forEach(element => {
+    const expiresAt = Number(element.getAttribute('data-expires-at'));
+    const remainingMs = expiresAt - Date.now();
+    element.textContent = formatRideRequestCountdown(remainingMs);
+    const isExpiring = remainingMs <= RIDE_REQUEST_EXPIRING_THRESHOLD_MS;
+    element.classList.toggle('is-expiring', isExpiring);
+    element.closest('[data-ride-request-card]')?.classList.toggle('is-expiring', isExpiring);
+  });
+}
+
+function startRideRequestCountdowns() {
+  if (rideRequestCountdownIntervalId !== null) return;
+  updateRideRequestCountdowns();
+  rideRequestCountdownIntervalId = window.setInterval(updateRideRequestCountdowns, RIDE_REQUEST_COUNTDOWN_TICK_MS);
 }
 
 function headingToCardinal(degrees) {
@@ -1312,6 +1539,10 @@ function renderAvailabilityControls() {
 
 function renderProfile() {
   const profileDiv = document.getElementById('profile-info');
+  if (isProfileLoading) {
+    profileDiv.innerHTML = '<div class="profile-card-item text-muted"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Loading driver profile...</div>';
+    return;
+  }
   if (!currentProfile) {
     profileDiv.innerHTML = '<div class="profile-card-item text-danger">Unable to load driver profile.</div>';
     return;
@@ -1344,30 +1575,179 @@ function renderProfile() {
   `;
 }
 
+function setProfileLoading(nextLoading) {
+  isProfileLoading = nextLoading;
+  const button = document.getElementById('toggle-availability-button');
+  if (button) button.disabled = nextLoading;
+  renderProfile();
+}
+
+function buildFallbackDemoProfile() {
+  return {
+    userId: currentUser?.id || 'demo-driver',
+    rating: 5,
+    availabilityStatus: 'offline'
+  };
+}
+
+async function validateAuthSession() {
+  if (!accessToken) throw new Error('Missing access token');
+  if (!currentUser?.id) throw new Error('Missing authenticated user');
+
+  const { response, data } = await fetchJson(`${API_BASE_URL}/api/auth/sessions`, {
+    headers: { Authorization: 'Bearer ' + accessToken }
+  });
+
+  if (!response.ok || !data?.ok) {
+    throw new Error(data?.error || 'Authentication session is invalid');
+  }
+}
+
+function getProfileError(data) {
+  if (data?.error) return data.error;
+  if (data?.ok === false) return 'driver not found';
+  if (!data?.profile || typeof data.profile !== 'object') return 'driver profile missing';
+  return null;
+}
+
 async function loadDriverProfile() {
+  setProfileLoading(true);
+  let lastError = null;
+
   try {
-    const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/me`, {
-      headers: { Authorization: 'Bearer ' + accessToken }
-    });
-    if (!data?.ok) {
-      currentProfile = null;
-      renderProfile();
-      return;
+    for (let attempt = 1; attempt <= PROFILE_LOAD_MAX_RETRIES + 1; attempt += 1) {
+      try {
+        await validateAuthSession();
+
+        const { response, data } = await fetchJson(`${API_BASE_URL}/api/drivers/me`, {
+          headers: { Authorization: 'Bearer ' + accessToken }
+        });
+        const profileError = !response.ok ? (data?.error || `request failed (${response.status})`) : getProfileError(data);
+        if (profileError) {
+          throw new Error(profileError);
+        }
+
+        currentProfile = data.profile || {};
+        renderAvailabilityControls();
+        if (attempt > 1) {
+          showAlert('success', 'Driver profile loaded after retry.');
+        }
+        return;
+      } catch (error) {
+        lastError = error;
+        console.error('Driver profile load failed', {
+          attempt,
+          maxAttempts: PROFILE_LOAD_MAX_RETRIES + 1,
+          userId: currentUser?.id,
+          hasAccessToken: Boolean(accessToken),
+          error
+        });
+
+        if (attempt <= PROFILE_LOAD_MAX_RETRIES) {
+          showAlert('warning', `Retrying driver profile load (${attempt}/${PROFILE_LOAD_MAX_RETRIES})...`);
+          await sleep(PROFILE_RETRY_DELAY_MS * attempt);
+          continue;
+        }
+      }
     }
-    currentProfile = data.profile || {};
-    renderProfile();
-    renderAvailabilityControls();
-  } catch (_error) {
-    currentProfile = null;
-    renderProfile();
+
+    const message = String(lastError?.message || '').toLowerCase();
+    if (message.includes('authentication') || message.includes('access token') || message.includes('authenticated user')) {
+      currentProfile = null;
+      showAlert('danger', 'Session expired. Please sign in again.');
+      window.setTimeout(() => handleLogout(), 1200);
+    } else {
+      currentProfile = buildFallbackDemoProfile();
+      renderAvailabilityControls();
+      showAlert('warning', 'Unable to load driver profile. Loaded fallback demo profile.');
+    }
+  } finally {
+    setProfileLoading(false);
   }
 }
 
 // ─── Ride Rendering ───────────────────────────────────────────────────────────
+function attachRideRequestSwipeControls(listDiv) {
+  listDiv.querySelectorAll('[data-swipe-accept]').forEach(control => {
+    const track = control.querySelector('.swipe-accept-track');
+    const thumb = control.querySelector('[data-swipe-thumb]');
+    const rideId = control.getAttribute('data-ride-id') || '';
+    const passengerName = control.getAttribute('data-passenger-name') || 'passenger';
+    if (!track || !thumb || !rideId) return;
+
+    let pointerId = null;
+    let currentOffset = 0;
+    let startX = 0;
+    const getMaxOffset = () => Math.max(track.clientWidth - thumb.clientWidth - SWIPE_ACCEPT_TRACK_PADDING, 0);
+    const resetSwipe = () => {
+      currentOffset = 0;
+      thumb.style.transform = 'translateX(0px)';
+      control.classList.remove('is-armed');
+    };
+    const updateSwipe = clientX => {
+      const maxOffset = getMaxOffset();
+      currentOffset = Math.max(0, Math.min(maxOffset, clientX - startX));
+      thumb.style.transform = `translateX(${currentOffset}px)`;
+      const progress = maxOffset > 0 ? currentOffset / maxOffset : 0;
+      control.classList.toggle('is-armed', progress >= SWIPE_ACCEPT_THRESHOLD);
+    };
+    const commitSwipe = async () => {
+      const maxOffset = getMaxOffset();
+      thumb.style.transform = `translateX(${maxOffset}px)`;
+      control.classList.add('is-armed');
+      await acceptRideById(rideId);
+      resetSwipe();
+    };
+    const finalizeSwipe = async event => {
+      if (pointerId !== event.pointerId) return;
+      const maxOffset = getMaxOffset();
+      const progress = maxOffset > 0 ? currentOffset / maxOffset : 0;
+      const shouldAccept = progress >= SWIPE_ACCEPT_THRESHOLD;
+      pointerId = null;
+      thumb.releasePointerCapture?.(event.pointerId);
+      if (shouldAccept) {
+        await commitSwipe();
+      } else {
+        resetSwipe();
+      }
+    };
+
+    resetSwipe();
+    track.tabIndex = 0;
+    track.setAttribute('role', 'button');
+    track.setAttribute('aria-label', `Swipe to accept ride request from ${passengerName}`);
+
+    thumb.addEventListener('pointerdown', event => {
+      if (acceptingRideIds.has(rideId)) return;
+      pointerId = event.pointerId;
+      startX = event.clientX - currentOffset;
+      thumb.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+    thumb.addEventListener('pointermove', event => {
+      if (pointerId !== event.pointerId) return;
+      updateSwipe(event.clientX);
+    });
+    thumb.addEventListener('pointerup', event => {
+      finalizeSwipe(event).catch(() => {});
+    });
+    thumb.addEventListener('pointercancel', event => {
+      finalizeSwipe(event).catch(() => {});
+    });
+    track.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      if (acceptingRideIds.has(rideId)) return;
+      commitSwipe().catch(() => {});
+    });
+  });
+}
+
 function renderAvailableRideRequests() {
   const listDiv = document.getElementById('available-rides');
   const rejected = new Set(getRejectedRideIds());
   const rides = nearbyRideRequests.filter(ride => !rejected.has(ride.id));
+  pruneRideRequestState(rides);
 
   if (!rides.length) {
     listDiv.innerHTML = '<div class="text-muted">No available ride requests right now.</div>';
@@ -1377,13 +1757,29 @@ function renderAvailableRideRequests() {
   }
 
   listDiv.innerHTML = rides.map(ride => `
-    <div class="ride-item">
+    <div class="ride-item incoming-request" data-ride-request-card data-ride-id="${escapeHtml(ride.id)}">
       <div class="ride-item-top">
-        <div>
-          <div class="ride-passenger">${escapeHtml(ride.passengerName || 'Passenger')}</div>
-          <div class="ride-id">${escapeHtml(ride.id)} &bull; ${Number(ride.passengerRating || 0).toFixed(1)} &star;</div>
+        <div class="ride-request-passenger">
+          <img class="passenger-photo" src="${escapeHtml(getPassengerPhotoUrl(ride))}" alt="${escapeHtml(`${ride.passengerName || 'Passenger'} photo`)}">
+          <div>
+            <div class="ride-passenger">${escapeHtml(ride.passengerName || 'Passenger')}</div>
+            <div class="ride-id">${escapeHtml(ride.id)} &bull; ${Number(ride.passengerRating || 0).toFixed(1)} &star;</div>
+          </div>
         </div>
-        <span class="ride-status">${escapeHtml(ride.status)}</span>
+        <div class="ride-request-status">
+          <span class="countdown-pill" data-request-countdown data-expires-at="${getRideRequestExpiryTimestamp(ride)}"><i class="bi bi-stopwatch"></i> 00:00</span>
+          <span class="ride-status">${escapeHtml(ride.status)}</span>
+        </div>
+      </div>
+      <div class="ride-request-highlights">
+        <div class="ride-meta ride-meta-highlight">
+          <span>Estimated earnings</span>
+          <strong>$${Number(ride.estimatedEarnings || 0).toFixed(2)}</strong>
+        </div>
+        <div class="ride-meta ride-meta-highlight">
+          <span>Pickup distance</span>
+          <strong>${escapeHtml(formatDistance(getRidePickupDistanceKm(ride)))}</strong>
+        </div>
       </div>
       <div class="ride-route">
         <span><i class="bi bi-geo-alt"></i> Pickup</span>
@@ -1404,6 +1800,15 @@ function renderAvailableRideRequests() {
             <strong>${Number(ride.minutes || 0)} mins</strong>
           </div>
         </div>
+        <span class="ride-request-pill"><i class="bi bi-broadcast-pin"></i> Live incoming request</span>
+      </div>
+      <div class="swipe-accept" data-swipe-accept data-ride-id="${escapeHtml(ride.id)}" data-passenger-name="${escapeHtml(ride.passengerName || 'Passenger')}">
+        <div class="swipe-accept-track">
+          <span class="swipe-accept-label"><i class="bi bi-chevron-double-right"></i> Swipe accept</span>
+          <button class="swipe-accept-thumb" data-swipe-thumb type="button" aria-label="Accept ride request"><i class="bi bi-arrow-right"></i></button>
+        </div>
+      </div>
+      <div class="ride-footer mt-3">
         <button class="secondary-action choose-ride-button" data-ride-id="${escapeHtml(ride.id)}">Use Ride ID</button>
       </div>
     </div>
@@ -1417,6 +1822,8 @@ function renderAvailableRideRequests() {
     });
   });
 
+  attachRideRequestSwipeControls(listDiv);
+  updateRideRequestCountdowns();
   queueMapRender();
 }
 
@@ -1429,6 +1836,19 @@ async function loadAvailableRideRequests() {
       nearbyRideRequests = data.rides
         .filter(ride => ['requested', 'accepted', 'started'].includes(ride.status))
         .map(normalizeRide);
+      const nextRideIds = new Set(nearbyRideRequests.map(ride => ride.id));
+      const newRideRequests = nearbyRideRequests.filter(ride => !knownRideRequestIds.has(ride.id));
+      if (rideRequestFeedInitialized && newRideRequests.length) {
+        playIncomingRideAlert().catch(() => {});
+        showAlert(
+          'info',
+          newRideRequests.length === 1
+            ? `Incoming ride request from ${newRideRequests[0].passengerName || 'Passenger'}.`
+            : `${newRideRequests.length} incoming ride requests are waiting.`
+        );
+      }
+      knownRideRequestIds = nextRideIds;
+      rideRequestFeedInitialized = true;
       cacheRealtimeSection('activeRides', nearbyRideRequests);
       publishRealtimeSnapshot('rides', data.rides).catch(() => {});
     } else {
@@ -1542,11 +1962,16 @@ function closeRideDetailsModal() {
   queueMapRender();
 }
 
-async function handleAcceptRide(event) {
-  event.preventDefault();
+async function acceptRideById(rawRideId) {
+  const rideId = String(rawRideId || '').trim();
+  if (!rideId) return false;
+  if (acceptingRideIds.has(rideId)) {
+    showAlert('info', `Ride ${rideId} is already being accepted.`);
+    return false;
+  }
   const rideIdInput = document.getElementById('ride-id-input');
-  const rideId = rideIdInput.value.trim();
-  if (!rideId) return;
+  if (rideIdInput) rideIdInput.value = rideId;
+  acceptingRideIds.add(rideId);
   try {
     const { data } = await fetchJson(`${API_BASE_URL}/api/rides/accept`, {
       method: 'POST',
@@ -1558,16 +1983,30 @@ async function handleAcceptRide(event) {
     });
     if (!data?.ok) {
       showAlert('danger', data.error || 'Unable to accept ride.');
-      return;
+      return false;
     }
     showAlert('success', `Ride ${rideId} accepted.`);
     const acceptedRide = getRideById(rideId) || normalizeRide({ id: rideId, status: 'accepted' }, 0);
     renderRideDetailsModal(acceptedRide);
     await Promise.all([loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
-    event.target.reset();
+    document.getElementById('accept-ride-form')?.reset();
+    return true;
   } catch (_error) {
     showAlert('danger', 'Unable to accept ride.');
+    return false;
+  } finally {
+    acceptingRideIds.delete(rideId);
   }
+}
+
+async function handleAcceptRide(event) {
+  event.preventDefault();
+  const rideId = document.getElementById('ride-id-input').value.trim();
+  if (!rideId) {
+    showAlert('warning', 'Please enter a ride ID.');
+    return;
+  }
+  await acceptRideById(rideId);
 }
 
 function handleRejectRide() {
@@ -1642,11 +2081,95 @@ async function loadEarnings() {
 }
 
 function setActivePane(pane) {
+  activePane = PANE_ORDER.includes(pane) ? pane : 'map';
   document.querySelectorAll('.dashboard-pane').forEach(section => {
-    section.classList.toggle('is-active', section.dataset.pane === pane);
+    section.classList.toggle('is-active', section.dataset.pane === activePane);
   });
   document.querySelectorAll('.nav-tab').forEach(button => {
-    button.classList.toggle('is-active', button.dataset.pane === pane);
+    button.classList.toggle('is-active', button.dataset.pane === activePane);
+  });
+}
+
+function setupBottomSheetControls() {
+  const root = document.documentElement;
+  const body = document.querySelector('.sheet-body');
+  const handle = document.querySelector('.sheet-handle');
+  if (!body || !handle) return;
+
+  const recalculateBounds = () => {
+    const viewportHeight = window.innerHeight || 760;
+    sheetState.minHeight = 108;
+    sheetState.maxHeight = Math.max(320, Math.min(Math.round(viewportHeight * 0.88), 760));
+    const half = Math.round((sheetState.minHeight + sheetState.maxHeight) / 2);
+    sheetState.snapPoints = [sheetState.minHeight, half, sheetState.maxHeight];
+    sheetState.currentHeight = Math.max(sheetState.minHeight, Math.min(sheetState.currentHeight, sheetState.maxHeight));
+    root.style.setProperty('--sheet-height', `${sheetState.currentHeight}px`);
+    root.style.setProperty('--sheet-min-height', `${sheetState.minHeight}px`);
+  };
+
+  const snapToNearest = () => {
+    if (!sheetState.snapPoints.length) return;
+    const nearest = sheetState.snapPoints.reduce((closest, value) =>
+      Math.abs(value - sheetState.currentHeight) < Math.abs(closest - sheetState.currentHeight) ? value : closest, sheetState.snapPoints[0]);
+    sheetState.currentHeight = nearest;
+    root.style.setProperty('--sheet-height', `${nearest}px`);
+  };
+
+  const onPointerDown = event => {
+    sheetState.isDragging = true;
+    sheetState.dragStartY = event.clientY;
+    sheetState.dragStartHeight = sheetState.currentHeight;
+    handle.style.cursor = 'grabbing';
+    event.preventDefault();
+  };
+
+  const onPointerMove = event => {
+    if (!sheetState.isDragging) return;
+    const delta = sheetState.dragStartY - event.clientY;
+    sheetState.currentHeight = Math.max(sheetState.minHeight, Math.min(sheetState.maxHeight, sheetState.dragStartHeight + delta));
+    root.style.setProperty('--sheet-height', `${sheetState.currentHeight}px`);
+  };
+
+  const onPointerUp = () => {
+    if (!sheetState.isDragging) return;
+    sheetState.isDragging = false;
+    handle.style.cursor = 'grab';
+    snapToNearest();
+  };
+
+  recalculateBounds();
+  window.addEventListener('resize', recalculateBounds);
+  handle.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', onPointerUp);
+}
+
+function setupPaneSwipeNavigation() {
+  const panes = document.querySelector('.dashboard-panes');
+  if (!panes) return;
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let tracking = false;
+
+  panes.addEventListener('pointerdown', event => {
+    if (event.pointerType !== 'touch') return;
+    touchStartX = event.clientX;
+    touchStartY = event.clientY;
+    tracking = true;
+  });
+
+  panes.addEventListener('pointerup', event => {
+    if (!tracking || event.pointerType !== 'touch') return;
+    tracking = false;
+    const deltaX = event.clientX - touchStartX;
+    const deltaY = event.clientY - touchStartY;
+    if (Math.abs(deltaY) > SWIPE_VERTICAL_THRESHOLD) return;
+    if (Math.abs(deltaX) < SWIPE_HORIZONTAL_THRESHOLD) return;
+    const index = PANE_ORDER.indexOf(activePane);
+    if (index < 0) return;
+    if (deltaX < 0 && index < PANE_ORDER.length - 1) setActivePane(PANE_ORDER[index + 1]);
+    if (deltaX > 0 && index > 0) setActivePane(PANE_ORDER[index - 1]);
   });
 }
 // ─── Documents ────────────────────────────────────────────────────────────────
@@ -1834,6 +2357,14 @@ function handleLogout() {
 
 // ─── Map Controls ─────────────────────────────────────────────────────────────
 function setupMapControls() {
+  const disableFollowMode = () => {
+    mapState.followMode = false;
+    const btn = document.getElementById('follow-mode-button');
+    if (!btn) return;
+    btn.innerHTML = '<i class="bi bi-geo-alt"></i> Follow: OFF';
+    btn.classList.replace('btn-primary', 'btn-outline-primary');
+  };
+
   // Follow mode toggle
   document.getElementById('follow-mode-button').addEventListener('click', () => {
     mapState.followMode = !mapState.followMode;
@@ -1892,12 +2423,22 @@ function setupMapControls() {
 
   // Pan by dragging
   const shell = document.getElementById('map-shell');
+<<<<<<< HEAD
   shell.addEventListener('mousedown', event => {
     if (mapState.mapboxInstance) return;
+=======
+  const supportsPointerCapture = typeof shell.setPointerCapture === 'function'
+    && typeof shell.releasePointerCapture === 'function'
+    && typeof shell.hasPointerCapture === 'function';
+  shell.addEventListener('pointerdown', event => {
+    if (mapState.activePointerId !== null && mapState.activePointerId !== event.pointerId) return;
+>>>>>>> origin/main
     mapState.isDragging = true;
+    mapState.activePointerId = event.pointerId;
     mapState.dragStartX = event.clientX;
     mapState.dragStartY = event.clientY;
     shell.style.cursor = 'grabbing';
+<<<<<<< HEAD
     mapState.followMode = false;
     const btn = document.getElementById('follow-mode-button');
     btn.innerHTML = '<i class="bi bi-geo-alt"></i> Follow Driver: OFF';
@@ -1905,18 +2446,38 @@ function setupMapControls() {
   });
   window.addEventListener('mousemove', event => {
     if (mapState.mapboxInstance) return;
+=======
+    disableFollowMode();
+    if (supportsPointerCapture) {
+      shell.setPointerCapture(event.pointerId);
+    }
+  });
+  window.addEventListener('pointermove', event => {
+>>>>>>> origin/main
     if (!mapState.isDragging) return;
+    if (mapState.activePointerId !== event.pointerId) return;
     mapState.panX += event.clientX - mapState.dragStartX;
     mapState.panY += event.clientY - mapState.dragStartY;
     mapState.dragStartX = event.clientX;
     mapState.dragStartY = event.clientY;
     queueMapRender();
   });
+<<<<<<< HEAD
   window.addEventListener('mouseup', () => {
     if (mapState.mapboxInstance) return;
+=======
+  const stopDragging = event => {
+    if (typeof event?.pointerId === 'number' && event.pointerId !== mapState.activePointerId) return;
+    if (supportsPointerCapture && mapState.activePointerId !== null && shell.hasPointerCapture(mapState.activePointerId)) {
+      shell.releasePointerCapture(mapState.activePointerId);
+    }
+>>>>>>> origin/main
     mapState.isDragging = false;
+    mapState.activePointerId = null;
     shell.style.cursor = 'grab';
-  });
+  };
+  window.addEventListener('pointerup', stopDragging);
+  window.addEventListener('pointercancel', stopDragging);
 
   // Update frequency
   document.getElementById('update-frequency-input').addEventListener('change', event => {
@@ -1949,30 +2510,42 @@ function startUiRefreshLoop() {
   window.setInterval(() => {
     if (mapState.lastUpdateAt) updateMapUiReadouts();
   }, 5000);
+  startRideRequestCountdowns();
 }
 
 // ─── Page Lifecycle ───────────────────────────────────────────────────────────
 window.addEventListener('load', async () => {
   accessToken = localStorage.getItem('accessToken');
+  const refreshToken = localStorage.getItem('refreshToken');
   const userStr = localStorage.getItem('user');
-  if (!accessToken || !userStr) {
+  if (!accessToken || !refreshToken || !userStr) {
+    console.error('Driver dashboard auth session is incomplete', {
+      hasAccessToken: Boolean(accessToken),
+      hasRefreshToken: Boolean(refreshToken),
+      hasUser: Boolean(userStr)
+    });
     window.location.href = '/index.html';
     return;
   }
 
   try {
     currentUser = JSON.parse(userStr);
-  } catch (_error) {
+  } catch (error) {
+    console.error('Unable to parse stored driver session', { error, userStr });
     handleLogout();
     return;
   }
 
-  if (currentUser.role !== 'driver') {
+  if (!currentUser?.id || currentUser.role !== 'driver') {
+    console.error('Invalid driver session role payload', { user: currentUser });
     window.location.replace('/dashboard.html');
     return;
   }
 
   // Wire up static UI controls
+  document.addEventListener('pointerdown', () => {
+    primeIncomingRideAudio().catch(() => {});
+  }, { once: true });
   document.getElementById('logout-button').addEventListener('click', handleLogout);
   document.getElementById('accept-ride-form').addEventListener('submit', handleAcceptRide);
   document.getElementById('reject-ride-button').addEventListener('click', handleRejectRide);
@@ -1988,6 +2561,8 @@ window.addEventListener('load', async () => {
   document.querySelectorAll('.nav-tab').forEach(button => {
     button.addEventListener('click', () => setActivePane(button.dataset.pane || 'map'));
   });
+  setupBottomSheetControls();
+  setupPaneSwipeNavigation();
 
   // Map controls
   setupMapControls();
@@ -2020,6 +2595,7 @@ window.addEventListener('load', async () => {
   window.addEventListener('beforeunload', () => {
     stopLocationTracking();
     if (gpsSimulationIntervalId !== null) window.clearInterval(gpsSimulationIntervalId);
+    if (rideRequestCountdownIntervalId !== null) window.clearInterval(rideRequestCountdownIntervalId);
     if (wakeLockSentinel && typeof wakeLockSentinel.release === 'function') wakeLockSentinel.release().catch(() => {});
   });
 

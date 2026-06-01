@@ -153,6 +153,7 @@ export type DriverProfile = {
   available: boolean;
   lat?: number;
   lng?: number;
+  lastLocationUpdatedAt?: string;
   rating: number;
   acceptanceRate: number;
   cancellationRate: number;

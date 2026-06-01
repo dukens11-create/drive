@@ -15,6 +15,7 @@ import {
 } from '../database/data.store';
 import { markDriverAssigned, releaseDriverFromRide } from './drivers.service';
 import { sendRealtimePushEvent } from './notifications.service';
+import { publishDriverRealtimeEarnings, publishRideRealtimeUpdate } from './realtime-dispatch.service';
 import { logger } from '../utils/logger';
 
 const BASE_FARE = 2.5;
@@ -282,6 +283,7 @@ export async function request(body: any, _params?: any, _query?: any) {
       );
     }
   }
+  publishRideRealtimeUpdate(ride, 'ride_requested');
   return { module: 'rides', action: 'request', ok: true, ride, dispatch, discountCents, availableActions: getRideAvailableActions(ride) };
 }
 
@@ -385,6 +387,7 @@ export async function accept(body: any, _params?: any, _query?: any) {
     'Your driver is heading to your pickup location.',
     'trip_update_accepted'
   );
+  publishRideRealtimeUpdate(ride, 'accepted');
   return { module: 'rides', action: 'accept', ok: true, ride };
 }
 
@@ -399,6 +402,7 @@ export async function arrive(body: any, _params?: any, _query?: any) {
   ride.arrivedAt = now;
   ride.waitingSince = now;
   appendRideEvent(ride, 'driver_arrived', 'Driver arrived', 'Your driver has arrived at the pickup point.', 'driver', driverId, now);
+  publishRideRealtimeUpdate(ride, 'arrived_at_pickup');
   return { module: 'rides', action: 'arrive', ok: true, ride, arrivedAt: now };
 }
 
@@ -417,6 +421,7 @@ export async function start(body: any, _params?: any, _query?: any) {
     'Your trip is now in progress.',
     'trip_update_started'
   );
+  publishRideRealtimeUpdate(ride, 'started');
   return { module: 'rides', action: 'start', ok: true, ride };
 }
 
@@ -475,6 +480,8 @@ export async function complete(body: any, _params?: any, _query?: any) {
     }
   }
 
+  publishRideRealtimeUpdate(ride, 'completed');
+  if (ride.driverId) publishDriverRealtimeEarnings(ride.driverId);
   return { module: 'rides', action: 'complete', ok: true, ride, grossCents, discountCents, amountCents, receipt: getRideReceipt(ride) };
 }
 
@@ -492,6 +499,7 @@ export async function noShow(body: any, _params?: any, _query?: any) {
   ride.noShowReportedAt = now;
   appendRideEvent(ride, 'rider_no_show', 'Rider no-show', 'Driver waited at pickup but rider did not appear.', 'driver', driverId, now);
   if (ride.driverId) releaseDriverFromRide(ride.driverId);
+  publishRideRealtimeUpdate(ride, 'canceled');
   return {
     module: 'rides',
     action: 'no-show',
@@ -522,6 +530,7 @@ export async function driverCancel(body: any, _params?: any, _query?: any) {
   ride.cancellationActorRole = 'driver';
   appendRideEvent(ride, 'ride_canceled', 'Ride canceled by driver', `Driver canceled the ride: ${reason}.`, 'driver', driverId, now);
   releaseDriverFromRide(driverId);
+  publishRideRealtimeUpdate(ride, 'canceled');
   return {
     module: 'rides',
     action: 'driver-cancel',
@@ -558,6 +567,7 @@ export async function cancel(body: any, _params?: any, _query?: any) {
     'trip_update_canceled'
   );
   if (ride.driverId) releaseDriverFromRide(ride.driverId);
+  publishRideRealtimeUpdate(ride, 'canceled');
   return {
     module: 'rides',
     action: 'cancel',
