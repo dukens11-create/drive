@@ -377,3 +377,263 @@ test('capture generates an invoice and refunds can be tracked separately from wa
     assert.equal(riderBalance.balanceCents, -1800);
   });
 });
+
+test('bank account management: add, list, set default, remove', async () => {
+  await withServer(async baseUrl => {
+    const driver = await signupAndToken(baseUrl, 'driver');
+
+    const addRes = await fetch(`${baseUrl}/api/wallet/add-bank-account`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + driver.token, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        userId: driver.userId,
+        bankName: 'Chase Bank',
+        accountHolderName: 'John Driver',
+        accountType: 'checking',
+        routingNumber: '021000021',
+        accountNumber: '000123456789',
+        nickname: 'Main checking'
+      })
+    });
+    const addPayload = await addRes.json();
+    assert.equal(addPayload.ok, true);
+    assert.equal(addPayload.bankAccount.isDefault, true);
+    assert.equal(addPayload.bankAccount.last4, '6789');
+    assert.equal(addPayload.bankAccount.accountType, 'checking');
+    assert.equal(addPayload.bankAccount.routingNumber, '021000021');
+    const firstAccountId = addPayload.bankAccount.id;
+
+    const addRes2 = await fetch(`${baseUrl}/api/wallet/add-bank-account`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + driver.token, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        userId: driver.userId,
+        bankName: 'Wells Fargo',
+        accountHolderName: 'John Driver',
+        accountType: 'savings',
+        routingNumber: '121000248',
+        accountNumber: '000987654321'
+      })
+    });
+    const addPayload2 = await addRes2.json();
+    assert.equal(addPayload2.ok, true);
+    assert.equal(addPayload2.bankAccount.isDefault, false);
+    const secondAccountId = addPayload2.bankAccount.id;
+
+    const setDefaultRes = await fetch(`${baseUrl}/api/wallet/set-default-bank-account`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + driver.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ userId: driver.userId, bankAccountId: secondAccountId })
+    });
+    const setDefaultPayload = await setDefaultRes.json();
+    assert.equal(setDefaultPayload.ok, true);
+
+    const listRes = await fetch(`${baseUrl}/api/wallet/list-bank-accounts`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + driver.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ userId: driver.userId })
+    });
+    const listPayload = await listRes.json();
+    assert.equal(listPayload.ok, true);
+    assert.equal(listPayload.accounts.length, 2);
+    assert.equal(listPayload.accounts[0].id, secondAccountId);
+    assert.equal(listPayload.accounts[0].isDefault, true);
+    assert.equal(listPayload.accounts[1].isDefault, false);
+
+    const removeRes = await fetch(`${baseUrl}/api/wallet/remove-bank-account`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + driver.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ userId: driver.userId, bankAccountId: secondAccountId })
+    });
+    const removePayload = await removeRes.json();
+    assert.equal(removePayload.ok, true);
+
+    const listAfterRes = await fetch(`${baseUrl}/api/wallet/list-bank-accounts`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + driver.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ userId: driver.userId })
+    });
+    const listAfter = await listAfterRes.json();
+    assert.equal(listAfter.accounts.length, 1);
+    assert.equal(listAfter.accounts[0].id, firstAccountId);
+    assert.equal(listAfter.accounts[0].isDefault, true);
+  });
+});
+
+test('bank account validation rejects invalid inputs', async () => {
+  await withServer(async baseUrl => {
+    const driver = await signupAndToken(baseUrl, 'driver');
+
+    const missingUserRes = await fetch(`${baseUrl}/api/wallet/add-bank-account`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + driver.token, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        bankName: 'Chase',
+        accountHolderName: 'John',
+        accountType: 'checking',
+        routingNumber: '021000021',
+        accountNumber: '000123456789'
+      })
+    });
+    const missingUser = await missingUserRes.json();
+    assert.equal(missingUser.error, 'userId is required');
+
+    const badRoutingRes = await fetch(`${baseUrl}/api/wallet/add-bank-account`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + driver.token, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        userId: driver.userId,
+        bankName: 'Chase',
+        accountHolderName: 'John',
+        accountType: 'checking',
+        routingNumber: '12345',
+        accountNumber: '000123456789'
+      })
+    });
+    const badRouting = await badRoutingRes.json();
+    assert.equal(badRouting.error, 'routingNumber must be a valid 9-digit number');
+
+    const badTypeRes = await fetch(`${baseUrl}/api/wallet/add-bank-account`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + driver.token, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        userId: driver.userId,
+        bankName: 'Chase',
+        accountHolderName: 'John',
+        accountType: 'brokerage',
+        routingNumber: '021000021',
+        accountNumber: '000123456789'
+      })
+    });
+    const badType = await badTypeRes.json();
+    assert.equal(badType.error, 'accountType must be checking or savings');
+  });
+});
+
+test('withdraw: deducts from wallet and creates payout request', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signupAndToken(baseUrl, 'rider');
+    const driver = await signupAndToken(baseUrl, 'driver');
+
+    const createIntentRes = await fetch(`${baseUrl}/api/payments/create-intent`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + rider.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ riderId: rider.userId, driverId: driver.userId, amountCents: 5000 })
+    });
+    const created = await createIntentRes.json();
+    await fetch(`${baseUrl}/api/payments/capture`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + rider.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ paymentId: created.payment.id })
+    });
+
+    const addBankRes = await fetch(`${baseUrl}/api/wallet/add-bank-account`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + driver.token, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        userId: driver.userId,
+        bankName: 'Chase',
+        accountHolderName: 'Driver One',
+        accountType: 'checking',
+        routingNumber: '021000021',
+        accountNumber: '000123456789'
+      })
+    });
+    const addBank = await addBankRes.json();
+    assert.equal(addBank.ok, true);
+
+    const withdrawRes = await fetch(`${baseUrl}/api/wallet/withdraw`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + driver.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ userId: driver.userId, amountCents: 2000 })
+    });
+    const withdrawPayload = await withdrawRes.json();
+    assert.equal(withdrawPayload.ok, true);
+    assert.equal(withdrawPayload.payout.status, 'pending');
+    assert.equal(withdrawPayload.payout.amountCents, 2000);
+    assert.equal(withdrawPayload.payout.bankAccountId, addBank.bankAccount.id);
+    assert.equal(withdrawPayload.balanceCents, 2000);
+
+    const historyRes = await fetch(`${baseUrl}/api/wallet/payout-history`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + driver.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ userId: driver.userId })
+    });
+    const historyPayload = await historyRes.json();
+    assert.equal(historyPayload.ok, true);
+    assert.equal(historyPayload.payouts.length, 1);
+    assert.equal(historyPayload.payouts[0].amountCents, 2000);
+  });
+});
+
+test('withdraw: rejects insufficient balance and missing bank account', async () => {
+  await withServer(async baseUrl => {
+    const driver = await signupAndToken(baseUrl, 'driver');
+
+    const addBankRes = await fetch(`${baseUrl}/api/wallet/add-bank-account`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + driver.token, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        userId: driver.userId,
+        bankName: 'Chase',
+        accountHolderName: 'Driver',
+        accountType: 'checking',
+        routingNumber: '021000021',
+        accountNumber: '000123456789'
+      })
+    });
+    await addBankRes.json();
+
+    const insufficientRes = await fetch(`${baseUrl}/api/wallet/withdraw`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + driver.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ userId: driver.userId, amountCents: 100000 })
+    });
+    const insufficient = await insufficientRes.json();
+    assert.equal(insufficient.error, 'insufficient balance');
+
+    const noBankDriver = await signupAndToken(baseUrl, 'driver');
+    const noBankRes = await fetch(`${baseUrl}/api/wallet/withdraw`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + noBankDriver.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ userId: noBankDriver.userId, amountCents: 100 })
+    });
+    const noBank = await noBankRes.json();
+    assert.match(noBank.error, /no default bank account/);
+  });
+});
+
+test('weekly summary returns correct earnings breakdown', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signupAndToken(baseUrl, 'rider');
+    const driver = await signupAndToken(baseUrl, 'driver');
+
+    const createIntentRes = await fetch(`${baseUrl}/api/payments/create-intent`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + rider.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ riderId: rider.userId, driverId: driver.userId, amountCents: 3000 })
+    });
+    const created = await createIntentRes.json();
+    await fetch(`${baseUrl}/api/payments/capture`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + rider.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ paymentId: created.payment.id })
+    });
+
+    const summaryRes = await fetch(`${baseUrl}/api/wallet/weekly-summary`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + driver.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ userId: driver.userId })
+    });
+    const summary = await summaryRes.json();
+    assert.equal(summary.ok, true);
+    assert.equal(summary.grossEarningsCents, 2400);
+    assert.equal(summary.debitsCents, 0);
+    assert.equal(summary.netEarningsCents, 2400);
+    assert.equal(summary.tripsCount, 1);
+    assert.equal(summary.avgPerTripCents, 2400);
+    assert.equal(summary.withdrawnCents, 0);
+    assert.equal(summary.balanceCents, 2400);
+    assert.ok(typeof summary.weekStart === 'string');
+  });
+});

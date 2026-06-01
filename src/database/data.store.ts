@@ -241,6 +241,41 @@ export type WalletTx = {
   createdAt: string;
 };
 
+export type BankAccountType = 'checking' | 'savings';
+
+export type BankAccount = {
+  id: string;
+  userId: string;
+  bankName: string;
+  accountHolderName: string;
+  accountType: BankAccountType;
+  routingNumber: string;
+  last4: string;
+  nickname?: string;
+  isDefault: boolean;
+  stripeExternalAccountId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PayoutStatus = 'pending' | 'processing' | 'paid' | 'failed' | 'canceled';
+
+export type PayoutRequest = {
+  id: string;
+  userId: string;
+  bankAccountId: string;
+  amountCents: number;
+  currency: string;
+  status: PayoutStatus;
+  walletTxId?: string;
+  stripePayoutId?: string;
+  failureReason?: string;
+  scheduledAt?: string;
+  paidAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type TicketReply = {
   id: string;
   ticketId: string;
@@ -735,6 +770,8 @@ type PersistedStore = {
   notificationLogs: NotificationLog[];
   notificationPreferences: Array<[string, NotificationPreference]>;
   deviceTokens: DeviceToken[];
+  bankAccounts: Array<[string, BankAccount]>;
+  payoutRequests: Array<[string, PayoutRequest]>;
 };
 
 let isHydrating = false;
@@ -841,7 +878,9 @@ export const store = {
   callSessions: createPersistentArray<CallSession>(),
   notificationLogs: createPersistentArray<NotificationLog>(),
   notificationPreferences: new PersistentMap<string, NotificationPreference>(),
-  deviceTokens: createPersistentArray<DeviceToken>()
+  deviceTokens: createPersistentArray<DeviceToken>(),
+  bankAccounts: new PersistentMap<string, BankAccount>(),
+  payoutRequests: new PersistentMap<string, PayoutRequest>()
 };
 
 function toSerializableStore(): PersistedStore {
@@ -889,7 +928,9 @@ function toSerializableStore(): PersistedStore {
     callSessions: [...store.callSessions],
     notificationLogs: [...store.notificationLogs],
     notificationPreferences: Array.from(store.notificationPreferences.entries()),
-    deviceTokens: [...store.deviceTokens]
+    deviceTokens: [...store.deviceTokens],
+    bankAccounts: Array.from(store.bankAccounts.entries()),
+    payoutRequests: Array.from(store.payoutRequests.entries())
   };
 }
 
@@ -980,6 +1021,8 @@ function hydrateStore() {
     for (const log of parsed.notificationLogs || []) store.notificationLogs.push(log);
     for (const [userId, preference] of parsed.notificationPreferences || []) store.notificationPreferences.set(userId, preference);
     for (const deviceToken of parsed.deviceTokens || []) store.deviceTokens.push(deviceToken);
+    for (const [id, bankAccount] of parsed.bankAccounts || []) store.bankAccounts.set(id, bankAccount);
+    for (const [id, payoutRequest] of parsed.payoutRequests || []) store.payoutRequests.set(id, payoutRequest);
   } finally {
     isHydrating = false;
   }
