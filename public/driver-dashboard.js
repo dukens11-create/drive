@@ -3,6 +3,11 @@ const API_BASE_URL = '';
 const REJECTED_RIDES_KEY = 'driverRejectedRideIds';
 const DRIVER_DOCS_KEY = 'driverDashboardDocs';
 const DRIVER_SUPPORT_KEY = 'driverDashboardSupportLog';
+const DRIVER_REALTIME_CONFIG_KEY = 'driverRealtimeConfig';
+const DRIVER_REALTIME_CACHE_KEY = 'driverRealtimeCache';
+const DRIVER_OFFLINE_LOCATION_QUEUE_KEY = 'driverOfflineLocationQueue';
+const MAX_OFFLINE_LOCATION_QUEUE = 50;
+const REALTIME_POLL_INTERVAL_MS = 12_000;
 const ALERT_DISPLAY_DURATION = 4200;
 const GPS_LOG_KEY = 'driverGpsLog';
 const LAST_KNOWN_LOCATION_KEY = 'driverLastKnownLocation';
@@ -54,6 +59,10 @@ let currentProfile = null;
 let nearbyRideRequests = [];
 let completedRideHistory = [];
 let selectedRideForDetails = null;
+let earningsSnapshot = { earningsCents: 0, rideCount: 0 };
+let realtimeSubscriptions = [];
+let realtimePollers = [];
+let geolocationWatchId = null;
 let alertTimeoutId = null;
 
 let mapState = {
@@ -112,6 +121,339 @@ async function fetchJson(url, options) {
     throw new Error('Unexpected server response.');
   }
   return { response, data };
+}
+
+function parseStoredJson(key, fallback) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch (_error) {
+    // ignore malformed local cache payloads
+  }
+  return fallback;
+}
+
+function getRealtimeCache() {
+  return parseStoredJson(DRIVER_REALTIME_CACHE_KEY, {});
+}
+
+function setRealtimeCache(nextCache) {
+  localStorage.setItem(DRIVER_REALTIME_CACHE_KEY, JSON.stringify(nextCache || {}));
+}
+
+function getRealtimeConfig() {
+  if (typeof window !== 'undefined' && window.DRIVE_REALTIME_CONFIG && typeof window.DRIVE_REALTIME_CONFIG === 'object') {
+    return window.DRIVE_REALTIME_CONFIG;
+  }
+  return parseStoredJson(DRIVER_REALTIME_CONFIG_KEY, {});
+}
+
+function setRealtimeStatus(message, kind = 'info') {
+  if (!message) return;
+  showAlert(kind, message);
+}
+
+function cacheRealtimeSection(section, payload) {
+  const cache = getRealtimeCache();
+  cache[section] = payload;
+  cache.updatedAt = new Date().toISOString();
+  setRealtimeCache(cache);
+}
+
+function hydrateDashboardFromCache() {
+  const cache = getRealtimeCache();
+  if (Array.isArray(cache.activeRides)) nearbyRideRequests = cache.activeRides.map(normalizeRide);
+  if (Array.isArray(cache.completedRides)) completedRideHistory = cache.completedRides.map(normalizeRide);
+  if (cache.earnings && typeof cache.earnings === 'object') earningsSnapshot = {
+    earningsCents: Number(cache.earnings.earningsCents) || 0,
+    rideCount: Number(cache.earnings.rideCount) || 0
+  };
+  if (cache.location && Number.isFinite(Number(cache.location.lat)) && Number.isFinite(Number(cache.location.lng))) {
+    currentProfile = { ...(currentProfile || {}), lat: Number(cache.location.lat), lng: Number(cache.location.lng) };
+  }
+  if (nearbyRideRequests.length) renderAvailableRideRequests();
+  if (completedRideHistory.length) {
+    renderRideHistory();
+    renderPerformanceStats();
+  }
+  renderEarnings();
+}
+
+function getOfflineLocationQueue() {
+  const parsed = parseStoredJson(DRIVER_OFFLINE_LOCATION_QUEUE_KEY, { queue: [] });
+  return Array.isArray(parsed.queue) ? parsed.queue : [];
+}
+
+function setOfflineLocationQueue(queue) {
+  localStorage.setItem(
+    DRIVER_OFFLINE_LOCATION_QUEUE_KEY,
+    JSON.stringify({ queue: queue.slice(-MAX_OFFLINE_LOCATION_QUEUE) })
+  );
+}
+
+function queueOfflineLocation(location) {
+  const queue = getOfflineLocationQueue();
+  queue.push(location);
+  setOfflineLocationQueue(queue);
+}
+
+function getDriverRealtimeBasePath() {
+  if (!currentUser?.id) return null;
+  return `drivers/${currentUser.id}`;
+}
+
+function getFirebaseDatabaseUrl() {
+  const config = getRealtimeConfig();
+  const provider = String(config.provider || 'firebase').toLowerCase();
+  if (provider !== 'firebase') return '';
+  const raw = String(config.databaseUrl || '').trim();
+  return raw.replace(/\/+$/, '');
+}
+
+function getFirebaseAuthQuery() {
+  const config = getRealtimeConfig();
+  const token = String(config.databaseAuthToken || '').trim();
+  return token ? `auth=${encodeURIComponent(token)}` : '';
+}
+
+function buildFirebaseUrl(path, { stream = false } = {}) {
+  const databaseUrl = getFirebaseDatabaseUrl();
+  if (!databaseUrl) return '';
+  const cleanPath = String(path || '').replace(/^\/+/, '');
+  const authQuery = getFirebaseAuthQuery();
+  const params = [];
+  if (authQuery) params.push(authQuery);
+  if (stream) params.push('print=silent');
+  const suffix = params.length ? `?${params.join('&')}` : '';
+  return `${databaseUrl}/${cleanPath}.json${suffix}`;
+}
+
+async function pushFirebaseValue(path, payload, method = 'PUT') {
+  const url = buildFirebaseUrl(path);
+  if (!url) return false;
+  const response = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  return response.ok;
+}
+
+function cloneJson(value) {
+  if (value === null || value === undefined) return value;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function applyFirebaseDelta(current, deltaPath, deltaData) {
+  if (!deltaPath || deltaPath === '/') return cloneJson(deltaData);
+  const nextState = cloneJson(current) || {};
+  const segments = String(deltaPath).split('/').filter(Boolean);
+  let cursor = nextState;
+
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const key = segments[index];
+    const nextKey = segments[index + 1];
+    if (cursor[key] === undefined || cursor[key] === null || typeof cursor[key] !== 'object') {
+      cursor[key] = /^\d+$/.test(nextKey) ? [] : {};
+    }
+    cursor = cursor[key];
+  }
+
+  const leaf = segments[segments.length - 1];
+  if (deltaData === null) {
+    if (Array.isArray(cursor)) {
+      const index = Number(leaf);
+      if (Number.isInteger(index)) cursor.splice(index, 1);
+    } else {
+      delete cursor[leaf];
+    }
+  } else {
+    cursor[leaf] = cloneJson(deltaData);
+  }
+  return nextState;
+}
+
+function normalizeRealtimeRidePayload(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== 'object') return [];
+  if (Array.isArray(payload.items)) return payload.items;
+  return Object.values(payload);
+}
+
+function applyRealtimeRides(payload) {
+  if (payload === null || payload === undefined) return;
+  const rides = normalizeRealtimeRidePayload(payload).map(normalizeRide);
+  nearbyRideRequests = rides.filter(ride => ['requested', 'accepted', 'started'].includes(ride.status));
+  completedRideHistory = rides.filter(ride => ride.status === 'completed');
+  cacheRealtimeSection('activeRides', nearbyRideRequests);
+  cacheRealtimeSection('completedRides', completedRideHistory);
+  renderAvailableRideRequests();
+  renderRideHistory();
+  renderPerformanceStats();
+}
+
+function applyRealtimeEarnings(payload) {
+  if (payload === null || payload === undefined) return;
+  if (!payload || typeof payload !== 'object') return;
+  const earningsCents = Number(payload.earningsCents);
+  const rideCount = Number(payload.rideCount);
+  if (!Number.isFinite(earningsCents) || !Number.isFinite(rideCount)) return;
+  earningsSnapshot = { earningsCents, rideCount };
+  cacheRealtimeSection('earnings', earningsSnapshot);
+  renderEarnings();
+}
+
+function applyRealtimeLocation(payload) {
+  const lat = Number(payload?.lat);
+  const lng = Number(payload?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  currentProfile = { ...(currentProfile || {}), lat, lng };
+  cacheRealtimeSection('location', { lat, lng, updatedAt: payload?.updatedAt || new Date().toISOString() });
+  renderProfile();
+  renderMap();
+}
+
+function subscribeFirebaseStream(path, applyPayload) {
+  const streamUrl = buildFirebaseUrl(path, { stream: true });
+  if (!streamUrl || typeof EventSource !== 'function') return null;
+  let state = null;
+  const source = new EventSource(streamUrl);
+  const handleEvent = event => {
+    try {
+      const parsed = JSON.parse(event.data || '{}');
+      const deltaPath = typeof parsed.path === 'string' ? parsed.path : '/';
+      state = applyFirebaseDelta(state, deltaPath, parsed.data);
+      applyPayload(state);
+    } catch (_error) {
+      // ignore malformed stream payloads
+    }
+  };
+  source.addEventListener('put', handleEvent);
+  source.addEventListener('patch', handleEvent);
+  source.addEventListener('keep-alive', () => {});
+  source.onerror = () => {
+    source.close();
+  };
+  return () => source.close();
+}
+
+function addRealtimePoller(path, applyPayload) {
+  const url = buildFirebaseUrl(path);
+  if (!url) return;
+  const poll = async () => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return;
+      const payload = await response.json();
+      applyPayload(payload);
+    } catch (_error) {
+      // keep polling to support transient network failures/offline mode
+    }
+  };
+  poll();
+  const timer = setInterval(poll, REALTIME_POLL_INTERVAL_MS);
+  realtimePollers.push(timer);
+}
+
+function clearRealtimeConnections() {
+  realtimeSubscriptions.forEach(unsub => {
+    if (typeof unsub === 'function') unsub();
+  });
+  realtimeSubscriptions = [];
+  realtimePollers.forEach(timer => clearInterval(timer));
+  realtimePollers = [];
+}
+
+function startRealtimeSync() {
+  clearRealtimeConnections();
+  const driverBasePath = getDriverRealtimeBasePath();
+  const databaseUrl = getFirebaseDatabaseUrl();
+  if (!driverBasePath || !databaseUrl) return;
+
+  const ridesPath = `${driverBasePath}/rides`;
+  const earningsPath = `${driverBasePath}/earnings`;
+  const locationPath = `${driverBasePath}/location`;
+
+  const ridesSub = subscribeFirebaseStream(ridesPath, applyRealtimeRides);
+  const earningsSub = subscribeFirebaseStream(earningsPath, applyRealtimeEarnings);
+  const locationSub = subscribeFirebaseStream(locationPath, applyRealtimeLocation);
+  if (ridesSub) realtimeSubscriptions.push(ridesSub);
+  if (earningsSub) realtimeSubscriptions.push(earningsSub);
+  if (locationSub) realtimeSubscriptions.push(locationSub);
+
+  addRealtimePoller(ridesPath, applyRealtimeRides);
+  addRealtimePoller(earningsPath, applyRealtimeEarnings);
+  addRealtimePoller(locationPath, applyRealtimeLocation);
+}
+
+async function publishRealtimeSnapshot(section, payload) {
+  const driverBasePath = getDriverRealtimeBasePath();
+  if (!driverBasePath) return;
+  if (!getFirebaseDatabaseUrl()) return;
+  await pushFirebaseValue(`${driverBasePath}/${section}`, payload, 'PUT').catch(() => {});
+}
+
+async function syncDriverLocationToBackends(location, { allowQueue = true } = {}) {
+  const payload = {
+    lat: Number(location.lat),
+    lng: Number(location.lng),
+    updatedAt: location.updatedAt || new Date().toISOString()
+  };
+  if (!Number.isFinite(payload.lat) || !Number.isFinite(payload.lng)) return false;
+  currentProfile = { ...(currentProfile || {}), lat: payload.lat, lng: payload.lng };
+  cacheRealtimeSection('location', payload);
+  renderMap();
+
+  let ok = true;
+  try {
+    const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/location`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + accessToken
+      },
+      body: JSON.stringify({ lat: payload.lat, lng: payload.lng })
+    });
+    if (!data?.ok) ok = false;
+  } catch (_error) {
+    ok = false;
+  }
+
+  try {
+    await publishRealtimeSnapshot('location', payload);
+  } catch (_error) {
+    ok = false;
+  }
+
+  if (!ok && allowQueue) queueOfflineLocation(payload);
+  return ok;
+}
+
+async function flushOfflineLocationQueue() {
+  if (!navigator.onLine) return;
+  const queue = getOfflineLocationQueue();
+  if (!queue.length) return;
+  const remaining = [];
+  for (const location of queue) {
+    const synced = await syncDriverLocationToBackends(location, { allowQueue: false });
+    if (!synced) remaining.push(location);
+  }
+  setOfflineLocationQueue(remaining);
+}
+
+function startLocationTracking() {
+  if (!navigator.geolocation || geolocationWatchId !== null) return;
+  geolocationWatchId = navigator.geolocation.watchPosition(
+    position => {
+      syncDriverLocationToBackends({
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        updatedAt: new Date().toISOString()
+      }).catch(() => {});
+    },
+    () => {},
+    { enableHighAccuracy: true, timeout: 8_000, maximumAge: 2_000 }
+  );
 }
 
 function getRejectedRideIds() {
@@ -959,14 +1301,16 @@ async function loadAvailableRideRequests() {
       nearbyRideRequests = data.rides
         .filter(ride => ['requested', 'accepted', 'started'].includes(ride.status))
         .map(normalizeRide);
+      cacheRealtimeSection('activeRides', nearbyRideRequests);
+      publishRealtimeSnapshot('rides', data.rides).catch(() => {});
     } else {
       nearbyRideRequests = [];
     }
   } catch (_error) {
-    nearbyRideRequests = [];
+    const cache = getRealtimeCache();
+    nearbyRideRequests = Array.isArray(cache.activeRides) ? cache.activeRides.map(normalizeRide) : [];
   }
 
-  if (!nearbyRideRequests.length) nearbyRideRequests = MOCK_NEARBY_REQUESTS.map(normalizeRide);
   renderAvailableRideRequests();
 }
 
@@ -1024,13 +1368,15 @@ async function loadRideHistory() {
     });
     if (data?.ok && Array.isArray(data.rides)) {
       completedRideHistory = data.rides.filter(ride => ride.status === 'completed').map(normalizeRide);
+      cacheRealtimeSection('completedRides', completedRideHistory);
+      publishRealtimeSnapshot('rides', data.rides).catch(() => {});
     } else {
       completedRideHistory = [];
     }
   } catch (_error) {
-    completedRideHistory = [];
+    const cache = getRealtimeCache();
+    completedRideHistory = Array.isArray(cache.completedRides) ? cache.completedRides.map(normalizeRide) : [];
   }
-  if (!completedRideHistory.length) completedRideHistory = MOCK_COMPLETED_RIDES.map(normalizeRide);
   renderRideHistory();
   renderPerformanceStats();
 }
@@ -1110,6 +1456,32 @@ function handleRejectRide() {
 }
 
 // ─── Earnings ─────────────────────────────────────────────────────────────────
+function renderEarnings() {
+  const earningsDiv = document.getElementById('earnings-info');
+  const earningsCents = Number(earningsSnapshot.earningsCents);
+  const rideCount = Number(earningsSnapshot.rideCount);
+  if (!Number.isFinite(earningsCents) || !Number.isFinite(rideCount)) {
+    earningsDiv.innerHTML = '<div class="text-danger">Unable to load earnings.</div>';
+    return;
+  }
+  const averagePayout = rideCount > 0 ? earningsCents / rideCount / 100 : 0;
+  earningsDiv.innerHTML = `
+    <div class="earnings-grid">
+      <div class="metric-card highlight">
+        <div class="metric-label">Total Earnings</div>
+        <div class="metric-value">$${(earningsCents / 100).toFixed(2)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Completed Ride Payouts</div>
+        <div class="metric-value">${rideCount}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Average Payout</div>
+        <div class="metric-value">$${averagePayout.toFixed(2)}</div>
+      </div>
+    </div>
+  `;
+}
 async function loadEarnings() {
   const earningsDiv = document.getElementById('earnings-info');
   try {
@@ -1123,24 +1495,20 @@ async function loadEarnings() {
       earningsDiv.innerHTML = '<div class="text-danger">Unable to load earnings.</div>';
       return;
     }
-    const averagePayout = rideCount > 0 ? earningsCents / rideCount / 100 : 0;
-    earningsDiv.innerHTML = `
-      <div class="earnings-grid">
-        <div class="metric-card highlight">
-          <div class="metric-label">Total Earnings</div>
-          <div class="metric-value">$${(earningsCents / 100).toFixed(2)}</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-label">Completed Ride Payouts</div>
-          <div class="metric-value">${rideCount}</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-label">Average Payout</div>
-          <div class="metric-value">$${averagePayout.toFixed(2)}</div>
-        </div>
-      </div>
-    `;
+    earningsSnapshot = { earningsCents, rideCount };
+    cacheRealtimeSection('earnings', earningsSnapshot);
+    publishRealtimeSnapshot('earnings', earningsSnapshot).catch(() => {});
+    renderEarnings();
   } catch (_error) {
+    const cache = getRealtimeCache();
+    if (cache.earnings && typeof cache.earnings === 'object') {
+      earningsSnapshot = {
+        earningsCents: Number(cache.earnings.earningsCents) || 0,
+        rideCount: Number(cache.earnings.rideCount) || 0
+      };
+      renderEarnings();
+      return;
+    }
     earningsDiv.innerHTML = '<div class="text-danger">Unable to load earnings.</div>';
   }
 }
@@ -1472,6 +1840,7 @@ window.addEventListener('load', async () => {
   setActivePane('map');
   renderDocumentList();
   renderSupportLog();
+  hydrateDashboardFromCache();
 
   // Background tracking: resume when tab becomes visible
   document.addEventListener('visibilitychange', () => {
@@ -1492,12 +1861,25 @@ window.addEventListener('load', async () => {
 
   // Load data
   await Promise.all([loadDriverProfile(), loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
-
-  // Acquire initial location and start continuous tracking
   await ensureDriverLocation();
-  await startLocationTracking();
   await requestWakeLock();
-
-  // Periodic readout refresh
   startUiRefreshLoop();
+  startRealtimeSync();
+  await startLocationTracking();
+  flushOfflineLocationQueue().catch(() => {});
+  window.addEventListener('online', () => {
+    flushOfflineLocationQueue().catch(() => {});
+    startRealtimeSync();
+    requestWakeLock();
+    setRealtimeStatus('Back online: syncing rides, location, and earnings.', 'success');
+  });
+  window.addEventListener('offline', () => {
+    setRealtimeStatus('Offline mode: showing cached dashboard data.', 'warning');
+  });
+  window.addEventListener('beforeunload', () => {
+    clearRealtimeConnections();
+    if (geolocationWatchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(geolocationWatchId);
+    geolocationWatchId = null;
+  });
+  renderMap();
 });

@@ -31,7 +31,7 @@ The `mobile/` app includes a production-style Uber-inspired driver home experien
 - Animated bottom stats panel (collapsed and expanded content)
 - Live ride request popup with timer and accept/decline actions + incoming sound
 - Bottom navigation (Home, Trips, Earnings, Inbox, Profile)
-- Real-time mocked state architecture designed for Firebase integration
+- Real-time Firebase-backed state sync for rides, location, and earnings with offline cache fallback
 - Built-in observability for app lifecycle, screen timings, API latency, crash capture, and trip/action telemetry
 
 ### Mobile setup
@@ -76,6 +76,20 @@ Best practices:
 
 Firebase-ready config is located in `mobile/app.json` under `expo.extra.firebase`.
 If those values are populated, the app service layer can initialize Firebase.
+
+### Driver web dashboard realtime setup (Firebase Realtime Database)
+
+The `public/driver-dashboard.js` page reads realtime config from `window.DRIVE_REALTIME_CONFIG` or localStorage key `driverRealtimeConfig`:
+
+```json
+{
+  "provider": "firebase",
+  "databaseUrl": "https://<your-project-id>.firebaseio.com",
+  "databaseAuthToken": "<optional-db-secret-or-auth-token>"
+}
+```
+
+The dashboard syncs `drivers/<driverId>/rides`, `drivers/<driverId>/location`, and `drivers/<driverId>/earnings` with live listeners plus cached offline recovery.
 
 ## Backend quick start
 
