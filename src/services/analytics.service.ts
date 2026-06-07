@@ -307,3 +307,268 @@ export async function getLoyaltyAnalytics() {
     }
   };
 }
+
+// ─── Revenue trends ───────────────────────────────────────────────────────────
+
+export async function getRevenueTrends(query: any) {
+  const days = Math.min(parseInt(query?.days) || 30, 365);
+  const sinceDate = daysAgo(days);
+
+  const rides = Array.from(store.rides.values())
+    .filter(r => r.createdAt >= sinceDate && r.status === 'completed');
+
+  const dailyRevenue: Record<string, { revenue: number; rides: number }> = {};
+  for (const ride of rides) {
+    const date = daysBucket((ride as any).completedAt || ride.createdAt);
+    if (!dailyRevenue[date]) dailyRevenue[date] = { revenue: 0, rides: 0 };
+    dailyRevenue[date].revenue += (ride.fareDetails?.total || 0);
+    dailyRevenue[date].rides += 1;
+  }
+
+  const trends = Object.entries(dailyRevenue)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, data]) => ({
+      date,
+      revenue: Math.round(data.revenue),
+      rides: data.rides
+    }));
+
+  return { module: 'analytics', action: 'revenue-trends', ok: true, trends };
+}
+
+// ─── Vehicle breakdown ────────────────────────────────────────────────────────
+
+export async function getVehicleBreakdown(query: any) {
+  const days = Math.min(parseInt(query?.days) || 30, 365);
+  const sinceDate = daysAgo(days);
+
+  const vehicleTypes = ['economy', 'comfort', 'premium', 'xl'];
+  const breakdown: Record<string, { rides: number; revenue: number }> = {};
+  for (const t of vehicleTypes) breakdown[t] = { rides: 0, revenue: 0 };
+
+  const rides = Array.from(store.rides.values())
+    .filter(r => r.createdAt >= sinceDate && r.status === 'completed');
+
+  for (const ride of rides) {
+    const type = (ride.vehicleType as string) || 'economy';
+    if (!breakdown[type]) breakdown[type] = { rides: 0, revenue: 0 };
+    breakdown[type].rides += 1;
+    breakdown[type].revenue += ride.fareDetails?.total || 0;
+  }
+
+  return {
+    module: 'analytics',
+    action: 'vehicle-breakdown',
+    ok: true,
+    breakdown: Object.entries(breakdown).map(([type, data]) => ({
+      type,
+      rides: data.rides,
+      revenue: Math.round(data.revenue),
+      avgFare: data.rides > 0 ? Math.round(data.revenue / data.rides) : 0
+    }))
+  };
+}
+
+// ─── Driver leaderboard ───────────────────────────────────────────────────────
+
+export async function getDriverLeaderboard(query: any) {
+  const days = Math.min(parseInt(query?.days) || 30, 365);
+  const sortBy = query?.sort || 'earnings';
+  const limit = Math.min(parseInt(query?.limit) || 20, 100);
+  const sinceDate = daysAgo(days);
+
+  const driverStats: Record<string, { driverId: string; driverName: string; rides: number; earnings: number; ratings: number[]; acceptanceRate: number; cancellationRate: number }> = {};
+
+  const rides = Array.from(store.rides.values())
+    .filter(r => r.createdAt >= sinceDate && r.status === 'completed');
+
+  for (const ride of rides) {
+    if (!ride.driverId) continue;
+
+    if (!driverStats[ride.driverId]) {
+      const driver = store.drivers.get(ride.driverId);
+      const user = store.users.get(ride.driverId);
+      driverStats[ride.driverId] = {
+        driverId: ride.driverId,
+        driverName: user?.email?.split('@')[0] || 'unknown',
+        rides: 0,
+        earnings: 0,
+        ratings: [],
+        acceptanceRate: driver?.acceptanceRate || 0,
+        cancellationRate: driver?.cancellationRate || 0
+      };
+    }
+
+    driverStats[ride.driverId].rides += 1;
+    driverStats[ride.driverId].earnings += ride.fareDetails?.driverEarnings || 0;
+    if (typeof ride.rating === 'number') {
+      driverStats[ride.driverId].ratings.push(ride.rating);
+    }
+  }
+
+  const leaderboard = Object.values(driverStats)
+    .map(stats => ({
+      ...stats,
+      avgRating: stats.ratings.length > 0
+        ? parseFloat((stats.ratings.reduce((a, b) => a + b, 0) / stats.ratings.length).toFixed(2))
+        : 0,
+      ratings: undefined
+    }))
+    .sort((a, b) => {
+      if (sortBy === 'earnings') return b.earnings - a.earnings;
+      if (sortBy === 'rating') return b.avgRating - a.avgRating;
+      if (sortBy === 'rides') return b.rides - a.rides;
+      return 0;
+    })
+    .slice(0, limit);
+
+  return { module: 'analytics', action: 'driver-leaderboard', ok: true, leaderboard };
+}
+
+// ─── Churn risk ───────────────────────────────────────────────────────────────
+
+export async function getChurnRisk(query: any) {
+  const riskThreshold = Math.max(0, Math.min(100, parseInt(query?.threshold) || 70));
+  const limit = Math.min(parseInt(query?.limit) || 50, 200);
+  const today = new Date();
+
+  const churnRiskUsers: Array<{
+    userId: string;
+    email?: string;
+    churnScore: number;
+    riskLevel: string;
+    lastRideDate: string;
+    daysSinceLastRide: number;
+    totalRides: number;
+    reason: string;
+  }> = [];
+
+  for (const user of store.users.values()) {
+    if (user.role !== 'rider') continue;
+
+    const userRides = Array.from(store.rides.values())
+      .filter(r => r.riderId === user.id && r.status === 'completed')
+      .sort((a, b) => ((b as any).completedAt || b.createdAt).localeCompare((a as any).completedAt || a.createdAt));
+
+    if (userRides.length === 0) continue;
+
+    const lastRide = userRides[0];
+    const lastRideTs = (lastRide as any).completedAt || lastRide.createdAt;
+    const daysSinceLastRide = Math.floor(
+      (today.getTime() - new Date(lastRideTs).getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    let churnScore = 0;
+    let reason = '';
+
+    if (daysSinceLastRide > 30) {
+      churnScore += 40;
+      reason = `No rides in ${daysSinceLastRide} days`;
+    } else if (daysSinceLastRide > 14) {
+      churnScore += 20;
+      reason = `Inactive for ${daysSinceLastRide} days`;
+    }
+
+    const recentRides = userRides.slice(0, 5);
+    const oldRides = userRides.slice(5, 10);
+    if (recentRides.length > 2 && oldRides.length > 2) {
+      const recentAvg = recentRides.reduce((s, r) => s + ((r as any).passengerRating || 0), 0) / recentRides.length;
+      const oldAvg = oldRides.reduce((s, r) => s + ((r as any).passengerRating || 0), 0) / oldRides.length;
+      if (oldAvg - recentAvg > 0.5) {
+        churnScore += 30;
+        reason = `Rating dropped from ${oldAvg.toFixed(1)} to ${recentAvg.toFixed(1)}`;
+      }
+    }
+
+    if (userRides.length < 5) {
+      churnScore += 20;
+      if (!reason) reason = `Low engagement: only ${userRides.length} rides`;
+    }
+
+    if (churnScore >= riskThreshold) {
+      churnRiskUsers.push({
+        userId: user.id,
+        email: user.email,
+        churnScore,
+        riskLevel: churnScore >= 80 ? 'critical' : churnScore >= 60 ? 'high' : 'medium',
+        lastRideDate: lastRideTs,
+        daysSinceLastRide,
+        totalRides: userRides.length,
+        reason
+      });
+    }
+  }
+
+  const sorted = churnRiskUsers
+    .sort((a, b) => b.churnScore - a.churnScore)
+    .slice(0, limit);
+
+  return {
+    module: 'analytics',
+    action: 'churn-risk',
+    ok: true,
+    users: sorted,
+    total: churnRiskUsers.length
+  };
+}
+
+// ─── Geographic breakdown ─────────────────────────────────────────────────────
+
+export async function getGeographic(query: any) {
+  const days = Math.min(parseInt(query?.days) || 30, 365);
+  const sinceDate = daysAgo(days);
+
+  const geoData: Record<string, { rides: number; revenue: number }> = {};
+
+  const rides = Array.from(store.rides.values())
+    .filter(r => r.createdAt >= sinceDate && r.status === 'completed');
+
+  for (const ride of rides) {
+    const city = 'New York'; // placeholder – production would reverse-geocode lat/lng
+    if (!geoData[city]) geoData[city] = { rides: 0, revenue: 0 };
+    geoData[city].rides += 1;
+    geoData[city].revenue += ride.fareDetails?.total || 0;
+  }
+
+  const geographic = Object.entries(geoData)
+    .map(([city, data]) => ({
+      city,
+      rides: data.rides,
+      revenue: Math.round(data.revenue),
+      avgFare: data.rides > 0 ? Math.round(data.revenue / data.rides) : 0
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  return { module: 'analytics', action: 'geographic', ok: true, geographic };
+}
+
+// ─── Demand forecast ──────────────────────────────────────────────────────────
+
+export async function getDemandForecast(_query: any) {
+  const forecast = [];
+  const now = new Date();
+
+  const hourMultipliers: Record<number, number> = {
+    0: 0.3, 1: 0.2, 2: 0.15, 3: 0.1, 4: 0.1, 5: 0.2,
+    6: 0.3, 7: 0.8, 8: 1.2, 9: 1.0, 10: 0.9, 11: 0.9,
+    12: 0.9, 13: 0.8, 14: 0.7, 15: 0.8, 16: 1.0, 17: 1.3,
+    18: 1.2, 19: 1.0, 20: 0.9, 21: 0.8, 22: 0.6, 23: 0.4
+  };
+
+  for (let h = 0; h < 24; h++) {
+    const forecastTime = new Date(now.getTime() + h * 60 * 60 * 1000);
+    const hour = forecastTime.getUTCHours();
+    const multiplier = hourMultipliers[hour] ?? 0.7;
+    const predictedRides = Math.round(50 * multiplier);
+
+    forecast.push({
+      time: forecastTime.toUTCString().slice(17, 22),
+      hour,
+      predictedRides,
+      confidence: 0.85,
+      surge: predictedRides > 80 ? 1.5 : predictedRides > 60 ? 1.2 : 1.0
+    });
+  }
+
+  return { module: 'analytics', action: 'demand-forecast', ok: true, forecast };
+}

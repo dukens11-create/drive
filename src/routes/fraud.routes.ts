@@ -12,4 +12,6 @@ router.use(requireAuth, requireRole('admin'));
 router.get('/alerts', controller.listAlerts);
 router.post('/alerts/:id/review', validateBody(generic), controller.review);
 router.post('/check', validateBody(generic), controller.check);
+router.post('/chargeback', validateBody(generic), controller.chargeback);
+router.get('/chargebacks', controller.chargebacks);
 export default router;

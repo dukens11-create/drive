@@ -37,3 +37,27 @@ export async function churn(req: any, res: any) {
 export async function loyalty(_req: any, res: any) {
   res.json(await service.getLoyaltyAnalytics());
 }
+
+export async function revenueTrends(req: any, res: any) {
+  res.json(await service.getRevenueTrends(req.query));
+}
+
+export async function vehicleBreakdown(req: any, res: any) {
+  res.json(await service.getVehicleBreakdown(req.query));
+}
+
+export async function driverLeaderboard(req: any, res: any) {
+  res.json(await service.getDriverLeaderboard(req.query));
+}
+
+export async function churnRisk(req: any, res: any) {
+  res.json(await service.getChurnRisk(req.query));
+}
+
+export async function geographic(req: any, res: any) {
+  res.json(await service.getGeographic(req.query));
+}
+
+export async function demandForecast(req: any, res: any) {
+  res.json(await service.getDemandForecast(req.query));
+}
