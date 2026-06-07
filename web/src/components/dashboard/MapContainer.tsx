@@ -4,19 +4,9 @@ import { motion } from 'framer-motion';
 import { useMemo, useState } from 'react';
 import { HiMinus, HiPlus } from 'react-icons/hi2';
 
-function buildMapUrl(zoomLevel: number) {
-  const base = 0.45 / zoomLevel;
-  const west = (-121.4944 - base).toFixed(4);
-  const east = (-119.6759 + base).toFixed(4);
-  const south = (38.5816 - base).toFixed(4);
-  const north = (39.62084 + base).toFixed(4);
-
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${west}%2C${south}%2C${east}%2C${north}&layer=mapnik`;
-}
-
 export function MapContainer() {
   const [zoomLevel, setZoomLevel] = useState(4);
-  const mapUrl = useMemo(() => buildMapUrl(zoomLevel), [zoomLevel]);
+  const mapScale = useMemo(() => 1 + (zoomLevel - 4) * 0.08, [zoomLevel]);
 
   return (
     <motion.section
@@ -25,14 +15,23 @@ export function MapContainer() {
       transition={{ duration: 0.45, ease: 'easeOut' }}
       className="relative overflow-hidden rounded-[20px] bg-white shadow-xl shadow-slate-200/70"
     >
-      <div className="relative h-[430px] overflow-hidden rounded-[20px] bg-slate-200">
-        <iframe
-          title="Rider trip map"
-          src={mapUrl}
-          className="absolute inset-0 h-full w-full border-0 grayscale-[0.05]"
-          loading="lazy"
-          referrerPolicy="no-referrer-when-downgrade"
-        />
+      <div className="relative h-[430px] overflow-hidden rounded-[20px] bg-[#DCEAF8]">
+        <motion.div
+          animate={{ scale: mapScale }}
+          transition={{ duration: 0.25, ease: 'easeOut' }}
+          className="absolute inset-0 origin-center"
+        >
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(255,255,255,0.8),transparent_20%),radial-gradient(circle_at_80%_70%,rgba(255,255,255,0.75),transparent_18%),linear-gradient(180deg,#cfe3f7_0%,#dceaf8_100%)]" />
+          <div className="absolute inset-0 opacity-80">
+            <div className="absolute left-[10%] top-[12%] h-[120px] w-[200px] rotate-[18deg] rounded-[40px] border-[18px] border-white/75" />
+            <div className="absolute left-[48%] top-[8%] h-[160px] w-[240px] -rotate-[10deg] rounded-[48px] border-[20px] border-white/80" />
+            <div className="absolute left-[8%] top-[52%] h-[180px] w-[340px] -rotate-[8deg] rounded-[56px] border-[22px] border-white/80" />
+            <div className="absolute left-[58%] top-[48%] h-[160px] w-[240px] rotate-[14deg] rounded-[56px] border-[20px] border-white/75" />
+          </div>
+          <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(147,197,253,0.18)_1px,transparent_1px),linear-gradient(rgba(147,197,253,0.18)_1px,transparent_1px)] bg-[size:54px_54px]" />
+          <div className="absolute left-[14%] top-[16%] h-16 w-16 rounded-full bg-[#93C5FD]/30 blur-2xl" />
+          <div className="absolute left-[73%] top-[68%] h-20 w-20 rounded-full bg-[#FCA5A5]/30 blur-2xl" />
+        </motion.div>
 
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(15,23,42,0.08))]" />
 
@@ -69,7 +68,7 @@ export function MapContainer() {
         </div>
 
         <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 bg-white/92 px-4 py-3 text-[11px] text-slate-500 backdrop-blur">
-          <span>Map preview with OpenStreetMap tiles</span>
+          <span>Interactive route preview inspired by OpenStreetMap tiles</span>
           <span>© OpenStreetMap contributors</span>
         </div>
       </div>
