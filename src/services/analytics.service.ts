@@ -377,7 +377,17 @@ export async function getDriverLeaderboard(query: any) {
   const limit = Math.min(parseInt(query?.limit) || 20, 100);
   const sinceDate = daysAgo(days);
 
-  const driverStats: Record<string, { driverId: string; driverName: string; rides: number; earnings: number; ratings: number[]; acceptanceRate: number; cancellationRate: number }> = {};
+  type DriverStat = {
+    driverId: string;
+    driverName: string;
+    rides: number;
+    earnings: number;
+    ratings: number[];
+    acceptanceRate: number;
+    cancellationRate: number;
+  };
+
+  const driverStats: Record<string, DriverStat> = {};
 
   const rides = Array.from(store.rides.values())
     .filter(r => r.createdAt >= sinceDate && r.status === 'completed');
@@ -407,12 +417,11 @@ export async function getDriverLeaderboard(query: any) {
   }
 
   const leaderboard = Object.values(driverStats)
-    .map(stats => ({
+    .map(({ ratings, ...stats }) => ({
       ...stats,
-      avgRating: stats.ratings.length > 0
-        ? parseFloat((stats.ratings.reduce((a, b) => a + b, 0) / stats.ratings.length).toFixed(2))
-        : 0,
-      ratings: undefined
+      avgRating: ratings.length > 0
+        ? parseFloat((ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(2))
+        : 0
     }))
     .sort((a, b) => {
       if (sortBy === 'earnings') return b.earnings - a.earnings;
