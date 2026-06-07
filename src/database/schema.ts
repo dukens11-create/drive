@@ -29,6 +29,12 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);
 CREATE INDEX IF NOT EXISTS idx_users_phone ON users (phone);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS suspend_reason TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS suspend_expires_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_by TEXT;
+CREATE INDEX IF NOT EXISTS idx_users_suspended ON users (suspended);
 
 -- ─── Refresh token sessions ──────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS refresh_token_sessions (
@@ -60,9 +66,57 @@ CREATE TABLE IF NOT EXISTS kyc_status (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS kyc_sessions (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  provider     TEXT NOT NULL,
+  document_type TEXT,
+  country      TEXT,
+  session_id   TEXT NOT NULL,
+  session_url  TEXT NOT NULL,
+  status       TEXT NOT NULL,
+  result_data  JSONB,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at   TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_kyc_sessions_user_id ON kyc_sessions (user_id);
+CREATE INDEX IF NOT EXISTS idx_kyc_sessions_status ON kyc_sessions (status);
+
+CREATE TABLE IF NOT EXISTS kyc_verifications (
+  id               TEXT PRIMARY KEY,
+  user_id          TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  session_id       TEXT,
+  document_type    TEXT,
+  document_number  TEXT,
+  full_name        TEXT,
+  date_of_birth    DATE,
+  expiry_date      DATE,
+  status           TEXT NOT NULL,
+  confidence_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+  rejection_reason TEXT,
+  verified_at      TIMESTAMPTZ,
+  verified_by      TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_kyc_verifications_user_id ON kyc_verifications (user_id);
+
+CREATE TABLE IF NOT EXISTS kyc_selfies (
+  id               TEXT PRIMARY KEY,
+  user_id          TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  session_id       TEXT,
+  image_url        TEXT,
+  liveness_score   DOUBLE PRECISION,
+  matches_document BOOLEAN,
+  status           TEXT NOT NULL,
+  verified_at      TIMESTAMPTZ,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ─── Drivers ─────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS drivers (
   user_id                  TEXT PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+  primary_vehicle_id       TEXT,
   current_trip_id          TEXT,
   status                   TEXT NOT NULL DEFAULT 'pending'
                              CHECK (status IN ('pending','approved','rejected')),
@@ -95,10 +149,40 @@ CREATE TABLE IF NOT EXISTS riders (
   last_location_updated_at TIMESTAMPTZ,
   vehicle_preference       TEXT,
   route_preference         TEXT,
+  full_name                TEXT,
+  profile_photo_url        TEXT,
+  phone                    TEXT,
+  email                    TEXT,
+  date_of_birth            DATE,
+  emergency_contact_name   TEXT,
+  emergency_contact_phone  TEXT,
+  preferred_language       TEXT,
+  accessibility_needs      TEXT,
+  updated_at               TIMESTAMPTZ,
   favorite_locations       JSONB NOT NULL DEFAULT '[]',
   rating                   DOUBLE PRECISION NOT NULL DEFAULT 5.0,
   review_count             INT NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_riders_user_id ON riders (user_id);
+
+CREATE TABLE IF NOT EXISTS vehicles (
+  vehicle_id              TEXT PRIMARY KEY,
+  driver_id               TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  make                    TEXT NOT NULL,
+  model                   TEXT NOT NULL,
+  year                    INT NOT NULL,
+  license_plate           TEXT NOT NULL UNIQUE,
+  color                   TEXT NOT NULL,
+  seats                   INT NOT NULL,
+  vehicle_type            TEXT NOT NULL,
+  insurance_expiry        DATE NOT NULL,
+  registration_expiry     DATE NOT NULL,
+  status                  TEXT NOT NULL DEFAULT 'pending_verification',
+  verification_documents  JSONB NOT NULL DEFAULT '[]',
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_vehicles_driver_id ON vehicles (driver_id);
+CREATE INDEX IF NOT EXISTS idx_vehicles_vehicle_type ON vehicles (vehicle_type);
 
 -- ─── Rides ───────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS rides (
@@ -112,6 +196,7 @@ CREATE TABLE IF NOT EXISTS rides (
   miles                   DOUBLE PRECISION NOT NULL DEFAULT 0,
   minutes                 DOUBLE PRECISION NOT NULL DEFAULT 0,
   fare_estimate           DOUBLE PRECISION NOT NULL DEFAULT 0,
+  vehicle_type            TEXT NOT NULL DEFAULT 'economy',
   surge_multiplier        DOUBLE PRECISION,
   promo_id                TEXT,
   discount_cents          INT,

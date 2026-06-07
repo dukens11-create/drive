@@ -130,7 +130,7 @@ function parseLegacyDocument(input: string) {
 
 function normalizeVehicleType(value: unknown): VehicleType | null {
   const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'economy' || normalized === 'comfort' || normalized === 'premium') return normalized;
+  if (normalized === 'economy' || normalized === 'comfort' || normalized === 'premium' || normalized === 'xl') return normalized;
   return null;
 }
 
@@ -375,7 +375,7 @@ export async function createVehicle(body: any, params?: any, _query?: any) {
   if (!profile) return { module: 'drivers', action: 'create-vehicle', error: 'driver not found' };
 
   const vehicleType = normalizeVehicleType(body?.vehicleType);
-  if (!vehicleType) return { module: 'drivers', action: 'create-vehicle', error: 'vehicleType must be economy, comfort, or premium' };
+  if (!vehicleType) return { module: 'drivers', action: 'create-vehicle', error: 'vehicleType must be economy, comfort, premium, or xl' };
 
   const year = Number(body?.year);
   const seats = Number(body?.seats);
@@ -389,6 +389,8 @@ export async function createVehicle(body: any, params?: any, _query?: any) {
   if (!make || !model || !color || !licensePlate) {
     return { module: 'drivers', action: 'create-vehicle', error: 'make, model, color, and licensePlate are required' };
   }
+  const existingVehicle = Array.from(store.vehicles.values()).find(vehicle => vehicle.licensePlate === licensePlate);
+  if (existingVehicle) return { module: 'drivers', action: 'create-vehicle', error: 'license plate already exists' };
 
   const insuranceExpiry = String(body?.insuranceExpiry || '').trim();
   const registrationExpiry = String(body?.registrationExpiry || '').trim();
@@ -410,7 +412,9 @@ export async function createVehicle(body: any, params?: any, _query?: any) {
     vehicleType,
     insuranceExpiry,
     registrationExpiry,
-    status: body?.status === 'inactive' || body?.status === 'pending_verification' ? body.status : 'active',
+    status: body?.status === 'active' || body?.status === 'inactive' || body?.status === 'rejected'
+      ? body.status
+      : 'pending_verification',
     verificationDocuments: Array.isArray(body?.verificationDocuments) ? body.verificationDocuments.map((entry: unknown) => String(entry)) : [],
     createdAt
   };
@@ -452,6 +456,9 @@ export async function deleteVehicle(body: any, params?: any, _query?: any) {
   if (!profile) return { module: 'drivers', action: 'delete-vehicle', error: 'driver not found' };
   const existing = store.vehicles.get(vehicleId);
   if (!existing || existing.driverId !== driverId) return { module: 'drivers', action: 'delete-vehicle', error: 'vehicle not found' };
+  if (profile.primaryVehicleId === vehicleId && existing.status === 'active') {
+    return { module: 'drivers', action: 'delete-vehicle', error: 'cannot delete active vehicle' };
+  }
 
   store.vehicles.delete(vehicleId);
   ensureVerificationData(profile);
@@ -463,8 +470,35 @@ export async function deleteVehicle(body: any, params?: any, _query?: any) {
   return { module: 'drivers', action: 'delete-vehicle', ok: true, vehicleId, vehicles: getDriverVehicles(driverId) };
 }
 
+export async function setActiveVehicle(body: any, params?: any, _query?: any) {
+  const driverId = params?.id || body?.driverId || body?.actor?.id || body?.userId;
+  const vehicleId = params?.vehicleId || body?.vehicleId;
+  if (!driverId) return { module: 'drivers', action: 'set-active-vehicle', error: 'driverId is required' };
+  if (!vehicleId) return { module: 'drivers', action: 'set-active-vehicle', error: 'vehicleId is required' };
+  if (!canManageDriver(body?.actor, driverId)) return { module: 'drivers', action: 'set-active-vehicle', error: 'forbidden' };
+  const profile = getProfile(driverId);
+  if (!profile) return { module: 'drivers', action: 'set-active-vehicle', error: 'driver not found' };
+  const vehicle = store.vehicles.get(vehicleId);
+  if (!vehicle || vehicle.driverId !== driverId) return { module: 'drivers', action: 'set-active-vehicle', error: 'vehicle not found' };
+  if (vehicle.status === 'pending_verification' || vehicle.status === 'rejected') {
+    return { module: 'drivers', action: 'set-active-vehicle', error: 'vehicle not verified' };
+  }
+
+  getDriverVehicles(driverId).forEach(existing => {
+    if (existing.vehicleId !== vehicleId && existing.status === 'active') {
+      existing.status = 'inactive';
+      store.vehicles.set(existing.vehicleId, existing);
+    }
+  });
+  vehicle.status = 'active';
+  store.vehicles.set(vehicle.vehicleId, vehicle);
+  profile.primaryVehicleId = vehicle.vehicleId;
+  markStoreDirty();
+  return { module: 'drivers', action: 'set-active-vehicle', ok: true, vehicle, vehicles: getDriverVehicles(driverId) };
+}
+
 export async function register(body: any, _params?: any, _query?: any) {
-  const result = await authService.signup({ ...body, role: 'driver' });
+  const result: any = await authService.signup({ ...body, role: 'driver' });
   if (!result?.ok || !result?.user?.id) return result;
   const profile = getOrCreateProfile(result.user.id, 'driver');
   return { ...result, profile };

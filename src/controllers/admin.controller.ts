@@ -10,6 +10,8 @@ export async function platform_stats(req: any, res: any) { res.json(await servic
 export async function admin_overview(req: any, res: any) { res.json(await service.admin_overview(req.body, req.params, req.query)); }
 export async function list_users(req: any, res: any) { res.json(await service.list_users(req.body, req.params, req.query)); }
 export async function suspend_user(req: any, res: any) { res.json(await service.suspend_user({ ...req.body, __actor: req.user }, req.params, req.query)); }
+export async function unsuspend_user(req: any, res: any) { res.json(await service.unsuspend_user({ ...req.body, __actor: req.user }, req.params, req.query)); }
+export async function verify_vehicle(req: any, res: any) { res.json(await service.verify_vehicle({ ...req.body, __actor: req.user }, req.params, req.query)); }
 export async function update_ticket(req: any, res: any) { res.json(await service.update_ticket({ ...req.body, __actor: req.user }, req.params, req.query)); }
 export async function audit_log(req: any, res: any) { res.json(await service.audit_log(req.query, req.params, req.query)); }
 export async function update_settings(req: any, res: any) { res.json(await service.update_settings({ ...req.body, __actor: req.user }, req.params, req.query)); }

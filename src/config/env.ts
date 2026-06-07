@@ -93,6 +93,11 @@ export const env = {
   stripeSecretKey: stripe.secretKey,
   stripePublishableKey: stripe.publishableKey,
   stripeWebhookSecret: stripe.webhookSecret,
+  kycProvider: getString('KYC_PROVIDER', 'persona'),
+  kycProviderApiKey: getString('KYC_PROVIDER_API_KEY'),
+  kycProviderWebhookSecret: getString('KYC_PROVIDER_WEBHOOK_SECRET'),
+  kycTemplateId: getString('KYC_TEMPLATE_ID'),
+  kycProviderBaseUrl: getString('KYC_PROVIDER_BASE_URL', 'https://verify.drive.local'),
   dataStoreMode,
   dataStoreFile: getString('DATA_STORE_FILE', '.data/store.json'),
   // Twilio (SMS)
