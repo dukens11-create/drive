@@ -1,6 +1,7 @@
 import { createApp } from './app';
 import { env } from './config';
 import { getErrorDetails, logger } from './utils';
+import { startJobRunner, stopJobRunner } from './jobs';
 
 type ExitFn = (code: number) => never;
 
@@ -56,6 +57,7 @@ try {
   const server = httpServer.listen(env.port, host, () => {
     isListening = true;
     console.log('🔍 [CALLBACK] Listen callback fired');
+    startJobRunner();
     logger.info('http server started', {
       host,
       port: env.port,
@@ -78,6 +80,7 @@ try {
   });
 
   server.on('close', () => {
+    stopJobRunner();
     isListening = false;
   });
 

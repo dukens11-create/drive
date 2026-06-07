@@ -56,7 +56,33 @@ function getLogLevel() {
   throw new Error('LOG_LEVEL must be one of debug, info, warn, error');
 }
 
+function getStripeConfig() {
+  const secretKey = getString('STRIPE_SECRET_KEY');
+  const publishableKey = getString('STRIPE_PUBLISHABLE_KEY');
+  const webhookSecret = getString('STRIPE_WEBHOOK_SECRET');
+
+  if (Boolean(secretKey) !== Boolean(publishableKey)) {
+    const missing = [
+      !secretKey ? 'STRIPE_SECRET_KEY' : '',
+      !publishableKey ? 'STRIPE_PUBLISHABLE_KEY' : ''
+    ].filter(Boolean);
+    throw new Error(`Missing Stripe keys: ${missing.join(', ')}`);
+  }
+
+  if (process.env.NODE_ENV === 'production' && (!secretKey || !publishableKey || !webhookSecret)) {
+    const missing = [
+      !secretKey ? 'STRIPE_SECRET_KEY' : '',
+      !publishableKey ? 'STRIPE_PUBLISHABLE_KEY' : '',
+      !webhookSecret ? 'STRIPE_WEBHOOK_SECRET' : ''
+    ].filter(Boolean);
+    throw new Error(`Missing Stripe keys: ${missing.join(', ')}`);
+  }
+
+  return { secretKey, publishableKey, webhookSecret };
+}
+
 const dataStoreMode = getString('DATA_STORE_MODE', 'memory') === 'file' ? 'file' : 'memory';
+const stripe = getStripeConfig();
 
 export const env = {
   nodeEnv: getString('NODE_ENV', 'development'),
@@ -64,7 +90,9 @@ export const env = {
   logLevel: getLogLevel(),
   jwtSecret: getRequiredInProduction('JWT_SECRET', 'dev-local-secret'),
   adminSeedPassword: getRequiredInProduction('ADMIN_SEED_PASSWORD', 'FlupflapHaiti2025@'),
-  stripeWebhookSecret: getString('STRIPE_WEBHOOK_SECRET'),
+  stripeSecretKey: stripe.secretKey,
+  stripePublishableKey: stripe.publishableKey,
+  stripeWebhookSecret: stripe.webhookSecret,
   dataStoreMode,
   dataStoreFile: getString('DATA_STORE_FILE', '.data/store.json'),
   // Twilio (SMS)

@@ -3,7 +3,7 @@ export function health(_req:any,res:any){res.json({module:'payments',ok:true})}
 export async function create_intent(req:any,res:any){res.json(await service.create_intent(req.body, req.params, req.query));}
 export async function capture(req:any,res:any){res.json(await service.capture(req.body, req.params, req.query));}
 export async function refund(req:any,res:any){res.json(await service.refund(req.body, req.params, req.query));}
-export async function stripe_webhook(req:any,res:any){res.json(await service.stripe_webhook(req.body, req.params, req.query, req.headers));}
+export async function stripe_webhook(req:any,res:any){res.json(await service.stripe_webhook(req.body, req.params, req.query, req.headers, req.rawBody));}
 export async function save_method(req:any,res:any){res.json(await service.save_method(req.body, req.params, req.query));}
 export async function list_methods(req:any,res:any){res.json(await service.list_methods(req.body, req.params, req.query));}
 export async function set_default_method(req:any,res:any){res.json(await service.set_default_method(req.body, req.params, req.query));}

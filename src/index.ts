@@ -4,6 +4,7 @@ export * as constants from './constants';
 export * as controllers from './controllers';
 export * as database from './database';
 export * as guards from './guards';
+export * as jobs from './jobs';
 export * as middleware from './middleware';
 export * as queues from './queues';
 export * as routes from './routes';
