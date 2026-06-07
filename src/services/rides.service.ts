@@ -25,13 +25,10 @@ import { sendEmail } from './email.service';
 import { sendSMS } from './sms.service';
 import { publishDriverRealtimeEarnings, publishRideRealtimeUpdate, publishRiderRatingSubmitted } from './realtime-dispatch.service';
 import { logger } from '../utils/logger';
-<<<<<<< HEAD
 import { getPricingForVehicleType } from '../utils/vehicle-pricing';
-=======
 import { emailTemplates } from '../utils/email-templates';
 import { smsTemplates } from '../utils/sms-templates';
 import { env } from '../config/env';
->>>>>>> origin/main
 
 const CURRENCY = 'USD';
 const DEFAULT_SERVICE_FEE_PERCENT = 0.12;

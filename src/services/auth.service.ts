@@ -13,12 +13,9 @@ import {
 import { env } from '../config/env';
 import { getActiveSuspension } from '../middleware/suspension.middleware';
 import { validateTotpToken } from './twofa.service';
-<<<<<<< HEAD
 import { createKycSession } from './kyc-provider';
-=======
 import { sendEmail } from './email.service';
 import { emailTemplates } from '../utils/email-templates';
->>>>>>> origin/main
 
 function signAccessToken(user: { id: string; role: string; email?: string; phone?: string }) {
   return jwt.sign({ sub: user.id, role: user.role, email: user.email, phone: user.phone }, env.jwtSecret, {
@@ -156,7 +153,15 @@ export async function signup(body: any, _params?: any, _query?: any) {
     userAgent: body?.userAgent
   });
 
-<<<<<<< HEAD
+  if (user.email) {
+    const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
+    const template = emailTemplates.ACCOUNT_VERIFICATION({
+      verificationCode,
+      verificationLink: `${env.appBaseUrl || 'https://app.drive.com'}/verify-email?code=${verificationCode}&userId=${user.id}`
+    });
+    await sendEmail(user.email, template.subject, template.html, { template: 'account_verification', userId: user.id });
+  }
+
   const signupResponse: Record<string, unknown> = { module: 'auth', action: 'signup', ok: true, user: sanitizeUser(user), accessToken, refreshToken };
   if (role === 'driver') {
     const latestSession = Array.from(store.kycSessions.values())
@@ -172,18 +177,6 @@ export async function signup(body: any, _params?: any, _query?: any) {
     }
   }
   return signupResponse;
-=======
-  if (user.email) {
-    const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
-    const template = emailTemplates.ACCOUNT_VERIFICATION({
-      verificationCode,
-      verificationLink: `${env.appBaseUrl || 'https://app.drive.com'}/verify-email?code=${verificationCode}&userId=${user.id}`
-    });
-    await sendEmail(user.email, template.subject, template.html, { template: 'account_verification', userId: user.id });
-  }
-
-  return { module: 'auth', action: 'signup', ok: true, user: sanitizeUser(user), accessToken, refreshToken };
->>>>>>> origin/main
 }
 
 export async function requestPasswordReset(body: any, _params?: any, _query?: any) {
