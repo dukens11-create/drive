@@ -12,7 +12,7 @@ export type User = {
   password: string;
   role: Role;
   suspended?: boolean;
-  suspendReason?: string;
+  suspendReason?: string | null;
   suspendExpiresAt?: string;
   suspendedAt?: string;
   suspendedBy?: string;
@@ -763,6 +763,19 @@ export type CarpoolRide = {
 
 export type FraudRiskLevel = 'low' | 'medium' | 'high' | 'critical';
 
+export type Chargeback = {
+  id: string;
+  paymentId: string;
+  userId: string;
+  amountCents: number;
+  reason: string;
+  status: 'initiated' | 'won' | 'lost';
+  reportedDate: string;
+  resolutionDate?: string;
+  reportedBy?: string;
+  createdAt: string;
+};
+
 export type FraudAlert = {
   id: string;
   userId: string;
@@ -976,6 +989,7 @@ type PersistedStore = {
   corporateAccounts: Array<[string, CorporateAccount]>;
   corporateRideTags: CorporateRideTag[];
   carpoolRides: Array<[string, CarpoolRide]>;
+  chargebacks: Chargeback[];
   fraudAlerts: FraudAlert[];
   totpEntries: Array<[string, TotpEntry]>;
   chatConversations: Array<[string, ChatConversation]>;
@@ -1093,6 +1107,7 @@ export const store = {
   corporateAccounts: new PersistentMap<string, CorporateAccount>(),
   corporateRideTags: createPersistentArray<CorporateRideTag>(),
   carpoolRides: new PersistentMap<string, CarpoolRide>(),
+  chargebacks: createPersistentArray<Chargeback>(),
   fraudAlerts: createPersistentArray<FraudAlert>(),
   totpEntries: new PersistentMap<string, TotpEntry>(),
   chatConversations: new PersistentMap<string, ChatConversation>(),
@@ -1151,6 +1166,7 @@ function toSerializableStore(): PersistedStore {
     corporateAccounts: Array.from(store.corporateAccounts.entries()),
     corporateRideTags: [...store.corporateRideTags],
     carpoolRides: Array.from(store.carpoolRides.entries()),
+    chargebacks: [...store.chargebacks],
     fraudAlerts: [...store.fraudAlerts],
     totpEntries: Array.from(store.totpEntries.entries()),
     chatConversations: Array.from(store.chatConversations.entries()),
@@ -1251,6 +1267,7 @@ function hydrateStore() {
     for (const [id, corp] of parsed.corporateAccounts || []) store.corporateAccounts.set(id, corp);
     for (const tag of parsed.corporateRideTags || []) store.corporateRideTags.push(tag);
     for (const [id, carpool] of parsed.carpoolRides || []) store.carpoolRides.set(id, carpool);
+    for (const chargeback of parsed.chargebacks || []) store.chargebacks.push(chargeback);
     for (const alert of parsed.fraudAlerts || []) store.fraudAlerts.push(alert);
     for (const [id, totp] of parsed.totpEntries || []) store.totpEntries.set(id, totp);
     for (const [id, conversation] of parsed.chatConversations || []) store.chatConversations.set(id, conversation);
