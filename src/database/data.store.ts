@@ -569,6 +569,9 @@ export type ScheduledRide = {
   scheduledAt: string;
   status: ScheduledRideStatus;
   rideId?: string;
+  dispatch_attempts?: number;
+  last_dispatch_attempt_at?: string;
+  dispatch_failed_reason?: string;
   reminderSentAt?: string;
   canceledAt?: string;
   cancellationReason?: string;
