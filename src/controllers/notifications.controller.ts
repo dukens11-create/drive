@@ -5,7 +5,7 @@ function sendResult(res: any, result: any) {
     const status = result.error.includes('not found') ? 404 : result.error === 'forbidden' ? 403 : 400;
     return res.status(status).json(result);
   }
-  res.json(result.deviceToken || result.preferences || result.logs || result);
+  res.json(result.deviceToken || result.deviceTokens || result.preferences || result.logs || result);
 }
 
 export function health(_req: any, res: any) {
@@ -21,7 +21,41 @@ export async function updatePreferences(req: any, res: any) {
 }
 
 export async function registerDeviceToken(req: any, res: any) {
-  sendResult(res, await service.registerDeviceToken({ ...req.body, actor: req.user }));
+  const result = await service.registerDeviceToken({ ...req.body, actor: req.user });
+  if (result?.error) return sendResult(res, result);
+  return res.json({
+    ok: true,
+    deviceTokenId: result.deviceToken.id,
+    savedAt: result.deviceToken.updatedAt,
+    token: result.deviceToken.token,
+    platform: result.deviceToken.platform,
+    topics: result.deviceToken.topics
+  });
+}
+
+export async function listDeviceTokens(req: any, res: any) {
+  const result = await service.listDeviceTokens({ ...req.body, actor: req.user });
+  if (result?.error) return sendResult(res, result);
+  return res.json({
+    ok: true,
+    deviceTokens: result.deviceTokens.map((token: any) => ({
+      id: token.id,
+      token: token.token,
+      platform: token.platform,
+      topics: token.topics,
+      lastSeenAt: token.lastSeenAt,
+      savedAt: token.updatedAt
+    }))
+  });
+}
+
+export async function unregisterDeviceToken(req: any, res: any) {
+  const result = await service.unregisterDeviceToken({ ...req.body, actor: req.user }, req.params);
+  if (result?.error) return sendResult(res, result);
+  return res.json({
+    ok: true,
+    deviceTokenId: result.deviceToken.id
+  });
 }
 
 export async function listLogs(req: any, res: any) {

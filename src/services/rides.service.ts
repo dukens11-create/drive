@@ -26,6 +26,7 @@ import { sendEmail } from './email.service';
 import { sendSMS } from './sms.service';
 import { publishDriverRealtimeEarnings, publishRideRealtimeUpdate, publishRiderRatingSubmitted } from './realtime-dispatch.service';
 import { logger } from '../utils/logger';
+import { notificationTemplates } from '../utils/fcm-templates';
 import { getPricingForVehicleType } from '../utils/vehicle-pricing';
 import { emailTemplates } from '../utils/email-templates';
 import { smsTemplates } from '../utils/sms-templates';
@@ -45,10 +46,17 @@ function normalizeRequestedVehicleType(input: unknown): VehicleType | null {
   return null;
 }
 
-async function pushRideNotification(userId: string | undefined, category: string, title: string, body: string, template: string) {
+async function pushRideNotification(
+  userId: string | undefined,
+  category: string,
+  title: string,
+  body: string,
+  template: string,
+  data?: Record<string, string>
+) {
   if (!userId) return;
   try {
-    await sendRealtimePushEvent({ userId, category, title, body, template });
+    await sendRealtimePushEvent({ userId, category, title, body, template, data });
   } catch (error: any) {
     logger.warn('Ride notification push failed', { userId, category, template, error: error?.message });
   }
@@ -113,6 +121,16 @@ function amountToCents(amount = 0) {
 
 function getRideEvents(ride: Ride) {
   return Array.isArray(ride.events) ? ride.events : [];
+}
+
+function getDriverVehicle(driverId?: string) {
+  if (!driverId) return null;
+  const driver = store.drivers.get(driverId);
+  if (driver?.primaryVehicleId) {
+    const primaryVehicle = store.vehicles.get(driver.primaryVehicleId);
+    if (primaryVehicle) return primaryVehicle;
+  }
+  return Array.from(store.vehicles.values()).find(vehicle => vehicle.driverId === driverId) || null;
 }
 
 function getRideRequestByRideId(rideId: string) {
@@ -520,19 +538,35 @@ export async function request(body: any, _params?: any, _query?: any) {
   };
   store.rideRequests.set(rideRequest.id, rideRequest);
   for (const candidate of dispatch.candidates) {
+    const requestTemplate = notificationTemplates.RIDE_REQUEST({
+      rideId: ride.id,
+      pickupAddress: body?.pickupAddress,
+      pickupLat: ride.pickupLat,
+      pickupLng: ride.pickupLng,
+      fareEstimate: amountToCents(ride.fareEstimate)
+    });
+    await pushRideNotification(
+      candidate.driverId,
+      'new_rides',
+      requestTemplate.title,
+      requestTemplate.body,
+      'ride_request',
+      requestTemplate.data
+    );
     const candidateUser = store.users.get(candidate.driverId);
-    if (!candidateUser?.phone) continue;
-    try {
-      await sendSMS(
-        candidateUser.phone,
-        smsTemplates.RIDE_REQUEST({
-          pickupStreet: `${ride.pickupLat}, ${ride.pickupLng}`,
-          fareEstimate: amountToCents(ride.fareEstimate)
-        }),
-        { template: 'ride_request_alert', userId: candidateUser.id }
-      );
-    } catch (error: any) {
-      logger.warn('Ride request SMS failed', { rideId: ride.id, driverId: candidate.driverId, error: error?.message });
+    if (candidateUser?.phone) {
+      try {
+        await sendSMS(
+          candidateUser.phone,
+          smsTemplates.RIDE_REQUEST({
+            pickupStreet: `${ride.pickupLat}, ${ride.pickupLng}`,
+            fareEstimate: amountToCents(ride.fareEstimate)
+          }),
+          { template: 'ride_request_alert', userId: candidateUser.id }
+        );
+      } catch (error: any) {
+        logger.warn('Ride request SMS failed', { rideId: ride.id, driverId: candidate.driverId, error: error?.message });
+      }
     }
   }
   if (dispatch.selected?.driverId && dispatch.candidates.length === 1) {
@@ -708,12 +742,22 @@ export async function accept(body: any, params?: any, _query?: any) {
     upsertRideRequestResponse(request, driverId, 'accepted');
   }
   appendRideEvent(ride, 'driver_assigned', 'Pickup approaching', 'Driver is heading to your pickup point now.', 'driver', driverId);
+  const driverProfile = store.drivers.get(driverId);
+  const acceptedTemplate = notificationTemplates.DRIVER_ACCEPTED({
+    driverId,
+    rideId: ride.id,
+    driverName: store.users.get(driverId)?.email || 'Your driver',
+    driverLat: driverProfile?.lat,
+    driverLng: driverProfile?.lng,
+    eta: 2
+  });
   await pushRideNotification(
     ride.riderId,
     'trip_updates',
-    'Driver accepted your ride',
-    'Your driver is heading to your pickup location.',
-    'trip_update_accepted'
+    acceptedTemplate.title,
+    acceptedTemplate.body,
+    'trip_update_accepted',
+    acceptedTemplate.data
   );
   await sendRideConfirmationEmail(ride);
   publishRideRealtimeUpdate(ride, 'accepted');
@@ -733,12 +777,19 @@ export async function arrive(body: any, _params?: any, _query?: any) {
   ride.waitTimeoutAt = new Date(Date.now() + DEFAULT_WAIT_TIMEOUT_SECONDS * 1000).toISOString();
   ride.lifecycleState = 'waiting';
   appendRideEvent(ride, 'driver_arrived', 'Driver arrived', 'Your driver has arrived at the pickup point.', 'driver', driverId, now);
+  const vehicle = getDriverVehicle(driverId);
+  const arrivingTemplate = notificationTemplates.DRIVER_ARRIVING({
+    rideId: ride.id,
+    plateNumber: vehicle?.licensePlate,
+    carColor: vehicle?.color
+  });
   await pushRideNotification(
     ride.riderId,
     'trip_updates',
-    'Driver arrived',
-    'Your driver is waiting at the pickup location.',
-    'trip_update_arrived'
+    arrivingTemplate.title,
+    arrivingTemplate.body,
+    'trip_update_arrived',
+    arrivingTemplate.data
   );
   const rider = store.users.get(ride.riderId);
   const driverProfile: any = ride.driverId ? store.drivers.get(ride.driverId) : undefined;
@@ -805,12 +856,18 @@ export async function complete(body: any, _params?: any, _query?: any) {
   const request = getRideRequestByRideId(ride.id);
   if (request) syncRideRequestState(request, 'completed');
   appendRideEvent(ride, 'ride_completed', 'Ride completed', 'Your trip is complete and receipt details are ready.', 'driver', driverId, completedAt);
+  const completeTemplate = notificationTemplates.RIDE_COMPLETED({
+    rideId: ride.id,
+    totalFare: amountToCents(ride.fareDetails.total),
+    driverEarnings: amountToCents(ride.fareDetails.driverEarnings)
+  });
   await pushRideNotification(
     ride.riderId,
     'trip_updates',
-    'Trip completed',
-    'Your ride is complete and receipt details are ready.',
-    'trip_update_completed'
+    completeTemplate.title,
+    completeTemplate.body,
+    'trip_update_completed',
+    completeTemplate.data
   );
   if (ride.driverId) releaseDriverFromRide(ride.driverId);
   const driverProfile = ride.driverId ? store.drivers.get(ride.driverId) : null;
@@ -828,7 +885,12 @@ export async function complete(body: any, _params?: any, _query?: any) {
       'earnings',
       'Earnings updated',
       `You earned $${(driverPayoutCents / 100).toFixed(2)} from your latest trip.`,
-      'earnings_ride_payout'
+      'earnings_ride_payout',
+      {
+        rideId: ride.id,
+        action: 'EARNINGS',
+        amount: String(driverPayoutCents)
+      }
     );
   }
 

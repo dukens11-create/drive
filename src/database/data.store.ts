@@ -895,6 +895,9 @@ export type NotificationLog = {
   template: string;
   status: 'sent' | 'failed' | 'queued';
   provider: string;
+  fcmMessageId?: string;
+  fcmDeliveryStatus?: string;
+  deviceTokenId?: string;
   providerMessageId?: string;
   errorMessage?: string;
   createdAt: string;
@@ -928,6 +931,7 @@ export type DeviceToken = {
   token: string;
   platform: 'ios' | 'android' | 'web';
   topics: string[];
+  lastSeenAt?: string;
   createdAt: string;
   updatedAt: string;
 };

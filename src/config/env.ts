@@ -111,6 +111,9 @@ export const env = {
   sendGridFromName: getString('SENDGRID_FROM_NAME', 'Drive App'),
   // Firebase Cloud Messaging (push notifications)
   fcmServerKey: getString('FCM_SERVER_KEY'),
+  fcmProjectId: getString('FIREBASE_PROJECT_ID'),
+  fcmPrivateKey: getString('FIREBASE_PRIVATE_KEY'),
+  fcmClientEmail: getString('FIREBASE_CLIENT_EMAIL'),
   // App base URL for links in emails
   appBaseUrl: getString('APP_BASE_URL', 'https://app.drive.com'),
   // Sentry
@@ -126,3 +129,9 @@ export const env = {
   databasePoolMax: Number(getString('DATABASE_POOL_MAX', '10')),
   loadedEnvFilePath
 };
+
+const hasAnyFirebaseCredential = Boolean(env.fcmProjectId || env.fcmPrivateKey || env.fcmClientEmail);
+const hasAllFirebaseCredentials = Boolean(env.fcmProjectId && env.fcmPrivateKey && env.fcmClientEmail);
+if (hasAnyFirebaseCredential && !hasAllFirebaseCredentials) {
+  throw new Error('FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, and FIREBASE_CLIENT_EMAIL must be set together');
+}
