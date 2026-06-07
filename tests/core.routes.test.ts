@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { createApp } from '../src/app';
 import { env } from '../src/config/env';
+import * as authService from '../src/services/auth.service';
 
 async function withServer(run: (baseUrl: string) => Promise<void>) {
   const { httpServer } = createApp();
@@ -107,6 +108,30 @@ test('GET /health returns service status payload', async () => {
     const body = await response.json();
     assert.deepEqual(body, { ok: true, service: 'flupflap-ride-v7' });
   });
+});
+
+test('POST /api/auth/login surfaces async controller failures as 500 responses', async () => {
+  const originalLogin = authService.login;
+  (authService as any).login = async () => {
+    throw new Error('simulated login failure');
+  };
+
+  try {
+    await withServer(async baseUrl => {
+      const response = await postJson(baseUrl, '/api/auth/login', {
+        email: 'rider@example.com',
+        password: 'Password123!'
+      });
+      assert.equal(response.status, 500);
+      const body = await response.json();
+      assert.equal(body.error, 'Internal server error');
+
+      const health = await fetch(`${baseUrl}/health`);
+      assert.equal(health.status, 200);
+    });
+  } finally {
+    (authService as any).login = originalLogin;
+  }
 });
 
 test('GET /readyz returns readiness payload', async () => {

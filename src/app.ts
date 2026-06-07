@@ -5,7 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import path from 'path';
-import { errorHandler } from './middleware';
+import { errorHandler, wrapRouterAsyncHandlers } from './middleware';
 import { authRoutes, ridesRoutes, driversRoutes, ridersRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes, restaurantsRoutes } from './routes';
 import { getErrorDetails, logger } from './utils';
 import { registerTrackingSocket, registerChatSocket } from './websocket';
@@ -38,6 +38,24 @@ export function createApp() {
     app.use(cors());
     app.use(express.json({ limit: '10mb' }));
     app.use(rateLimit({ windowMs: 60_000, limit: 300 }));
+    app.use((req, res, next) => {
+      const startedAt = Date.now();
+      logger.info('request started', {
+        method: req.method,
+        url: req.originalUrl || req.url
+      });
+
+      res.on('finish', () => {
+        logger.info('request completed', {
+          method: req.method,
+          url: req.originalUrl || req.url,
+          statusCode: res.statusCode,
+          durationMs: Date.now() - startedAt
+        });
+      });
+
+      next();
+    });
 
     // Serve static files BEFORE routes
     const publicPath = path.join(process.cwd(), 'public');
@@ -47,6 +65,35 @@ export function createApp() {
     app.get('/health', (_, res) => res.json({ ok: true, service: 'flupflap-ride-v7' }));
     app.get('/livez', (_, res) => res.json({ ok: true }));
     app.get('/readyz', (_, res) => res.json({ ok: true, uptimeSeconds: parseFloat(process.uptime().toFixed(3)) }));
+
+    const routers = [
+      authRoutes,
+      ridesRoutes,
+      driversRoutes,
+      ridersRoutes,
+      paymentsRoutes,
+      walletRoutes,
+      kycRoutes,
+      safetyRoutes,
+      supportRoutes,
+      merchantRoutes,
+      marketplaceRoutes,
+      adminRoutes,
+      scheduledRoutes,
+      subscriptionRoutes,
+      loyaltyRoutes,
+      corporateRoutes,
+      carpoolRoutes,
+      fraudRoutes,
+      analyticsRoutes,
+      twofaRoutes,
+      chatRoutes,
+      notificationsRoutes,
+      mlRoutes,
+      i18nRoutes,
+      restaurantsRoutes
+    ];
+    routers.forEach(wrapRouterAsyncHandlers);
 
     app.use('/api/auth', authRoutes);
     app.use('/api/rides', ridesRoutes);
