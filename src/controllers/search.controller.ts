@@ -2,7 +2,7 @@ import * as service from '../services/search.service';
 
 function sendResult(res: any, result: any) {
   if (result?.error) return res.status(400).json(result);
-  return res.json(result.savedSearch || result.recent || result.drivers || result.rides ? result : result);
+  return res.json(result);
 }
 
 export function health(_req: any, res: any) {
