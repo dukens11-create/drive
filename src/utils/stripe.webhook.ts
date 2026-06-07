@@ -49,6 +49,10 @@ export async function handleStripeWebhook(event: any) {
     }
     case 'account.updated':
       return { handled: true, action: 'update_driver_connect_status' };
+    case 'charge.dispute.created':
+      return { handled: true, action: 'flag_for_fraud_review' };
+    case 'payment_method.attached':
+      return { handled: true, action: 'payment_method_attached' };
     default:
       return { handled: false, type: event.type };
   }

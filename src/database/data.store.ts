@@ -298,10 +298,16 @@ export type Payment = {
   paymentMethodId?: string;
   paymentMethodType?: PaymentMethodType;
   description?: string;
-  provider: 'stripe_mock';
+  provider: 'stripe_mock' | 'stripe';
   providerIntentId: string;
   providerCheckoutSessionId: string;
   clientSecret: string;
+  stripePaymentIntentId?: string;
+  stripeChargeId?: string;
+  stripeRefundId?: string;
+  idempotencyKey?: string;
+  threeDSecureRequired?: boolean;
+  threeDSecureAuthenticated?: boolean;
   amountCents: number;
   currency: string;
   status: 'requires_capture' | 'captured' | 'refunded' | 'failed';
@@ -319,7 +325,7 @@ export type PaymentMethod = {
   id: string;
   userId: string;
   type: PaymentMethodType;
-  provider: 'stripe_mock';
+  provider: 'stripe_mock' | 'stripe';
   brand?: string;
   label?: string;
   last4?: string;
