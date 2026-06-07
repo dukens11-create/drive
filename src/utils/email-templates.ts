@@ -193,7 +193,6 @@ export const emailTemplates = {
 
   SUPPORT_REPLY: (data: any) => ({
     subject: `Support Team Replied - Ticket #${escapeHtml(data?.ticketNumber || 'N/A')}`,
-<<<<<<< HEAD
     html: renderEmailShell(
       'Support update',
       `Your support ticket #${data?.ticketNumber || 'N/A'} has a new reply.`,
@@ -201,7 +200,7 @@ export const emailTemplates = {
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
           ${renderRows([
             { label: 'Ticket', value: `#${escapeHtml(data?.ticketNumber || 'N/A')}` },
-            { label: 'Status', value: escapeHtml(data?.status || 'in_review') }
+            { label: 'Status', value: escapeHtml(data?.ticketStatus || data?.status || 'in_review') }
           ])}
         </table>
         <div style="margin-top:18px;padding:16px;border-radius:16px;background:#eff6ff;color:#1e3a8a;font-size:14px;line-height:1.7;">
@@ -232,42 +231,21 @@ export const emailTemplates = {
       data?.dashboardLink ? 'Open dashboard' : undefined,
       data?.dashboardLink ? escapeHtml(data.dashboardLink) : undefined
     )
-=======
-    html: `
-      <h2>Support update</h2>
-      ${data?.userName ? `<p>Hi ${escapeHtml(data.userName)},</p>` : ''}
-      <p>Ticket #${escapeHtml(data?.ticketNumber || 'N/A')}</p>
-      <p>Status: ${escapeHtml(data?.ticketStatus || data?.status || 'in_review')}</p>
-      <p>${escapeHtml(data?.reply || '')}</p>
-      ${data?.ticketLink ? `<p><a href="${escapeHtml(data.ticketLink)}">Open ticket</a></p>` : ''}
-    `
->>>>>>> origin/main
   }),
 
   PASSWORD_RESET: (data: any) => ({
     subject: 'Reset Your Password',
-<<<<<<< HEAD
     html: renderEmailShell(
       'Reset your password',
       'Use the secure link below to choose a new password.',
-      '<p style="margin:0;font-size:15px;line-height:1.7;">This link expires in 1 hour. If you did not request a password reset, you can ignore this email.</p>',
+      `<p style="margin:0;font-size:15px;line-height:1.7;">This link expires in ${data?.expiresInMinutes ? `${data.expiresInMinutes} minutes` : '1 hour'}. If you did not request a password reset, you can ignore this email.</p>`,
       'Reset password',
       escapeHtml(data?.resetLink || '#')
     )
-=======
-    html: `
-      <h2>Reset your password</h2>
-      ${data?.userName ? `<p>Hi ${escapeHtml(data.userName)},</p>` : ''}
-      <p><a href="${escapeHtml(data?.resetLink || '#')}">Reset Password</a></p>
-      <p>This link expires in ${data?.expiresInMinutes ?? 60} minutes.</p>
-      <p>If you did not request this, you can ignore this email.</p>
-    `
->>>>>>> origin/main
   }),
 
   ACCOUNT_VERIFICATION: (data: any) => ({
     subject: 'Verify Your Email Address',
-<<<<<<< HEAD
     html: renderEmailShell(
       'Verify your email',
       'Confirm your account to keep booking and receiving trip updates.',
@@ -276,19 +254,11 @@ export const emailTemplates = {
         <div style="display:inline-block;padding:14px 18px;border-radius:16px;background:#eff6ff;color:#1d4ed8;font-size:24px;font-weight:700;letter-spacing:4px;">
           ${escapeHtml(data?.verificationCode || 'N/A')}
         </div>
-        <p style="margin:16px 0 0;font-size:14px;line-height:1.7;">This link expires in 24 hours.</p>
+        <p style="margin:16px 0 0;font-size:14px;line-height:1.7;">This link expires in ${data?.expiresInHours ?? 24} hours.</p>
       `,
       'Verify email',
-      escapeHtml(data?.verificationLink || '#')
+      escapeHtml(data?.verifyLink || data?.verificationLink || '#')
     )
-=======
-    html: `
-      <h2>Verify your email address</h2>
-      ${data?.userName ? `<p>Welcome, ${escapeHtml(data.userName)}!</p>` : '<p>Welcome to Drive!</p>'}
-      <p>Your verification code: <strong>${escapeHtml(data?.verificationCode || 'N/A')}</strong></p>
-      ${data?.verifyLink || data?.verificationLink ? `<p><a href="${escapeHtml(data.verifyLink || data.verificationLink)}">Verify Email</a></p>` : ''}
-      <p>This link expires in ${data?.expiresInHours ?? 24} hours.</p>
-    `
   }),
 
   WEEKLY_EARNINGS_REPORT: (data: any) => ({
@@ -318,6 +288,5 @@ export const emailTemplates = {
       ${data?.claimLink ? `<p><a href="${escapeHtml(data.claimLink)}">Claim Offer</a></p>` : ''}
       ${data?.termsUrl ? `<p><a href="${escapeHtml(data.termsUrl)}">Terms and conditions apply.</a></p>` : ''}
     `
->>>>>>> origin/main
   })
 };
