@@ -9,7 +9,11 @@ import { errorHandler, wrapRouterAsyncHandlers } from './middleware';
 import { authRoutes, ridesRoutes, driversRoutes, ridersRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes, restaurantsRoutes } from './routes';
 import { getErrorDetails, logger } from './utils';
 import { registerTrackingSocket, registerChatSocket } from './websocket';
+<<<<<<< HEAD
 import { initializeFCM } from './services/fcm.service';
+=======
+import { stripeWebhookHandler } from './webhooks/stripe.webhook';
+>>>>>>> origin/main
 
 export function createApp() {
   try {
@@ -38,7 +42,13 @@ export function createApp() {
       }
     }));
     app.use(cors());
-    app.use(express.json({ limit: '10mb' }));
+    app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhookHandler);
+    app.use(express.json({
+      limit: '10mb',
+      verify: (req, _res, buf) => {
+        (req as any).rawBody = buf.toString('utf8');
+      }
+    }));
     app.use(rateLimit({ windowMs: 60_000, limit: 300 }));
     app.use((req, res, next) => {
       const startedAt = Date.now();

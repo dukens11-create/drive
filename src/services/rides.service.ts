@@ -21,13 +21,19 @@ import {
 } from '../database/data.store';
 import { markDriverAssigned, releaseDriverFromRide } from './drivers.service';
 import { sendRealtimePushEvent } from './notifications.service';
+import { sendEmail } from './email.service';
+import { sendSMS } from './sms.service';
 import { publishDriverRealtimeEarnings, publishRideRealtimeUpdate, publishRiderRatingSubmitted } from './realtime-dispatch.service';
 import { logger } from '../utils/logger';
+<<<<<<< HEAD
 import { notificationTemplates } from '../utils/fcm-templates';
+=======
+import { getPricingForVehicleType } from '../utils/vehicle-pricing';
+import { emailTemplates } from '../utils/email-templates';
+import { smsTemplates } from '../utils/sms-templates';
+import { env } from '../config/env';
+>>>>>>> origin/main
 
-const BASE_FARE = 2.5;
-const DISTANCE_RATE = 1.9;
-const TIME_RATE = 0.25;
 const CURRENCY = 'USD';
 const DEFAULT_SERVICE_FEE_PERCENT = 0.12;
 const DEFAULT_WAIT_TIMEOUT_SECONDS = 5 * 60;
@@ -38,7 +44,7 @@ const MAX_FAVORITE_LOCATIONS = 10;
 
 function normalizeRequestedVehicleType(input: unknown): VehicleType | null {
   const normalized = String(input || '').trim().toLowerCase();
-  if (normalized === 'economy' || normalized === 'comfort' || normalized === 'premium') return normalized;
+  if (normalized === 'economy' || normalized === 'comfort' || normalized === 'premium' || normalized === 'xl') return normalized;
   return null;
 }
 
@@ -56,6 +62,37 @@ async function pushRideNotification(
   } catch (error: any) {
     logger.warn('Ride notification push failed', { userId, category, template, error: error?.message });
   }
+}
+
+function maskPhone(phone: string | undefined) {
+  if (!phone) return 'hidden';
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 4) return 'hidden';
+  return `***-***-${digits.slice(-4)}`;
+}
+
+async function sendRideConfirmationEmail(ride: Ride) {
+  const rider = store.users.get(ride.riderId);
+  const driverId = ride.driverId;
+  const driverUser = driverId ? store.users.get(driverId) : undefined;
+  const driverProfile: any = driverId ? store.drivers.get(driverId) : undefined;
+  if (!rider?.email || !driverUser) return;
+  const message = emailTemplates.RIDE_CONFIRMATION({
+    riderName: rider.email?.split('@')[0] || 'Rider',
+    driverName: driverUser.email?.split('@')[0] || 'Driver',
+    driverRating: driverProfile?.rating || 5,
+    carColor: driverProfile?.carColor || 'Vehicle',
+    carMake: driverProfile?.carMake || '',
+    carModel: driverProfile?.carModel || '',
+    licensePlate: driverProfile?.licensePlate || 'N/A',
+    pickupAddress: `${ride.pickupLat}, ${ride.pickupLng}`,
+    dropoffAddress: `${ride.dropoffLat}, ${ride.dropoffLng}`,
+    eta: Math.max(1, Math.round(ride.minutes || 0)),
+    fareEstimate: Math.round((ride.fareEstimate || 0) * 100),
+    driverPhone: maskPhone(driverUser.phone),
+    trackingLink: `${env.appBaseUrl || 'https://app.drive.com'}/rides/${ride.id}`
+  });
+  await sendEmail(rider.email, message.subject, message.html, { template: 'ride_confirmation', userId: rider.id });
 }
 
 function getRide(id: string) {
@@ -170,16 +207,18 @@ function buildFareDetails(
     tollsCents?: number;
     tipsCents?: number;
     serviceFeePercent?: number;
+    vehicleType?: VehicleType;
   }
 ) {
   const requestedSurgeMultiplier = Number(options?.surgeMultiplier || 1);
   const surgeMultiplier = requestedSurgeMultiplier >= 1 ? requestedSurgeMultiplier : 1;
   const serviceFeePercent = Number(options?.serviceFeePercent ?? DEFAULT_SERVICE_FEE_PERCENT);
-  const baseFare = BASE_FARE;
-  const distanceFare = roundToTwoDecimals(miles * DISTANCE_RATE);
-  const timeFare = roundToTwoDecimals(minutes * TIME_RATE);
+  const pricing = getPricingForVehicleType(options?.vehicleType);
+  const baseFare = pricing.minFare;
+  const distanceFare = roundToTwoDecimals(miles * pricing.distanceRate);
+  const timeFare = roundToTwoDecimals(minutes * pricing.timeRate);
   const meterFare = roundToTwoDecimals(Math.max(baseFare, distanceFare + timeFare));
-  const surgeFare = roundToTwoDecimals(meterFare * surgeMultiplier);
+  const surgeFare = roundToTwoDecimals(meterFare * surgeMultiplier * pricing.baseMultiplier);
   const serviceFee = roundToTwoDecimals(surgeFare * serviceFeePercent);
   const taxes = centsToAmount(Number(options?.taxesCents || 0));
   const tolls = centsToAmount(Number(options?.tollsCents || 0));
@@ -362,8 +401,10 @@ export async function estimate(body: any, _params?: any, _query?: any) {
     etaMinutes: minutes || undefined
   });
   const surgeMultiplier = getActiveSurgeMultiplier();
+  const requestedVehicleType = normalizeRequestedVehicleType(body?.vehicleType ?? body?.rideType ?? body?.vehiclePreference) || 'economy';
   const fare = buildFareDetails(route.distanceMiles, route.etaMinutes, {
-    surgeMultiplier
+    surgeMultiplier,
+    vehicleType: requestedVehicleType
   });
   const fareEstimate = fare.fareEstimate;
   const fareEstimateRange = fare.fareEstimateRange;
@@ -382,7 +423,8 @@ export async function estimate(body: any, _params?: any, _query?: any) {
       pickupLat: body?.pickupLat,
       pickupLng: body?.pickupLng,
       dropoffLat: body?.dropoffLat,
-      dropoffLng: body?.dropoffLng
+      dropoffLng: body?.dropoffLng,
+      vehicleType: requestedVehicleType
     }
   };
 }
@@ -436,7 +478,7 @@ export async function request(body: any, _params?: any, _query?: any) {
     miles: estimated.route.distanceMiles,
     minutes: estimated.route.etaMinutes,
     fareEstimate: estimated.fareEstimate,
-    vehicleType: requestedVehicleType || undefined,
+    vehicleType: requestedVehicleType || 'economy',
     surgeMultiplier: estimated.surgeMultiplier !== 1.0 ? estimated.surgeMultiplier : undefined,
     promoId,
     discountCents: discountCents > 0 ? discountCents : undefined,
@@ -498,6 +540,7 @@ export async function request(body: any, _params?: any, _query?: any) {
   };
   store.rideRequests.set(rideRequest.id, rideRequest);
   for (const candidate of dispatch.candidates) {
+<<<<<<< HEAD
     const requestTemplate = notificationTemplates.RIDE_REQUEST({
       rideId: ride.id,
       pickupAddress: body?.pickupAddress,
@@ -513,6 +556,22 @@ export async function request(body: any, _params?: any, _query?: any) {
       'ride_request',
       requestTemplate.data
     );
+=======
+    const candidateUser = store.users.get(candidate.driverId);
+    if (!candidateUser?.phone) continue;
+    try {
+      await sendSMS(
+        candidateUser.phone,
+        smsTemplates.RIDE_REQUEST({
+          pickupStreet: `${ride.pickupLat}, ${ride.pickupLng}`,
+          fareEstimate: amountToCents(ride.fareEstimate)
+        }),
+        { template: 'ride_request_alert', userId: candidateUser.id }
+      );
+    } catch (error: any) {
+      logger.warn('Ride request SMS failed', { rideId: ride.id, driverId: candidate.driverId, error: error?.message });
+    }
+>>>>>>> origin/main
   }
   if (dispatch.selected?.driverId && dispatch.candidates.length === 1) {
     const assigned = markDriverAssigned(dispatch.selected.driverId);
@@ -546,6 +605,7 @@ export async function request(body: any, _params?: any, _query?: any) {
         'A driver is on the way to your pickup location.',
         'trip_update_driver_assigned'
       );
+      await sendRideConfirmationEmail(ride);
     }
   }
   publishRideRealtimeUpdate(ride, 'ride_requested');
@@ -703,6 +763,7 @@ export async function accept(body: any, params?: any, _query?: any) {
     'trip_update_accepted',
     acceptedTemplate.data
   );
+  await sendRideConfirmationEmail(ride);
   publishRideRealtimeUpdate(ride, 'accepted');
   return { module: 'rides', action: 'accept', ok: true, ride: toRiderRideSummary(ride), request };
 }
@@ -734,6 +795,19 @@ export async function arrive(body: any, _params?: any, _query?: any) {
     'trip_update_arrived',
     arrivingTemplate.data
   );
+  const rider = store.users.get(ride.riderId);
+  const driverProfile: any = ride.driverId ? store.drivers.get(ride.driverId) : undefined;
+  if (rider?.phone) {
+    await sendSMS(
+      rider.phone,
+      smsTemplates.DRIVER_ARRIVING({
+        carColor: driverProfile?.carColor || '',
+        carMake: driverProfile?.carMake || '',
+        licensePlate: driverProfile?.licensePlate || 'N/A'
+      }),
+      { template: 'driver_arriving', userId: rider.id }
+    );
+  }
   publishRideRealtimeUpdate(ride, 'arrived_at_pickup');
   return { module: 'rides', action: 'arrive', ok: true, ride: toRiderRideSummary(ride), arrivedAt: now };
 }
@@ -778,7 +852,8 @@ export async function complete(body: any, _params?: any, _query?: any) {
     discountCents: ride.discountCents,
     taxesCents: Number(body?.taxesCents || 0),
     tollsCents: Number(body?.tollsCents || 0),
-    tipsCents: Number(body?.tipsCents || 0)
+    tipsCents: Number(body?.tipsCents || 0),
+    vehicleType: ride.vehicleType
   });
   ride.fareEstimate = ride.fareDetails.total;
   ride.paymentStatus = 'settled_internal';
@@ -821,6 +896,55 @@ export async function complete(body: any, _params?: any, _query?: any) {
         amount: String(driverPayoutCents)
       }
     );
+  }
+
+  const riderUser = store.users.get(ride.riderId);
+  const driverUser = ride.driverId ? store.users.get(ride.driverId) : undefined;
+  if (riderUser?.email) {
+    const receiptTemplate = emailTemplates.PAYMENT_RECEIPT({
+      riderName: riderUser.email?.split('@')[0] || 'Rider',
+      driverName: driverUser?.email?.split('@')[0] || 'Driver',
+      tripDate: new Date(completedAt).toLocaleDateString(),
+      pickupAddress: `${ride.pickupLat}, ${ride.pickupLng}`,
+      dropoffAddress: `${ride.dropoffLat}, ${ride.dropoffLng}`,
+      duration: `${ride.minutes} min`,
+      distance: `${ride.miles} miles`,
+      baseFare: amountToCents(ride.fareDetails.baseFare),
+      distanceFare: amountToCents(ride.fareDetails.distanceFare),
+      timeFare: amountToCents(ride.fareDetails.timeFare),
+      serviceFee: amountToCents(ride.fareDetails.serviceFee),
+      taxes: amountToCents(ride.fareDetails.taxes),
+      tolls: amountToCents(ride.fareDetails.tolls),
+      discount: amountToCents(ride.fareDetails.discounts),
+      tip: amountToCents(ride.fareDetails.tips),
+      total: amountToCents(ride.fareDetails.total),
+      paymentMethodLast4: undefined,
+      invoiceNumber: ride.id,
+      downloadReceiptLink: `${env.appBaseUrl || 'https://app.drive.com'}/rides/${ride.id}/receipt`
+    });
+    await sendEmail(riderUser.email, receiptTemplate.subject, receiptTemplate.html, { template: 'payment_receipt', userId: riderUser.id });
+  }
+
+  if (driverUser?.email && ride.driverId) {
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const todayEarnings = store.walletTx
+      .filter(tx => tx.userId === ride.driverId && tx.kind === 'credit' && tx.reason.endsWith(':payout') && new Date(tx.createdAt) >= todayStart)
+      .reduce((sum, tx) => sum + tx.amountCents, 0);
+    const driverTemplate = emailTemplates.DRIVER_EARNINGS({
+      driverName: driverUser.email?.split('@')[0] || 'Driver',
+      riderName: riderUser?.email?.split('@')[0] || 'Rider',
+      pickupAddress: `${ride.pickupLat}, ${ride.pickupLng}`,
+      dropoffAddress: `${ride.dropoffLat}, ${ride.dropoffLng}`,
+      duration: `${ride.minutes} min`,
+      distance: `${ride.miles} miles`,
+      grossFare: amountToCents(ride.fareDetails.surgeFare),
+      platformFee: amountToCents(ride.fareDetails.serviceFee),
+      earnings: driverPayoutCents,
+      todayEarnings,
+      walletLink: `${env.appBaseUrl || 'https://app.drive.com'}/wallet`
+    });
+    await sendEmail(driverUser.email, driverTemplate.subject, driverTemplate.html, { template: 'driver_earnings', userId: driverUser.id });
   }
 
   // Process referral bonus on rider's first completed ride

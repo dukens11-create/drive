@@ -35,3 +35,7 @@ export const refreshSchema = z.object({
 export const revokeSessionSchema = z.object({
   sessionId: z.string().min(1)
 }).passthrough();
+
+export const passwordResetRequestSchema = z.object({
+  email: z.string().email()
+}).passthrough();

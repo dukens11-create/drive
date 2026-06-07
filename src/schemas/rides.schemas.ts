@@ -9,8 +9,8 @@ export const rideEstimateSchema = z.object({
   dropoffLng: z.number().optional(),
   miles: z.number().optional(),
   minutes: z.number().optional(),
-  vehicleType: z.enum(['economy', 'comfort', 'premium']).optional(),
-  rideType: z.enum(['economy', 'comfort', 'premium']).optional()
+  vehicleType: z.enum(['economy', 'comfort', 'premium', 'xl']).optional(),
+  rideType: z.enum(['economy', 'comfort', 'premium', 'xl']).optional()
 }).passthrough();
 
 export const rideRequestSchema = z.object({
@@ -20,8 +20,8 @@ export const rideRequestSchema = z.object({
   dropoffLng: z.number().optional(),
   miles: z.number().optional(),
   minutes: z.number().optional(),
-  vehicleType: z.enum(['economy', 'comfort', 'premium']).optional(),
-  rideType: z.enum(['economy', 'comfort', 'premium']).optional()
+  vehicleType: z.enum(['economy', 'comfort', 'premium', 'xl']).optional(),
+  rideType: z.enum(['economy', 'comfort', 'premium', 'xl']).optional()
 }).passthrough();
 
 export const rideAcceptSchema = z.object({

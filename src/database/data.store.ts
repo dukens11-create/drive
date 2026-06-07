@@ -11,6 +11,11 @@ export type User = {
   phone?: string;
   password: string;
   role: Role;
+  suspended?: boolean;
+  suspendReason?: string | null;
+  suspendExpiresAt?: string;
+  suspendedAt?: string;
+  suspendedBy?: string;
   createdAt: string;
 };
 
@@ -39,7 +44,7 @@ export type RideLifecycleState =
   | 'cancelled'
   | 'rated';
 
-export type VehicleType = 'economy' | 'comfort' | 'premium';
+export type VehicleType = 'economy' | 'comfort' | 'premium' | 'xl';
 
 export type RideEvent = {
   id: string;
@@ -211,6 +216,54 @@ export type DriverProfile = {
   verificationReview?: DriverVerificationReview;
 };
 
+export type KycSessionStatus = 'pending' | 'completed' | 'approved' | 'rejected' | 'expired' | 'pending_review';
+
+export type KycVerificationStatus = 'pending_review' | 'approved' | 'rejected';
+
+export type KycSession = {
+  id: string;
+  userId: string;
+  provider: string;
+  documentType?: string;
+  country?: string;
+  sessionId: string;
+  sessionUrl: string;
+  status: KycSessionStatus;
+  resultData?: Record<string, unknown>;
+  createdAt: string;
+  expiresAt?: string;
+  completedAt?: string;
+};
+
+export type KycVerification = {
+  id: string;
+  userId: string;
+  sessionId?: string;
+  documentType?: string;
+  documentNumber?: string;
+  fullName?: string;
+  dateOfBirth?: string;
+  expiryDate?: string;
+  status: KycVerificationStatus;
+  confidenceScore: number;
+  rejectionReason?: string;
+  verifiedAt?: string;
+  verifiedBy?: string;
+  createdAt: string;
+};
+
+export type KycSelfie = {
+  id: string;
+  userId: string;
+  sessionId?: string;
+  imageUrl?: string;
+  livenessScore?: number;
+  matchesDocument?: boolean;
+  status: KycVerificationStatus;
+  verifiedAt?: string;
+  createdAt: string;
+};
+
 export type Vehicle = {
   vehicleId: string;
   driverId: string;
@@ -223,7 +276,7 @@ export type Vehicle = {
   vehicleType: VehicleType;
   insuranceExpiry: string;
   registrationExpiry: string;
-  status: 'active' | 'inactive' | 'pending_verification';
+  status: 'active' | 'inactive' | 'pending_verification' | 'rejected';
   verificationDocuments: string[];
   createdAt: string;
 };
@@ -242,6 +295,16 @@ export type RiderProfile = {
   lastLocationUpdatedAt?: string;
   vehiclePreference?: string;
   routePreference?: string;
+  fullName?: string;
+  profilePhotoUrl?: string;
+  phone?: string;
+  email?: string;
+  dateOfBirth?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  preferredLanguage?: string;
+  accessibilityNeeds?: string;
+  updatedAt?: string;
   favoriteLocations: RiderFavoriteLocation[];
   rating: number;
   reviewCount: number;
@@ -298,10 +361,16 @@ export type Payment = {
   paymentMethodId?: string;
   paymentMethodType?: PaymentMethodType;
   description?: string;
-  provider: 'stripe_mock';
+  provider: 'stripe_mock' | 'stripe';
   providerIntentId: string;
   providerCheckoutSessionId: string;
   clientSecret: string;
+  stripePaymentIntentId?: string;
+  stripeChargeId?: string;
+  stripeRefundId?: string;
+  idempotencyKey?: string;
+  threeDSecureRequired?: boolean;
+  threeDSecureAuthenticated?: boolean;
   amountCents: number;
   currency: string;
   status: 'requires_capture' | 'captured' | 'refunded' | 'failed';
@@ -319,7 +388,7 @@ export type PaymentMethod = {
   id: string;
   userId: string;
   type: PaymentMethodType;
-  provider: 'stripe_mock';
+  provider: 'stripe_mock' | 'stripe';
   brand?: string;
   label?: string;
   last4?: string;
@@ -569,6 +638,9 @@ export type ScheduledRide = {
   scheduledAt: string;
   status: ScheduledRideStatus;
   rideId?: string;
+  dispatch_attempts?: number;
+  last_dispatch_attempt_at?: string;
+  dispatch_failed_reason?: string;
   reminderSentAt?: string;
   canceledAt?: string;
   cancellationReason?: string;
@@ -691,6 +763,19 @@ export type CarpoolRide = {
 
 export type FraudRiskLevel = 'low' | 'medium' | 'high' | 'critical';
 
+export type Chargeback = {
+  id: string;
+  paymentId: string;
+  userId: string;
+  amountCents: number;
+  reason: string;
+  status: 'initiated' | 'won' | 'lost';
+  reportedDate: string;
+  resolutionDate?: string;
+  reportedBy?: string;
+  createdAt: string;
+};
+
 export type FraudAlert = {
   id: string;
   userId: string;
@@ -810,9 +895,13 @@ export type NotificationLog = {
   template: string;
   status: 'sent' | 'failed' | 'queued';
   provider: string;
+<<<<<<< HEAD
   fcmMessageId?: string;
   fcmDeliveryStatus?: string;
   deviceTokenId?: string;
+=======
+  providerMessageId?: string;
+>>>>>>> origin/main
   errorMessage?: string;
   createdAt: string;
 };
@@ -823,8 +912,14 @@ export type NotificationPreference = {
   smsOptIn: boolean;
   pushOptIn: boolean;
   frequency: 'instant' | 'hourly' | 'daily' | 'weekly';
+  emailFrequency?: 'instant' | 'daily' | 'weekly';
+  smsFrequency?: 'urgent' | 'all';
   categories: string[];
   timezone: string;
+  quietHoursEnabled?: boolean;
+  quietHoursStart?: string;
+  quietHoursEnd?: string;
+  unsubscribedAt?: string;
   quietHours?: {
     enabled: boolean;
     start: string;
@@ -875,6 +970,9 @@ type PersistedStore = {
   walletTx: WalletTx[];
   walletBalances: WalletBalance[];
   kycStatus: Array<[string, 'pending' | 'verified' | 'rejected']>;
+  kycSessions: Array<[string, KycSession]>;
+  kycVerifications: Array<[string, KycVerification]>;
+  kycSelfies: Array<[string, KycSelfie]>;
   tickets: Ticket[];
   safetyIncidents: SafetyIncident[];
   merchantProducts: MerchantProduct[];
@@ -898,6 +996,7 @@ type PersistedStore = {
   corporateAccounts: Array<[string, CorporateAccount]>;
   corporateRideTags: CorporateRideTag[];
   carpoolRides: Array<[string, CarpoolRide]>;
+  chargebacks: Chargeback[];
   fraudAlerts: FraudAlert[];
   totpEntries: Array<[string, TotpEntry]>;
   chatConversations: Array<[string, ChatConversation]>;
@@ -989,6 +1088,9 @@ export const store = {
   walletTx: createPersistentArray<WalletTx>(),
   walletBalances: new PersistentMap<string, WalletBalance>(),
   kycStatus: new PersistentMap<string, 'pending' | 'verified' | 'rejected'>(),
+  kycSessions: new PersistentMap<string, KycSession>(),
+  kycVerifications: new PersistentMap<string, KycVerification>(),
+  kycSelfies: new PersistentMap<string, KycSelfie>(),
   tickets: new PersistentMap<string, Ticket>(),
   safetyIncidents: createPersistentArray<SafetyIncident>(),
   merchantProducts: new PersistentMap<string, MerchantProduct>(),
@@ -1012,6 +1114,7 @@ export const store = {
   corporateAccounts: new PersistentMap<string, CorporateAccount>(),
   corporateRideTags: createPersistentArray<CorporateRideTag>(),
   carpoolRides: new PersistentMap<string, CarpoolRide>(),
+  chargebacks: createPersistentArray<Chargeback>(),
   fraudAlerts: createPersistentArray<FraudAlert>(),
   totpEntries: new PersistentMap<string, TotpEntry>(),
   chatConversations: new PersistentMap<string, ChatConversation>(),
@@ -1044,6 +1147,9 @@ function toSerializableStore(): PersistedStore {
     walletTx: [...store.walletTx],
     walletBalances: Array.from(store.walletBalances.values()),
     kycStatus: Array.from(store.kycStatus.entries()),
+    kycSessions: Array.from(store.kycSessions.entries()),
+    kycVerifications: Array.from(store.kycVerifications.entries()),
+    kycSelfies: Array.from(store.kycSelfies.entries()),
     tickets: Array.from(store.tickets.values()),
     safetyIncidents: [...store.safetyIncidents],
     merchantProducts: Array.from(store.merchantProducts.values()),
@@ -1067,6 +1173,7 @@ function toSerializableStore(): PersistedStore {
     corporateAccounts: Array.from(store.corporateAccounts.entries()),
     corporateRideTags: [...store.corporateRideTags],
     carpoolRides: Array.from(store.carpoolRides.entries()),
+    chargebacks: [...store.chargebacks],
     fraudAlerts: [...store.fraudAlerts],
     totpEntries: Array.from(store.totpEntries.entries()),
     chatConversations: Array.from(store.chatConversations.entries()),
@@ -1141,6 +1248,9 @@ function hydrateStore() {
     for (const tx of parsed.walletTx || []) store.walletTx.push(tx);
     for (const walletBalance of parsed.walletBalances || []) store.walletBalances.set(walletBalance.userId, walletBalance);
     for (const [userId, status] of parsed.kycStatus || []) store.kycStatus.set(userId, status);
+    for (const [id, session] of parsed.kycSessions || []) store.kycSessions.set(id, session);
+    for (const [id, verification] of parsed.kycVerifications || []) store.kycVerifications.set(id, verification);
+    for (const [id, selfie] of parsed.kycSelfies || []) store.kycSelfies.set(id, selfie);
     for (const ticket of parsed.tickets || []) store.tickets.set(ticket.id, ticket);
     for (const incident of parsed.safetyIncidents || []) store.safetyIncidents.push(incident);
     for (const product of parsed.merchantProducts || []) store.merchantProducts.set(product.id, product);
@@ -1164,6 +1274,7 @@ function hydrateStore() {
     for (const [id, corp] of parsed.corporateAccounts || []) store.corporateAccounts.set(id, corp);
     for (const tag of parsed.corporateRideTags || []) store.corporateRideTags.push(tag);
     for (const [id, carpool] of parsed.carpoolRides || []) store.carpoolRides.set(id, carpool);
+    for (const chargeback of parsed.chargebacks || []) store.chargebacks.push(chargeback);
     for (const alert of parsed.fraudAlerts || []) store.fraudAlerts.push(alert);
     for (const [id, totp] of parsed.totpEntries || []) store.totpEntries.set(id, totp);
     for (const [id, conversation] of parsed.chatConversations || []) store.chatConversations.set(id, conversation);

@@ -12,6 +12,8 @@ router.post('/register', validateBody(signupSchema), controller.register);
 router.use(requireAuth);
 router.use(requireRole('rider'));
 router.get('/me', controller.me);
+router.get('/profile', controller.profile);
+router.put('/profile', controller.update_profile);
 router.post('/location', validateBody(locationSchema), controller.location);
 
 export default router;

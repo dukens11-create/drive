@@ -27,7 +27,7 @@ async function signup(baseUrl: string, role: string = 'rider') {
     body: JSON.stringify({ email, password: 'Password123!', role }),
   });
   const body = await res.json() as any;
-  return { userId: body.user?.id as string, token: body.accessToken as string };
+  return { userId: body.user?.id as string, token: body.accessToken as string, email };
 }
 
 async function loginAdmin(baseUrl: string) {
@@ -528,6 +528,22 @@ test('GET /api/notifications/health returns ok', async () => {
   });
 });
 
+test('auth signup and password reset request emit email notifications', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+
+    const reset = await post(baseUrl, '/api/auth/password-reset/request', { email: rider.email });
+    assert.equal(reset.status, 200);
+    assert.equal(reset.body.ok, true);
+
+    const logs = await get(baseUrl, '/api/notifications/logs?type=email', rider.token);
+    assert.equal(logs.status, 200);
+    assert.equal(Array.isArray(logs.body), true);
+    assert.equal(logs.body.some((entry: any) => entry.template === 'account_verification'), true);
+    assert.equal(logs.body.some((entry: any) => entry.template === 'password_reset'), true);
+  });
+});
+
 test('notifications: preferences, device tokens, push/email/sms, and logs work', async () => {
   await withServer(async baseUrl => {
     const rider = await signup(baseUrl, 'rider');
@@ -643,6 +659,38 @@ test('support replies trigger push notifications when rider preference allows su
     const logs = await get(baseUrl, '/api/notifications/logs', rider.token);
     assert.equal(logs.status, 200);
     assert.equal(logs.body.some((entry: any) => entry.template === 'support_reply' && entry.status === 'sent'), true);
+  });
+});
+
+test('urgent support replies trigger sms notifications', async () => {
+  await withServer(async baseUrl => {
+    const signupRes = await post(baseUrl, '/api/auth/signup', {
+      email: `urgent-${randomUUID()}@example.com`,
+      phone: '+15555550123',
+      password: 'Password123!',
+      role: 'rider'
+    });
+    assert.equal(signupRes.status, 200);
+    const riderToken = signupRes.body.accessToken as string;
+    const riderId = signupRes.body.user.id as string;
+    const adminToken = await loginAdmin(baseUrl);
+
+    const ticket = await post(baseUrl, '/api/support/create-ticket', {
+      userId: riderId,
+      type: 'urgent',
+      message: 'Critical payment issue'
+    }, riderToken);
+    assert.equal(ticket.status, 200);
+
+    const reply = await post(baseUrl, '/api/support/reply-ticket', {
+      ticketId: ticket.body.ticket.id,
+      message: 'Refund has been issued.'
+    }, adminToken);
+    assert.equal(reply.status, 200);
+
+    const logs = await get(baseUrl, '/api/notifications/logs?type=sms', riderToken);
+    assert.equal(logs.status, 200);
+    assert.equal(logs.body.some((entry: any) => entry.template === 'support_reply_urgent'), true);
   });
 });
 

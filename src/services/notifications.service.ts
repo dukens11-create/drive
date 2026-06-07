@@ -20,6 +20,8 @@ type PushCategory = typeof PUSH_CATEGORIES[number];
 const LEGACY_CATEGORY_MAP: Record<string, PushCategory | undefined> = {
   rides: 'trip_updates',
   orders: 'trip_updates',
+  support: 'support_replies',
+  earnings: 'earnings',
   promotions: 'bonuses',
   system: 'system'
 };
@@ -123,8 +125,13 @@ function getNotificationPreferencesForUser(userId: string): NotificationPreferen
     smsOptIn: true,
     pushOptIn: true,
     frequency: 'instant',
+    emailFrequency: 'instant',
+    smsFrequency: 'urgent',
     categories: DEFAULT_CATEGORIES,
     timezone: 'UTC',
+    quietHoursEnabled: DEFAULT_QUIET_HOURS.enabled,
+    quietHoursStart: DEFAULT_QUIET_HOURS.start,
+    quietHoursEnd: DEFAULT_QUIET_HOURS.end,
     quietHours: { ...DEFAULT_QUIET_HOURS },
     updatedAt: timestamp()
   };
@@ -271,7 +278,7 @@ export async function sendRideStatusPush(deviceToken: string, status: string, ri
 
 export async function listNotificationLogs(body: any) {
   const userId = body?.userId;
-  const channel = body?.channel as NotificationChannel | undefined;
+  const channel = (body?.channel || body?.type) as NotificationChannel | undefined;
   const limit = Math.min(Number(body?.limit || 50), 200);
 
   let logs = [...store.notificationLogs];
@@ -298,16 +305,28 @@ export async function upsertNotificationPreferences(body: any) {
     emailOptIn: body?.emailOptIn ?? current.emailOptIn,
     smsOptIn: body?.smsOptIn ?? current.smsOptIn,
     pushOptIn: body?.pushOptIn ?? current.pushOptIn,
-    frequency: body?.frequency || current.frequency,
+    frequency: body?.frequency || body?.emailFrequency || current.frequency,
+    emailFrequency: body?.emailFrequency || current.emailFrequency || current.frequency,
+    smsFrequency: body?.smsFrequency || current.smsFrequency || 'urgent',
     categories: normalizeCategories(body?.categories, current.categories),
     timezone: body?.timezone || current.timezone,
+    quietHoursEnabled: body?.quietHours
+      ? !!body.quietHours.enabled
+      : (body?.quietHoursEnabled ?? current.quietHoursEnabled ?? current.quietHours?.enabled ?? false),
+    quietHoursStart: body?.quietHours?.start || body?.quietHoursStart || current.quietHoursStart || current.quietHours?.start || DEFAULT_QUIET_HOURS.start,
+    quietHoursEnd: body?.quietHours?.end || body?.quietHoursEnd || current.quietHoursEnd || current.quietHours?.end || DEFAULT_QUIET_HOURS.end,
+    unsubscribedAt: body?.unsubscribedAt || current.unsubscribedAt,
     quietHours: body?.quietHours
       ? {
           enabled: !!body.quietHours.enabled,
           start: String(body.quietHours.start || DEFAULT_QUIET_HOURS.start),
           end: String(body.quietHours.end || DEFAULT_QUIET_HOURS.end)
         }
-      : current.quietHours || { ...DEFAULT_QUIET_HOURS },
+      : {
+          enabled: body?.quietHoursEnabled ?? current.quietHoursEnabled ?? current.quietHours?.enabled ?? DEFAULT_QUIET_HOURS.enabled,
+          start: String(body?.quietHoursStart || current.quietHoursStart || current.quietHours?.start || DEFAULT_QUIET_HOURS.start),
+          end: String(body?.quietHoursEnd || current.quietHoursEnd || current.quietHours?.end || DEFAULT_QUIET_HOURS.end)
+        },
     updatedAt: timestamp()
   };
   store.notificationPreferences.set(userId, preferences);

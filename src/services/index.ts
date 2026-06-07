@@ -20,3 +20,4 @@ export * as subscriptionService from './subscription.service';
 export * as supportService from './support.service';
 export * as twofaService from './twofa.service';
 export * as walletService from './wallet.service';
+export * as stripeClient from './stripe-client';
