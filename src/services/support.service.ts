@@ -1,15 +1,12 @@
 import { appendAuditLog, makeId, markStoreDirty, store, timestamp } from '../database/data.store';
 import { sendRealtimePushEvent } from './notifications.service';
 import { logger } from '../utils/logger';
-<<<<<<< HEAD
 import { notificationTemplates } from '../utils/fcm-templates';
-=======
 import { sendEmail } from './email.service';
 import { sendSMS } from './sms.service';
 import { emailTemplates } from '../utils/email-templates';
 import { smsTemplates } from '../utils/sms-templates';
 import { env } from '../config/env';
->>>>>>> origin/main
 
 export async function create_ticket(body: any, _params?: any, _query?: any) {
   const ticket = {

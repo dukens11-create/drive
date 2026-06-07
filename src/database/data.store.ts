@@ -895,13 +895,10 @@ export type NotificationLog = {
   template: string;
   status: 'sent' | 'failed' | 'queued';
   provider: string;
-<<<<<<< HEAD
   fcmMessageId?: string;
   fcmDeliveryStatus?: string;
   deviceTokenId?: string;
-=======
   providerMessageId?: string;
->>>>>>> origin/main
   errorMessage?: string;
   createdAt: string;
 };

@@ -9,11 +9,8 @@ import { errorHandler, wrapRouterAsyncHandlers } from './middleware';
 import { authRoutes, ridesRoutes, driversRoutes, ridersRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes, restaurantsRoutes } from './routes';
 import { getErrorDetails, logger } from './utils';
 import { registerTrackingSocket, registerChatSocket } from './websocket';
-<<<<<<< HEAD
 import { initializeFCM } from './services/fcm.service';
-=======
 import { stripeWebhookHandler } from './webhooks/stripe.webhook';
->>>>>>> origin/main
 
 export function createApp() {
   try {

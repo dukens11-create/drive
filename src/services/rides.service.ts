@@ -25,14 +25,11 @@ import { sendEmail } from './email.service';
 import { sendSMS } from './sms.service';
 import { publishDriverRealtimeEarnings, publishRideRealtimeUpdate, publishRiderRatingSubmitted } from './realtime-dispatch.service';
 import { logger } from '../utils/logger';
-<<<<<<< HEAD
 import { notificationTemplates } from '../utils/fcm-templates';
-=======
 import { getPricingForVehicleType } from '../utils/vehicle-pricing';
 import { emailTemplates } from '../utils/email-templates';
 import { smsTemplates } from '../utils/sms-templates';
 import { env } from '../config/env';
->>>>>>> origin/main
 
 const CURRENCY = 'USD';
 const DEFAULT_SERVICE_FEE_PERCENT = 0.12;
@@ -540,7 +537,6 @@ export async function request(body: any, _params?: any, _query?: any) {
   };
   store.rideRequests.set(rideRequest.id, rideRequest);
   for (const candidate of dispatch.candidates) {
-<<<<<<< HEAD
     const requestTemplate = notificationTemplates.RIDE_REQUEST({
       rideId: ride.id,
       pickupAddress: body?.pickupAddress,
@@ -556,22 +552,21 @@ export async function request(body: any, _params?: any, _query?: any) {
       'ride_request',
       requestTemplate.data
     );
-=======
     const candidateUser = store.users.get(candidate.driverId);
-    if (!candidateUser?.phone) continue;
-    try {
-      await sendSMS(
-        candidateUser.phone,
-        smsTemplates.RIDE_REQUEST({
-          pickupStreet: `${ride.pickupLat}, ${ride.pickupLng}`,
-          fareEstimate: amountToCents(ride.fareEstimate)
-        }),
-        { template: 'ride_request_alert', userId: candidateUser.id }
-      );
-    } catch (error: any) {
-      logger.warn('Ride request SMS failed', { rideId: ride.id, driverId: candidate.driverId, error: error?.message });
+    if (candidateUser?.phone) {
+      try {
+        await sendSMS(
+          candidateUser.phone,
+          smsTemplates.RIDE_REQUEST({
+            pickupStreet: `${ride.pickupLat}, ${ride.pickupLng}`,
+            fareEstimate: amountToCents(ride.fareEstimate)
+          }),
+          { template: 'ride_request_alert', userId: candidateUser.id }
+        );
+      } catch (error: any) {
+        logger.warn('Ride request SMS failed', { rideId: ride.id, driverId: candidate.driverId, error: error?.message });
+      }
     }
->>>>>>> origin/main
   }
   if (dispatch.selected?.driverId && dispatch.candidates.length === 1) {
     const assigned = markDriverAssigned(dispatch.selected.driverId);
