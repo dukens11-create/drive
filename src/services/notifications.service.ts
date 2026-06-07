@@ -5,6 +5,7 @@
  */
 import {
   makeId,
+  markStoreDirty,
   store,
   timestamp,
   type DeviceToken,
@@ -54,10 +55,35 @@ function getActorId(body: any) {
   return body?.actor?.id || body?.userId;
 }
 
+function getHubUserId(body: any) {
+  const actorId = body?.actor?.id;
+  if (body?.actor?.role === 'admin' && body?.userId) return String(body.userId);
+  return actorId;
+}
+
 function normalizePushCategory(value: any): PushCategory {
   const raw = String(value || '').trim();
   if (PUSH_CATEGORIES.includes(raw as PushCategory)) return raw as PushCategory;
   return LEGACY_CATEGORY_MAP[raw] || 'system';
+}
+
+function normalizeHubCategory(value: any) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === 'rides' || normalized === 'payments' || normalized === 'support' || normalized === 'system'
+    ? normalized
+    : undefined;
+}
+
+function inferNotificationHubCategory(template: string, channel: NotificationChannel) {
+  const normalized = template.toLowerCase();
+  if (normalized.includes('support')) return 'support' as const;
+  if (normalized.includes('payment') || normalized.includes('receipt') || normalized.includes('earnings') || normalized.includes('payout')) {
+    return 'payments' as const;
+  }
+  if (channel === 'push' || normalized.includes('ride') || normalized.includes('trip') || normalized.includes('driver')) {
+    return 'rides' as const;
+  }
+  return 'system' as const;
 }
 
 function normalizeCategories(categories: any, fallback: string[]) {
@@ -193,6 +219,7 @@ async function recordAndSend(
     id: makeId('notif'),
     userId,
     channel,
+    category: inferNotificationHubCategory(template, channel),
     recipient,
     template,
     provider,
@@ -279,14 +306,112 @@ export async function sendRideStatusPush(deviceToken: string, status: string, ri
 export async function listNotificationLogs(body: any) {
   const userId = body?.userId;
   const channel = (body?.channel || body?.type) as NotificationChannel | undefined;
+  const category = normalizeHubCategory(body?.category);
   const limit = Math.min(Number(body?.limit || 50), 200);
 
   let logs = [...store.notificationLogs];
   if (userId) logs = logs.filter(l => l.userId === userId);
   if (channel) logs = logs.filter(l => l.channel === channel);
+  if (category) logs = logs.filter(l => (l.category || inferNotificationHubCategory(l.template, l.channel)) === category);
+  logs = logs.filter(l => !l.deletedAt);
   logs = logs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
 
   return { module: 'notifications', ok: true, total: logs.length, logs };
+}
+
+function shouldArchive(log: { createdAt: string; archivedAt?: string; deletedAt?: string }) {
+  if (log.archivedAt || log.deletedAt) return false;
+  return (Date.now() - new Date(log.createdAt).getTime()) >= (30 * 24 * 60 * 60 * 1000);
+}
+
+function normalizeHubLog(log: any) {
+  let mutated = false;
+  if (shouldArchive(log)) {
+    log.archivedAt = timestamp();
+    mutated = true;
+  }
+  if (!log.category) {
+    log.category = inferNotificationHubCategory(log.template, log.channel);
+    mutated = true;
+  }
+  if (mutated) markStoreDirty();
+  return {
+    ...log,
+    isRead: Boolean(log.readAt),
+    isArchived: Boolean(log.archivedAt)
+  };
+}
+
+export async function listNotificationHub(body: any) {
+  const userId = getHubUserId(body);
+  if (!userId) return { module: 'notifications', action: 'hub', error: 'userId required' };
+  const category = normalizeHubCategory(body?.category);
+  const limit = Math.min(Math.max(Number(body?.limit || 20), 1), 100);
+  const offset = Math.max(Number(body?.offset || 0), 0);
+
+  let notifications = store.notificationLogs.filter(log => log.userId === userId && !log.deletedAt);
+  if (category) notifications = notifications.filter(log => (log.category || inferNotificationHubCategory(log.template, log.channel)) === category);
+  notifications = notifications.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  return {
+    module: 'notifications',
+    action: 'hub',
+    ok: true,
+    total: notifications.length,
+    limit,
+    offset,
+    notifications: notifications.slice(offset, offset + limit).map(normalizeHubLog)
+  };
+}
+
+export async function markNotificationRead(body: any, params?: any) {
+  const userId = getHubUserId(body);
+  if (!userId) return { module: 'notifications', action: 'read', error: 'userId required' };
+  const notification = store.notificationLogs.find(log => log.id === params?.id && log.userId === userId && !log.deletedAt);
+  if (!notification) return { module: 'notifications', action: 'read', error: 'notification not found' };
+  notification.readAt = notification.readAt || timestamp();
+  markStoreDirty();
+  return { module: 'notifications', action: 'read', ok: true, notification: normalizeHubLog(notification) };
+}
+
+export async function markAllNotificationsRead(body: any) {
+  const userId = getHubUserId(body);
+  if (!userId) return { module: 'notifications', action: 'read-all', error: 'userId required' };
+  const category = normalizeHubCategory(body?.category);
+  let updatedCount = 0;
+  for (const notification of store.notificationLogs) {
+    if (notification.userId !== userId || notification.deletedAt) continue;
+    if (category && (notification.category || inferNotificationHubCategory(notification.template, notification.channel)) !== category) continue;
+    if (!notification.readAt) {
+      notification.readAt = timestamp();
+      updatedCount += 1;
+    }
+  }
+  if (updatedCount > 0) markStoreDirty();
+  return { module: 'notifications', action: 'read-all', ok: true, updatedCount };
+}
+
+export async function getUnreadNotificationCount(body: any) {
+  const userId = getHubUserId(body);
+  if (!userId) return { module: 'notifications', action: 'unread-count', error: 'userId required' };
+  const unreadCount = store.notificationLogs.filter(log => log.userId === userId && !log.deletedAt && !log.readAt).length;
+  return { module: 'notifications', action: 'unread-count', ok: true, unreadCount };
+}
+
+export async function deleteAllNotifications(body: any) {
+  const userId = getHubUserId(body);
+  if (!userId) return { module: 'notifications', action: 'delete-all', error: 'userId required' };
+  let deletedCount = 0;
+  const now = timestamp();
+  for (const notification of store.notificationLogs) {
+    if (notification.userId !== userId || notification.deletedAt) continue;
+    if ((Date.now() - new Date(notification.createdAt).getTime()) < (30 * 24 * 60 * 60 * 1000)) continue;
+    notification.archivedAt = notification.archivedAt || now;
+    notification.deletedAt = now;
+    deletedCount += 1;
+  }
+  if (deletedCount > 0) markStoreDirty();
+  return { module: 'notifications', action: 'delete-all', ok: true, deletedCount };
 }
 
 export async function getNotificationPreferences(body: any) {
