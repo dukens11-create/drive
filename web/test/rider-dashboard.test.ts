@@ -10,6 +10,10 @@ test('RiderDashboard renders the premium rider booking layout', () => {
   assert.match(markup, /Drive Rider/);
   assert.match(markup, /Rider dashboard/);
   assert.match(markup, /Book and track your ride/);
+  assert.match(markup, /Use current location/);
+  assert.match(markup, /Economy/);
+  assert.match(markup, /Comfort/);
+  assert.match(markup, /Premium/);
   assert.match(markup, /Role: RIDER/);
   assert.match(markup, /rider@example.com/);
   assert.match(markup, /39\.62084, -119\.67590/);
