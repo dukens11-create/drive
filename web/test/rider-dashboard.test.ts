@@ -1,10 +1,10 @@
-import assert from 'node:assert/strict';
 import test from 'node:test';
+import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { RiderDashboard } from '../components/dashboard/RiderDashboard';
+import { RiderDashboard } from '../src/components/dashboard/RiderDashboard';
 
-test('RiderDashboard renders the premium booking shell content', () => {
+test('RiderDashboard renders the premium rider booking layout', () => {
   const markup = renderToStaticMarkup(createElement(RiderDashboard));
 
   assert.match(markup, /Drive Rider/);
@@ -14,7 +14,13 @@ test('RiderDashboard renders the premium booking shell content', () => {
   assert.match(markup, /Economy/);
   assert.match(markup, /Comfort/);
   assert.match(markup, /Premium/);
+  assert.match(markup, /Role: RIDER/);
+  assert.match(markup, /rider@example.com/);
+  assert.match(markup, /39\.62084, -119\.67590/);
+  assert.match(markup, /sacramento/);
   assert.match(markup, /\$9\.89 • 3\.2 mi • 11 min/);
-  assert.match(markup, /We’re finding the best driver for you\./);
-  assert.match(markup, /Mapbox \/ OpenStreetMap/);
+  assert.match(markup, /Searching for driver/);
+  assert.match(markup, /Driver assigned/);
+  assert.match(markup, /Ride completed/);
+  assert.match(markup, /© OpenStreetMap contributors/);
 });

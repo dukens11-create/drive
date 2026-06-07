@@ -19,6 +19,7 @@ export { default as ridesRoutes } from './rides.routes';
 export { default as restaurantsRoutes } from './restaurants.routes';
 export { default as safetyRoutes } from './safety.routes';
 export { default as scheduledRoutes } from './scheduled.routes';
+export { default as searchRoutes } from './search.routes';
 export { default as subscriptionRoutes } from './subscription.routes';
 export { default as supportRoutes } from './support.routes';
 export { default as twofaRoutes } from './twofa.routes';

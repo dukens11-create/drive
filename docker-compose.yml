@@ -64,7 +64,7 @@ services:
       REDIS_URL: redis://redis:6379
       # Local development credentials — override with secrets management in production.
       DATABASE_URL: ******postgres:5432/drive_local
-    command: ['node', 'dist/worker.js']
+    command: ['node', 'dist/src/server.js']
     volumes:
       - drive_data:/app/.data
 

@@ -19,6 +19,7 @@ import {
   type RideRequestResponse,
   type VehicleType
 } from '../database/data.store';
+import { env } from '../config/env';
 import { markDriverAssigned, releaseDriverFromRide } from './drivers.service';
 import { sendRealtimePushEvent } from './notifications.service';
 import { sendEmail } from './email.service';
@@ -29,7 +30,7 @@ import { notificationTemplates } from '../utils/fcm-templates';
 import { getPricingForVehicleType } from '../utils/vehicle-pricing';
 import { emailTemplates } from '../utils/email-templates';
 import { smsTemplates } from '../utils/sms-templates';
-import { env } from '../config/env';
+
 
 const CURRENCY = 'USD';
 const DEFAULT_SERVICE_FEE_PERCENT = 0.12;
@@ -82,8 +83,8 @@ async function sendRideConfirmationEmail(ride: Ride) {
     carMake: driverProfile?.carMake || '',
     carModel: driverProfile?.carModel || '',
     licensePlate: driverProfile?.licensePlate || 'N/A',
-    pickupAddress: `${ride.pickupLat}, ${ride.pickupLng}`,
-    dropoffAddress: `${ride.dropoffLat}, ${ride.dropoffLng}`,
+    pickupAddress: ride.pickupAddress || `${ride.pickupLat}, ${ride.pickupLng}`,
+    dropoffAddress: ride.dropoffAddress || `${ride.dropoffLat}, ${ride.dropoffLng}`,
     eta: Math.max(1, Math.round(ride.minutes || 0)),
     fareEstimate: Math.round((ride.fareEstimate || 0) * 100),
     driverPhone: maskPhone(driverUser.phone),
@@ -470,8 +471,10 @@ export async function request(body: any, _params?: any, _query?: any) {
     riderId,
     pickupLat: body?.pickupLat,
     pickupLng: body?.pickupLng,
+    pickupAddress: typeof body?.pickupAddress === 'string' ? body.pickupAddress.trim() : undefined,
     dropoffLat: body?.dropoffLat,
     dropoffLng: body?.dropoffLng,
+    dropoffAddress: typeof body?.dropoffAddress === 'string' ? body.dropoffAddress.trim() : undefined,
     miles: estimated.route.distanceMiles,
     minutes: estimated.route.etaMinutes,
     fareEstimate: estimated.fareEstimate,
@@ -900,8 +903,8 @@ export async function complete(body: any, _params?: any, _query?: any) {
       riderName: riderUser.email?.split('@')[0] || 'Rider',
       driverName: driverUser?.email?.split('@')[0] || 'Driver',
       tripDate: new Date(completedAt).toLocaleDateString(),
-      pickupAddress: `${ride.pickupLat}, ${ride.pickupLng}`,
-      dropoffAddress: `${ride.dropoffLat}, ${ride.dropoffLng}`,
+      pickupAddress: ride.pickupAddress || `${ride.pickupLat}, ${ride.pickupLng}`,
+      dropoffAddress: ride.dropoffAddress || `${ride.dropoffLat}, ${ride.dropoffLng}`,
       duration: `${ride.minutes} min`,
       distance: `${ride.miles} miles`,
       baseFare: amountToCents(ride.fareDetails.baseFare),
@@ -929,8 +932,8 @@ export async function complete(body: any, _params?: any, _query?: any) {
     const driverTemplate = emailTemplates.DRIVER_EARNINGS({
       driverName: driverUser.email?.split('@')[0] || 'Driver',
       riderName: riderUser?.email?.split('@')[0] || 'Rider',
-      pickupAddress: `${ride.pickupLat}, ${ride.pickupLng}`,
-      dropoffAddress: `${ride.dropoffLat}, ${ride.dropoffLng}`,
+      pickupAddress: ride.pickupAddress || `${ride.pickupLat}, ${ride.pickupLng}`,
+      dropoffAddress: ride.dropoffAddress || `${ride.dropoffLat}, ${ride.dropoffLng}`,
       duration: `${ride.minutes} min`,
       distance: `${ride.miles} miles`,
       grossFare: amountToCents(ride.fareDetails.surgeFare),
@@ -965,6 +968,7 @@ export async function complete(body: any, _params?: any, _query?: any) {
 
   const riderProfile = store.riders.get(ride.riderId);
   if (riderProfile?.currentTripId === ride.id) riderProfile.currentTripId = undefined;
+
   publishRideRealtimeUpdate(ride, 'completed');
   if (ride.driverId) publishDriverRealtimeEarnings(ride.driverId);
   return { module: 'rides', action: 'complete', ok: true, ride: toRiderRideSummary(ride), grossCents, discountCents, amountCents, receipt: getRideReceipt(ride) };

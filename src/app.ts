@@ -6,7 +6,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import path from 'path';
 import { errorHandler, wrapRouterAsyncHandlers } from './middleware';
-import { authRoutes, ridesRoutes, driversRoutes, ridersRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes, restaurantsRoutes } from './routes';
+import { authRoutes, ridesRoutes, driversRoutes, ridersRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, searchRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes, restaurantsRoutes } from './routes';
 import { getErrorDetails, logger } from './utils';
 import { registerTrackingSocket, registerChatSocket } from './websocket';
 import { initializeFCM } from './services/fcm.service';
@@ -89,6 +89,7 @@ export function createApp() {
       marketplaceRoutes,
       adminRoutes,
       scheduledRoutes,
+      searchRoutes,
       subscriptionRoutes,
       loyaltyRoutes,
       corporateRoutes,
@@ -117,6 +118,7 @@ export function createApp() {
     app.use('/api/marketplace', marketplaceRoutes);
     app.use('/api/admin', adminRoutes);
     app.use('/api/scheduled', scheduledRoutes);
+    app.use('/api/search', searchRoutes);
     app.use('/api/subscriptions', subscriptionRoutes);
     app.use('/api/loyalty', loyaltyRoutes);
     app.use('/api/corporate', corporateRoutes);
