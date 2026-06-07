@@ -1,4 +1,4 @@
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
+import { createHash, randomBytes, randomInt, scryptSync, timingSafeEqual } from 'crypto';
 import jwt from 'jsonwebtoken';
 import {
   appendAuditLog,
@@ -152,7 +152,7 @@ export async function signup(body: any, _params?: any, _query?: any) {
 
   // Send account verification email if the user signed up with an email
   if (user.email) {
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const verificationCode = randomInt(100000, 1000000).toString();
     sendAccountVerificationEmail(
       user.email,
       {

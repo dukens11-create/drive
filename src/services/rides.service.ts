@@ -490,7 +490,11 @@ export async function request(body: any, _params?: any, _query?: any) {
       sendRideRequestSms(
         driverUser.phone,
         {
-          pickupStreet: typeof body?.pickupAddress === 'string' ? body.pickupAddress.split(',')[0] : 'your location',
+          pickupStreet: typeof body?.pickupAddress === 'string'
+            ? body.pickupAddress.split(',')[0]
+            : (ride.pickupLat != null && ride.pickupLng != null
+              ? `${ride.pickupLat.toFixed(4)}, ${ride.pickupLng.toFixed(4)}`
+              : 'your location'),
           fareEstimate: Math.round(ride.fareEstimate * 100)
         },
         candidate.driverId
