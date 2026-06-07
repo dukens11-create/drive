@@ -136,6 +136,7 @@ test('server stays running when an unhandled rejection happens after startup', a
       `server did not log the post-startup rejection warning\n${output}`
     );
 
+    assert.match(output, /Starting listen on localhost:/);
     assert.equal(child.exitCode, null, output);
   } finally {
     child.kill('SIGTERM');

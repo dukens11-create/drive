@@ -36,8 +36,9 @@ process.on('unhandledRejection', (reason) => {
     ...getErrorDetails(reason),
     isListening
   };
+  const hasStartupBegun = isListening || Boolean(closeServer);
 
-  if (isListening) {
+  if (hasStartupBegun) {
     logger.warn('unhandled rejection after startup; keeping server alive', details);
     return;
   }
@@ -48,12 +49,15 @@ process.on('unhandledRejection', (reason) => {
 
 try {
   const { httpServer } = createApp();
-  console.log('🔍 [APP CREATED] Starting listen on 0.0.0.0:' + env.port);
+  const host = 'localhost';
+  console.log(`🔍 [APP CREATED] Starting listen on ${host}:${env.port}`);
   closeServer = httpServer.close.bind(httpServer);
 
-  const server = httpServer.listen(env.port, '0.0.0.0', () => {
+  const server = httpServer.listen(env.port, host, () => {
+    isListening = true;
     console.log('🔍 [CALLBACK] Listen callback fired');
     logger.info('http server started', {
+      host,
       port: env.port,
       nodeEnv: env.nodeEnv,
       dataStoreMode: env.dataStoreMode,
@@ -80,10 +84,20 @@ try {
   server.on('error', (error: unknown) => {
     logger.error('http server error', {
       ...getErrorDetails(error),
+      host,
       port: env.port
     });
     console.error('🔍 [ERROR EVENT]', error);
     shutdownServer(exitProcess, closeServer);
+  });
+
+  server.on('clientError', (error, socket) => {
+    logger.warn('http client error', {
+      ...getErrorDetails(error)
+    });
+    if (socket.writable) {
+      socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+    }
   });
 
   console.log('🔍 [READY] Server initialization complete');
