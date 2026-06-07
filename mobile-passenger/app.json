@@ -76,7 +76,7 @@
       }
     },
     "extra": {
-      "apiBaseUrl": "http://localhost:3000",
+      "apiBaseUrl": "http://localhost:8080",
       "emergencyNumber": "911",
       "mapboxToken": "pk.eyJ1IjoiZmx1cGZsYXAiLCJhIjoiY21wMjI3M3dpMDN5eTJycHMyeG8yaDZ3OCJ9.VUXlzIoU5Gxfj6-BVjnxag",
       "firebase": {
