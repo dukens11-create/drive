@@ -33,6 +33,29 @@ function sanitizeUser(user: (User & { suspended?: boolean }) | undefined): SafeU
   return safe;
 }
 
+function setUserSuspensionState(user: User, suspend: boolean, options?: { reason?: unknown; durationDays?: unknown; actor?: AdminActor }) {
+  if (suspend) {
+    const durationDays = Number(options?.durationDays);
+    const suspendExpiresAt = Number.isFinite(durationDays) && durationDays > 0
+      ? new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString()
+      : undefined;
+    user.suspended = true;
+    user.suspendReason = typeof options?.reason === 'string' && options.reason.trim() ? options.reason.trim() : undefined;
+    user.suspendExpiresAt = suspendExpiresAt;
+    user.suspendedAt = timestamp();
+    user.suspendedBy = actorId(options?.actor);
+  } else {
+    user.suspended = false;
+    user.suspendReason = undefined;
+    user.suspendExpiresAt = undefined;
+    user.suspendedAt = undefined;
+    user.suspendedBy = undefined;
+  }
+  store.users.set(user.id, user);
+  markStoreDirty();
+  return user;
+}
+
 function sanitizeApiKey(apiKey: AdminApiKey) {
   const { keyHash, ...safe } = apiKey;
   return safe;
@@ -971,13 +994,72 @@ export async function suspend_user(body: any, _params?: any, _query?: any) {
   const user = store.users.get(body?.userId);
   if (!user) return { module: 'admin', action: 'suspend-user', error: 'user not found' };
   const suspend = body?.suspend !== false;
-  (user as any).suspended = suspend;
+  const actor = body?.__actor;
+  setUserSuspensionState(user, suspend, {
+    reason: body?.reason,
+    durationDays: body?.durationDays,
+    actor
+  });
+  if (actor) {
+    appendAuditLog(actor.sub || actor.id, actor.role, suspend ? 'user_suspended' : 'user_unsuspended', body.userId, 'user', {
+      suspend,
+      reason: user.suspendReason,
+      expiresAt: user.suspendExpiresAt
+    });
+  }
+  return {
+    module: 'admin',
+    action: 'suspend-user',
+    ok: true,
+    userId: body.userId,
+    suspended: suspend,
+    user: sanitizeUser(user)
+  };
+}
+
+export async function unsuspend_user(body: any, _params?: any, _query?: any) {
+  const result = await suspend_user({ ...body, suspend: false }, _params, _query) as any;
+  if (!result?.ok) return result;
+  return {
+    ...result,
+    action: 'unsuspend-user'
+  };
+}
+
+export async function verify_vehicle(body: any, _params?: any, _query?: any) {
+  const vehicle = store.vehicles.get(body?.vehicleId);
+  if (!vehicle) return { module: 'admin', action: 'verify-vehicle', error: 'vehicle not found' };
+  const approved = body?.approved !== false;
+  const driver = store.drivers.get(vehicle.driverId);
+  if (!driver) return { module: 'admin', action: 'verify-vehicle', error: 'driver not found' };
+
+  if (approved) {
+    const hasOtherActiveVehicle = Array.from(store.vehicles.values()).some(candidate =>
+      candidate.driverId === vehicle.driverId && candidate.vehicleId !== vehicle.vehicleId && candidate.status === 'active'
+    );
+    vehicle.status = hasOtherActiveVehicle ? 'inactive' : 'active';
+    if (!hasOtherActiveVehicle) {
+      driver.primaryVehicleId = vehicle.vehicleId;
+      store.drivers.set(driver.userId, driver);
+    }
+  } else {
+    vehicle.status = 'rejected';
+    if (driver.primaryVehicleId === vehicle.vehicleId) {
+      driver.primaryVehicleId = undefined;
+      store.drivers.set(driver.userId, driver);
+    }
+  }
+
+  store.vehicles.set(vehicle.vehicleId, vehicle);
   markStoreDirty();
   const actor = body?.__actor;
   if (actor) {
-    appendAuditLog(actor.sub || actor.id, actor.role, suspend ? 'user_suspended' : 'user_unsuspended', body.userId, 'user', { suspend });
+    appendAuditLog(actor.sub || actor.id, actor.role, 'vehicle_verified', vehicle.vehicleId, 'vehicle', {
+      approved,
+      notes: body?.notes
+    });
   }
-  return { module: 'admin', action: 'suspend-user', ok: true, userId: body.userId, suspended: suspend };
+  return { module: 'admin', action: 'verify-vehicle', ok: true, vehicle };
 }
 
 export async function update_ticket(body: any, _params?: any, _query?: any) {

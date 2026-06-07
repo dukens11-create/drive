@@ -1,4 +1,5 @@
 import * as service from '../services/drivers.service';
+import * as kycService from '../services/kyc.service';
 export function health(_req:any,res:any){res.json({module:'drivers',ok:true})}
 export async function register(req:any,res:any){res.json(await service.register(req.body, req.params, req.query));}
 export async function apply(req:any,res:any){res.json(await service.apply({ ...req.body, actor: req.user }, req.params, req.query));}
@@ -14,3 +15,6 @@ export async function nearby(req:any,res:any){res.json(await service.nearby({ ..
 export async function createVehicle(req:any,res:any){res.json(await service.createVehicle({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function listVehicles(req:any,res:any){res.json(await service.listVehicles({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function deleteVehicle(req:any,res:any){res.json(await service.deleteVehicle({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function setActiveVehicle(req:any,res:any){res.json(await service.setActiveVehicle({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function create_kyc_session(req:any,res:any){res.json(await kycService.create_session({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function kyc_status(req:any,res:any){res.json(await kycService.status({ ...req.body, actor: req.user }, req.params, req.query));}

@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
+import { checkSuspension } from './suspension.middleware';
 
 export function requireAuth(req: any, res: any, next: any) {
   const header = req.headers.authorization;
@@ -16,7 +17,7 @@ export function requireAuth(req: any, res: any, next: any) {
     }
 
     req.user = { id: payload.sub, role: payload.role, email: payload.email, phone: payload.phone };
-    next();
+    checkSuspension(req, res, next);
   } catch {
     res.status(401).json({ error: 'Invalid token' });
   }

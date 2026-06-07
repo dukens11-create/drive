@@ -65,6 +65,11 @@ export const env = {
   jwtSecret: getRequiredInProduction('JWT_SECRET', 'dev-local-secret'),
   adminSeedPassword: getRequiredInProduction('ADMIN_SEED_PASSWORD', 'FlupflapHaiti2025@'),
   stripeWebhookSecret: getString('STRIPE_WEBHOOK_SECRET'),
+  kycProvider: getString('KYC_PROVIDER', 'persona'),
+  kycProviderApiKey: getString('KYC_PROVIDER_API_KEY'),
+  kycProviderWebhookSecret: getString('KYC_PROVIDER_WEBHOOK_SECRET'),
+  kycTemplateId: getString('KYC_TEMPLATE_ID'),
+  kycProviderBaseUrl: getString('KYC_PROVIDER_BASE_URL', 'https://verify.drive.local'),
   dataStoreMode,
   dataStoreFile: getString('DATA_STORE_FILE', '.data/store.json'),
   // Twilio (SMS)

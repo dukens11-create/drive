@@ -207,6 +207,62 @@ test('POST /api/admin/suspend-user suspends and unsuspends a user', async () => 
   });
 });
 
+test('suspended users cannot log in or access authenticated endpoints until unsuspended', async () => {
+  await withServer(async baseUrl => {
+    const adminToken = await loginAdmin(baseUrl);
+    const email = `suspended-${randomUUID()}@example.com`;
+    const password = 'Password123!';
+    const signupRes = await fetch(`${baseUrl}/api/auth/signup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password, role: 'rider' })
+    });
+    const signupBody = await signupRes.json() as any;
+
+    const suspendRes = await fetch(`${baseUrl}/api/admin/suspend-user`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + adminToken },
+      body: JSON.stringify({ userId: signupBody.user.id, suspend: true, reason: 'fraud_review', durationDays: 2 })
+    });
+    const suspendBody = await suspendRes.json() as any;
+    assert.equal(suspendBody.ok, true);
+    assert.equal(suspendBody.user.suspendReason, 'fraud_review');
+
+    const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    assert.equal(loginRes.status, 200);
+    const loginBody = await loginRes.json() as any;
+    assert.equal(loginBody.error, 'account_suspended');
+
+    const protectedRes = await fetch(`${baseUrl}/api/rides/history`, {
+      headers: { authorization: 'Bearer ' + signupBody.accessToken }
+    });
+    assert.equal(protectedRes.status, 403);
+    const protectedBody = await protectedRes.json() as any;
+    assert.equal(protectedBody.error, 'account_suspended');
+
+    const unsuspendRes = await fetch(`${baseUrl}/api/admin/unsuspend-user`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + adminToken },
+      body: JSON.stringify({ userId: signupBody.user.id })
+    });
+    const unsuspendBody = await unsuspendRes.json() as any;
+    assert.equal(unsuspendBody.ok, true);
+    assert.equal(unsuspendBody.suspended, false);
+
+    const restoredLoginRes = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const restoredLoginBody = await restoredLoginRes.json() as any;
+    assert.equal(restoredLoginBody.ok, true);
+  });
+});
+
 test('POST /api/admin/suspend-user returns error for unknown user', async () => {
   await withServer(async baseUrl => {
     const adminToken = await loginAdmin(baseUrl);

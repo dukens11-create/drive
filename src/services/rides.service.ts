@@ -23,10 +23,8 @@ import { markDriverAssigned, releaseDriverFromRide } from './drivers.service';
 import { sendRealtimePushEvent } from './notifications.service';
 import { publishDriverRealtimeEarnings, publishRideRealtimeUpdate, publishRiderRatingSubmitted } from './realtime-dispatch.service';
 import { logger } from '../utils/logger';
+import { getPricingForVehicleType } from '../utils/vehicle-pricing';
 
-const BASE_FARE = 2.5;
-const DISTANCE_RATE = 1.9;
-const TIME_RATE = 0.25;
 const CURRENCY = 'USD';
 const DEFAULT_SERVICE_FEE_PERCENT = 0.12;
 const DEFAULT_WAIT_TIMEOUT_SECONDS = 5 * 60;
@@ -37,7 +35,7 @@ const MAX_FAVORITE_LOCATIONS = 10;
 
 function normalizeRequestedVehicleType(input: unknown): VehicleType | null {
   const normalized = String(input || '').trim().toLowerCase();
-  if (normalized === 'economy' || normalized === 'comfort' || normalized === 'premium') return normalized;
+  if (normalized === 'economy' || normalized === 'comfort' || normalized === 'premium' || normalized === 'xl') return normalized;
   return null;
 }
 
@@ -152,16 +150,18 @@ function buildFareDetails(
     tollsCents?: number;
     tipsCents?: number;
     serviceFeePercent?: number;
+    vehicleType?: VehicleType;
   }
 ) {
   const requestedSurgeMultiplier = Number(options?.surgeMultiplier || 1);
   const surgeMultiplier = requestedSurgeMultiplier >= 1 ? requestedSurgeMultiplier : 1;
   const serviceFeePercent = Number(options?.serviceFeePercent ?? DEFAULT_SERVICE_FEE_PERCENT);
-  const baseFare = BASE_FARE;
-  const distanceFare = roundToTwoDecimals(miles * DISTANCE_RATE);
-  const timeFare = roundToTwoDecimals(minutes * TIME_RATE);
+  const pricing = getPricingForVehicleType(options?.vehicleType);
+  const baseFare = pricing.minFare;
+  const distanceFare = roundToTwoDecimals(miles * pricing.distanceRate);
+  const timeFare = roundToTwoDecimals(minutes * pricing.timeRate);
   const meterFare = roundToTwoDecimals(Math.max(baseFare, distanceFare + timeFare));
-  const surgeFare = roundToTwoDecimals(meterFare * surgeMultiplier);
+  const surgeFare = roundToTwoDecimals(meterFare * surgeMultiplier * pricing.baseMultiplier);
   const serviceFee = roundToTwoDecimals(surgeFare * serviceFeePercent);
   const taxes = centsToAmount(Number(options?.taxesCents || 0));
   const tolls = centsToAmount(Number(options?.tollsCents || 0));
@@ -344,8 +344,10 @@ export async function estimate(body: any, _params?: any, _query?: any) {
     etaMinutes: minutes || undefined
   });
   const surgeMultiplier = getActiveSurgeMultiplier();
+  const requestedVehicleType = normalizeRequestedVehicleType(body?.vehicleType ?? body?.rideType ?? body?.vehiclePreference) || 'economy';
   const fare = buildFareDetails(route.distanceMiles, route.etaMinutes, {
-    surgeMultiplier
+    surgeMultiplier,
+    vehicleType: requestedVehicleType
   });
   const fareEstimate = fare.fareEstimate;
   const fareEstimateRange = fare.fareEstimateRange;
@@ -364,7 +366,8 @@ export async function estimate(body: any, _params?: any, _query?: any) {
       pickupLat: body?.pickupLat,
       pickupLng: body?.pickupLng,
       dropoffLat: body?.dropoffLat,
-      dropoffLng: body?.dropoffLng
+      dropoffLng: body?.dropoffLng,
+      vehicleType: requestedVehicleType
     }
   };
 }
@@ -418,7 +421,7 @@ export async function request(body: any, _params?: any, _query?: any) {
     miles: estimated.route.distanceMiles,
     minutes: estimated.route.etaMinutes,
     fareEstimate: estimated.fareEstimate,
-    vehicleType: requestedVehicleType || undefined,
+    vehicleType: requestedVehicleType || 'economy',
     surgeMultiplier: estimated.surgeMultiplier !== 1.0 ? estimated.surgeMultiplier : undefined,
     promoId,
     discountCents: discountCents > 0 ? discountCents : undefined,
@@ -726,7 +729,8 @@ export async function complete(body: any, _params?: any, _query?: any) {
     discountCents: ride.discountCents,
     taxesCents: Number(body?.taxesCents || 0),
     tollsCents: Number(body?.tollsCents || 0),
-    tipsCents: Number(body?.tipsCents || 0)
+    tipsCents: Number(body?.tipsCents || 0),
+    vehicleType: ride.vehicleType
   });
   ride.fareEstimate = ride.fareDetails.total;
   ride.paymentStatus = 'settled_internal';
