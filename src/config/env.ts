@@ -86,5 +86,8 @@ export const env = {
     'pk.eyJ1IjoiZmx1cGZsYXAiLCJhIjoiY21wMjI3M3dpMDN5eTJycHMyeG8yaDZ3OCJ9.VUXlzIoU5Gxfj6-BVjnxag'
   ),
   mapboxApiKey: getString('MAPBOX_API_KEY'),
+  // PostgreSQL database connection
+  databaseUrl: getString('DATABASE_URL'),
+  databasePoolMax: Number(getString('DATABASE_POOL_MAX', '10')),
   loadedEnvFilePath
 };
