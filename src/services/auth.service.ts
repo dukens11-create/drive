@@ -12,6 +12,8 @@ import {
 } from '../database/data.store';
 import { env } from '../config/env';
 import { validateTotpToken } from './twofa.service';
+import { sendEmail } from './email.service';
+import { emailTemplates } from '../utils/email-templates';
 
 function signAccessToken(user: { id: string; role: string; email?: string; phone?: string }) {
   return jwt.sign({ sub: user.id, role: user.role, email: user.email, phone: user.phone }, env.jwtSecret, {
@@ -148,7 +150,30 @@ export async function signup(body: any, _params?: any, _query?: any) {
     userAgent: body?.userAgent
   });
 
+  if (user.email) {
+    const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
+    const template = emailTemplates.ACCOUNT_VERIFICATION({
+      verificationCode,
+      verificationLink: `${env.appBaseUrl || 'https://app.drive.com'}/verify-email?code=${verificationCode}&userId=${user.id}`
+    });
+    await sendEmail(user.email, template.subject, template.html, { template: 'account_verification', userId: user.id });
+  }
+
   return { module: 'auth', action: 'signup', ok: true, user: sanitizeUser(user), accessToken, refreshToken };
+}
+
+export async function requestPasswordReset(body: any, _params?: any, _query?: any) {
+  const email = body?.email?.toLowerCase?.();
+  if (!email) return { module: 'auth', action: 'password-reset-request', error: 'email is required' };
+  const user = Array.from(store.users.values()).find(entry => entry.email === email);
+  if (!user) return { module: 'auth', action: 'password-reset-request', ok: true };
+
+  const resetToken = randomBytes(24).toString('hex');
+  const resetLink = `${env.appBaseUrl || 'https://app.drive.com'}/reset-password?token=${resetToken}`;
+  const template = emailTemplates.PASSWORD_RESET({ resetLink });
+  await sendEmail(email, template.subject, template.html, { template: 'password_reset', userId: user.id });
+  appendAuditLog(user.id, user.role, 'auth_password_reset_requested', user.id, 'user');
+  return { module: 'auth', action: 'password-reset-request', ok: true };
 }
 
 export async function login(body: any, _params?: any, _query?: any) {

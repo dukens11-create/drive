@@ -72,6 +72,15 @@ test('payment capture updates rider and driver wallet balances', async () => {
     assert.equal(captured.ok, true);
     assert.equal(captured.payment.status, 'captured');
 
+    const riderNotificationLogsRes = await fetch(`${baseUrl}/api/notifications/logs?type=email`, {
+      headers: {
+        authorization: 'Bearer ' + rider.token
+      }
+    });
+    const riderNotificationLogs = await riderNotificationLogsRes.json();
+    assert.equal(Array.isArray(riderNotificationLogs), true);
+    assert.equal(riderNotificationLogs.some((entry: any) => entry.template === 'payment_receipt'), true);
+
     const riderBalanceRes = await fetch(`${baseUrl}/api/wallet/balance`, {
       method: 'POST',
       headers: {
@@ -563,6 +572,15 @@ test('withdraw: deducts from wallet and creates payout request', async () => {
     assert.equal(historyPayload.ok, true);
     assert.equal(historyPayload.payouts.length, 1);
     assert.equal(historyPayload.payouts[0].amountCents, 2000);
+
+    const driverNotificationLogsRes = await fetch(`${baseUrl}/api/notifications/logs?type=email`, {
+      headers: {
+        authorization: 'Bearer ' + driver.token
+      }
+    });
+    const driverNotificationLogs = await driverNotificationLogsRes.json();
+    assert.equal(Array.isArray(driverNotificationLogs), true);
+    assert.equal(driverNotificationLogs.some((entry: any) => entry.template === 'driver_payout_confirmation'), true);
   });
 });
 

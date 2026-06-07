@@ -1,4 +1,5 @@
 import { getWalletBalanceCents, makeId, markStoreDirty, pushWalletTx, store, timestamp, type BankAccount, type BankAccountType, type PayoutRequest, type PayoutStatus } from '../database/data.store';
+import { sendPayoutConfirmation } from './drivers.service';
 
 const BANK_ACCOUNT_TYPES = new Set<BankAccountType>(['checking', 'savings']);
 const MIN_WITHDRAW_CENTS = 100;
@@ -195,6 +196,12 @@ export async function withdraw(body: any, _params?: any, _query?: any) {
 
   store.payoutRequests.set(payout.id, payout);
   markStoreDirty();
+  await sendPayoutConfirmation({
+    userId,
+    amountCents: payout.amountCents,
+    bankLast4: bankAccount.last4,
+    payoutId: payout.id
+  });
 
   return {
     module: 'wallet',
