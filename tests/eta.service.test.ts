@@ -63,7 +63,7 @@ test('estimateRoute uses cache for repeated mapbox coordinate requests', async (
 
 test('estimateRoute falls back when mapbox fetch fails', async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () => ({ ok: false })) as typeof fetch;
+  globalThis.fetch = (async () => ({ ok: false } as unknown as Response)) as typeof fetch;
 
   try {
     const route = await estimateRoute({

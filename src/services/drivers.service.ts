@@ -125,35 +125,35 @@ function parseLegacyDocument(input: string) {
   };
 }
 
+function normalizeVehicleType(value: unknown): VehicleType | null {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'economy' || normalized === 'comfort' || normalized === 'premium') return normalized;
+  return null;
+}
+
+function getDriverVehicles(driverId: string) {
+  return Array.from(store.vehicles.values())
+    .filter(vehicle => vehicle.driverId === driverId)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+function getActiveDriverVehicle(driverId: string) {
+  const profile = getProfile(driverId);
+  const driverVehicles = getDriverVehicles(driverId);
+  if (!driverVehicles.length) return null;
+  if (profile?.primaryVehicleId) {
+    const preferred = driverVehicles.find(vehicle => vehicle.vehicleId === profile.primaryVehicleId && vehicle.status === 'active');
+    if (preferred) return preferred;
+  }
+  return driverVehicles.find(vehicle => vehicle.status === 'active') || null;
+}
+
 function ensureVerificationData(profile: DriverProfile) {
   if (!Array.isArray(profile.vehicleIds)) {
     profile.vehicleIds = [];
   }
   if (!Array.isArray(profile.verificationDocuments)) {
     profile.verificationDocuments = [];
-  }
-
-  function normalizeVehicleType(value: unknown): VehicleType | null {
-    const normalized = String(value || '').trim().toLowerCase();
-    if (normalized === 'economy' || normalized === 'comfort' || normalized === 'premium') return normalized;
-    return null;
-  }
-
-  function getDriverVehicles(driverId: string) {
-    return Array.from(store.vehicles.values())
-      .filter(vehicle => vehicle.driverId === driverId)
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  }
-
-  function getActiveDriverVehicle(driverId: string) {
-    const profile = getProfile(driverId);
-    const driverVehicles = getDriverVehicles(driverId);
-    if (!driverVehicles.length) return null;
-    if (profile?.primaryVehicleId) {
-      const preferred = driverVehicles.find(vehicle => vehicle.vehicleId === profile.primaryVehicleId && vehicle.status === 'active');
-      if (preferred) return preferred;
-    }
-    return driverVehicles.find(vehicle => vehicle.status === 'active') || null;
   }
   if (!profile.selfieVerification) {
     profile.selfieVerification = {

@@ -54,6 +54,7 @@ function buildFallbackRoute(input: any) {
   const distanceMiles = Number(input?.distanceMiles ?? FALLBACK_DISTANCE_MILES);
   const etaMinutes = Number(input?.etaMinutes ?? Math.max(8, Math.round(distanceMiles * 3.5)));
   return {
+    cached: false,
     provider: 'mock_fallback',
     distanceMiles,
     etaMinutes,

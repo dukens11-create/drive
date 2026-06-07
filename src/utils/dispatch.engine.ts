@@ -42,11 +42,14 @@ export async function findNearbyDrivers(lat: number, lng: number) {
 
 export async function dispatchRide(ride: any) {
   const requestedVehicleType = typeof ride?.vehicleType === 'string' ? ride.vehicleType.trim().toLowerCase() : '';
-  const candidates = (await findNearbyDrivers(Number(ride.pickupLat), Number(ride.pickupLng)))
-    .filter(candidate => {
-      if (!requestedVehicleType) return true;
-      return candidate.vehicleType === requestedVehicleType;
-    });
+  const nearbyCandidates = await findNearbyDrivers(Number(ride.pickupLat), Number(ride.pickupLng));
+  let candidates = nearbyCandidates.filter(candidate => {
+    if (!requestedVehicleType) return true;
+    return candidate.vehicleType === requestedVehicleType;
+  });
+  if (requestedVehicleType && candidates.length === 0) {
+    candidates = nearbyCandidates.filter(candidate => !candidate.vehicleType || candidate.vehicleType === requestedVehicleType);
+  }
   const ranked = rankDrivers(candidates);
   return { rideId: ride.id, selected: ranked[0] || null, candidates: ranked };
 }
