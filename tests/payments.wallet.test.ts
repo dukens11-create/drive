@@ -56,6 +56,8 @@ test('payment capture updates rider and driver wallet balances', async () => {
     assert.equal(createIntentRes.status, 200);
     const created = await createIntentRes.json();
     assert.equal(created.ok, true);
+    assert.equal(typeof created.clientSecret, 'string');
+    assert.equal(typeof created.paymentIntentId, 'string');
     assert.equal(typeof created.paymentIntent.id, 'string');
     assert.equal(typeof created.paymentIntent.checkoutSessionId, 'string');
 
@@ -71,6 +73,15 @@ test('payment capture updates rider and driver wallet balances', async () => {
     const captured = await captureRes.json();
     assert.equal(captured.ok, true);
     assert.equal(captured.payment.status, 'captured');
+
+    const riderNotificationLogsRes = await fetch(`${baseUrl}/api/notifications/logs?type=email`, {
+      headers: {
+        authorization: 'Bearer ' + rider.token
+      }
+    });
+    const riderNotificationLogs = await riderNotificationLogsRes.json();
+    assert.equal(Array.isArray(riderNotificationLogs), true);
+    assert.equal(riderNotificationLogs.some((entry: any) => entry.template === 'payment_receipt'), true);
 
     const riderBalanceRes = await fetch(`${baseUrl}/api/wallet/balance`, {
       method: 'POST',
@@ -166,6 +177,23 @@ test('stripe webhook rejects invalid payloads', async () => {
     assert.equal(webhookRes.status, 200);
     const body = await webhookRes.json();
     assert.equal(body.error, 'invalid stripe event payload');
+  });
+});
+
+test('public stripe webhook endpoint rejects unsigned payloads when webhook secret is missing', async () => {
+  await withServer(async baseUrl => {
+    const webhookRes = await fetch(`${baseUrl}/api/webhooks/stripe`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'payment_method.attached',
+        data: { object: { id: 'pm_test_123' } }
+      })
+    });
+    assert.equal(webhookRes.status, 400);
+    const body = await webhookRes.json();
+    assert.equal(body.ok, false);
+    assert.match(body.error, /missing stripe webhook secret/);
   });
 });
 
@@ -563,6 +591,15 @@ test('withdraw: deducts from wallet and creates payout request', async () => {
     assert.equal(historyPayload.ok, true);
     assert.equal(historyPayload.payouts.length, 1);
     assert.equal(historyPayload.payouts[0].amountCents, 2000);
+
+    const driverNotificationLogsRes = await fetch(`${baseUrl}/api/notifications/logs?type=email`, {
+      headers: {
+        authorization: 'Bearer ' + driver.token
+      }
+    });
+    const driverNotificationLogs = await driverNotificationLogsRes.json();
+    assert.equal(Array.isArray(driverNotificationLogs), true);
+    assert.equal(driverNotificationLogs.some((entry: any) => entry.template === 'driver_payout_confirmation'), true);
   });
 });
 

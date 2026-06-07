@@ -3,6 +3,11 @@ import { sendRealtimePushEvent } from './notifications.service';
 import { sendSupportReplyEmail } from './email.service';
 import { sendSupportReplySms, sendSupportTicketCreatedSms } from './sms.service';
 import { logger } from '../utils/logger';
+import { sendEmail } from './email.service';
+import { sendSMS } from './sms.service';
+import { emailTemplates } from '../utils/email-templates';
+import { smsTemplates } from '../utils/sms-templates';
+import { env } from '../config/env';
 
 export async function create_ticket(body: any, _params?: any, _query?: any) {
   const ticket = {
@@ -76,6 +81,27 @@ export async function reply_ticket(body: any, _params?: any, _query?: any) {
     ticket.userId !== reply.authorId &&
     (reply.authorRole === 'admin' || reply.authorRole === 'support')
   ) {
+    const ticketUser = store.users.get(ticket.userId);
+    const ticketNumber = ticket.id.split('_').pop() || ticket.id;
+    if (ticketUser?.email) {
+      const supportReplyTemplate = emailTemplates.SUPPORT_REPLY({
+        ticketNumber,
+        status: ticket.status,
+        reply: reply.message,
+        ticketLink: `${env.appBaseUrl || 'https://app.drive.com'}/support/tickets/${ticket.id}`
+      });
+      await sendEmail(ticketUser.email, supportReplyTemplate.subject, supportReplyTemplate.html, { template: 'support_reply', userId: ticket.userId });
+    }
+    if (ticketUser?.phone && ticket.type === 'urgent') {
+      await sendSMS(
+        ticketUser.phone,
+        smsTemplates.SUPPORT_REPLY({
+          ticketNumber,
+          preview: reply.message
+        }),
+        { template: 'support_reply_urgent', userId: ticket.userId }
+      );
+    }
     try {
       await sendRealtimePushEvent({
         userId: ticket.userId,

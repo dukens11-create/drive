@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import * as controller from '../controllers/auth.controller';
 import { validateBody } from '../utils/validate';
-import { loginSchema, refreshSchema, revokeSessionSchema, signupSchema } from '../schemas/auth.schemas';
+import { loginSchema, passwordResetRequestSchema, refreshSchema, revokeSessionSchema, signupSchema } from '../schemas/auth.schemas';
 import { requireAuth } from '../middleware/auth.middleware';
 import { asyncHandler } from '../utils/async-handler';
 import { z } from 'zod';
@@ -27,5 +27,6 @@ router.post('/reset-password', validateBody(resetPasswordSchema), asyncHandler(c
 router.get('/sessions', requireAuth, asyncHandler(controller.sessions));
 router.get('/login-history', requireAuth, asyncHandler(controller.login_history));
 router.post('/revoke-session', requireAuth, validateBody(revokeSessionSchema), asyncHandler(controller.revoke_session));
+router.post('/password-reset/request', validateBody(passwordResetRequestSchema), asyncHandler(controller.password_reset_request));
 
 export default router;

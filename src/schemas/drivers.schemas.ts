@@ -40,9 +40,9 @@ export const vehicleCreateSchema = z.object({
   licensePlate: z.string().min(1),
   color: z.string().min(1),
   seats: z.number().int().min(1).max(12),
-  vehicleType: z.enum(['economy', 'comfort', 'premium']),
+  vehicleType: z.enum(['economy', 'comfort', 'premium', 'xl']),
   insuranceExpiry: z.string().min(1),
   registrationExpiry: z.string().min(1),
-  status: z.enum(['active', 'inactive', 'pending_verification']).optional(),
+  status: z.enum(['active', 'inactive', 'pending_verification', 'rejected']).optional(),
   verificationDocuments: z.array(z.string()).optional()
 }).passthrough();

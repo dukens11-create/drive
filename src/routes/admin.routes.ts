@@ -17,6 +17,8 @@ router.get('/stats', controller.platform_stats);
 router.get('/overview', controller.admin_overview);
 router.post('/list-users', validateBody(genericSchema), controller.list_users);
 router.post('/suspend-user', validateBody(genericSchema), controller.suspend_user);
+router.post('/unsuspend-user', validateBody(genericSchema), controller.unsuspend_user);
+router.post('/verify-vehicle', validateBody(genericSchema), controller.verify_vehicle);
 router.post('/update-ticket', validateBody(genericSchema), controller.update_ticket);
 router.post('/update-settings', validateBody(genericSchema), controller.update_settings);
 router.post('/upsert-promo', validateBody(genericSchema), controller.upsert_promo);
