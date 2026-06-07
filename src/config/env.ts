@@ -85,5 +85,6 @@ export const env = {
     'MAPBOX_PUBLIC_TOKEN',
     'pk.eyJ1IjoiZmx1cGZsYXAiLCJhIjoiY21wMjI3M3dpMDN5eTJycHMyeG8yaDZ3OCJ9.VUXlzIoU5Gxfj6-BVjnxag'
   ),
+  mapboxApiKey: getString('MAPBOX_API_KEY'),
   loadedEnvFilePath
 };

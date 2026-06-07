@@ -32,3 +32,17 @@ const driverDocumentSchema = z.object({
 export const documentsSchema = z.object({
   documents: z.array(z.union([z.string().min(1), driverDocumentSchema])).min(1)
 }).passthrough();
+
+export const vehicleCreateSchema = z.object({
+  make: z.string().min(1),
+  model: z.string().min(1),
+  year: z.number().int().min(1980).max(2100),
+  licensePlate: z.string().min(1),
+  color: z.string().min(1),
+  seats: z.number().int().min(1).max(12),
+  vehicleType: z.enum(['economy', 'comfort', 'premium']),
+  insuranceExpiry: z.string().min(1),
+  registrationExpiry: z.string().min(1),
+  status: z.enum(['active', 'inactive', 'pending_verification']).optional(),
+  verificationDocuments: z.array(z.string()).optional()
+}).passthrough();

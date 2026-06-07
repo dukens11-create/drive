@@ -16,7 +16,8 @@ import {
   type RideLifecycleState,
   type RiderProfile,
   type RideRequest,
-  type RideRequestResponse
+  type RideRequestResponse,
+  type VehicleType
 } from '../database/data.store';
 import { markDriverAssigned, releaseDriverFromRide } from './drivers.service';
 import { sendRealtimePushEvent } from './notifications.service';
@@ -33,6 +34,12 @@ const DEFAULT_CANCELLATION_FEE_CENTS = 400;
 const DEFAULT_NO_SHOW_FEE_CENTS = 500;
 const RIDE_REQUEST_EXPIRY_MS = 30_000;
 const MAX_FAVORITE_LOCATIONS = 10;
+
+function normalizeRequestedVehicleType(input: unknown): VehicleType | null {
+  const normalized = String(input || '').trim().toLowerCase();
+  if (normalized === 'economy' || normalized === 'comfort' || normalized === 'premium') return normalized;
+  return null;
+}
 
 async function pushRideNotification(userId: string | undefined, category: string, title: string, body: string, template: string) {
   if (!userId) return;
@@ -328,7 +335,14 @@ function canAccessRide(authenticatedUser: any, ride: Ride) {
 export async function estimate(body: any, _params?: any, _query?: any) {
   const miles = Number(body?.miles || body?.distanceMiles || 0);
   const minutes = Number(body?.minutes || body?.etaMinutes || 0);
-  const route = await estimateRoute({ distanceMiles: miles || undefined, etaMinutes: minutes || undefined });
+  const route = await estimateRoute({
+    pickupLat: body?.pickupLat,
+    pickupLng: body?.pickupLng,
+    dropoffLat: body?.dropoffLat,
+    dropoffLng: body?.dropoffLng,
+    distanceMiles: miles || undefined,
+    etaMinutes: minutes || undefined
+  });
   const surgeMultiplier = getActiveSurgeMultiplier();
   const fare = buildFareDetails(route.distanceMiles, route.etaMinutes, {
     surgeMultiplier
@@ -393,6 +407,7 @@ export async function request(body: any, _params?: any, _query?: any) {
   }
 
   const now = timestamp();
+  const requestedVehicleType = normalizeRequestedVehicleType(body?.vehicleType ?? body?.rideType ?? body?.vehiclePreference);
   const ride: Ride = {
     id: makeId('ride'),
     riderId,
@@ -403,6 +418,7 @@ export async function request(body: any, _params?: any, _query?: any) {
     miles: estimated.route.distanceMiles,
     minutes: estimated.route.etaMinutes,
     fareEstimate: estimated.fareEstimate,
+    vehicleType: requestedVehicleType || undefined,
     surgeMultiplier: estimated.surgeMultiplier !== 1.0 ? estimated.surgeMultiplier : undefined,
     promoId,
     discountCents: discountCents > 0 ? discountCents : undefined,
@@ -435,7 +451,12 @@ export async function request(body: any, _params?: any, _query?: any) {
       riderProfile.favoriteLocations = [{ label, lat: pickupLat, lng: pickupLng }, ...riderProfile.favoriteLocations].slice(0, MAX_FAVORITE_LOCATIONS);
     }
   }
-  const dispatch = await dispatchRide({ id: ride.id, pickupLat: ride.pickupLat, pickupLng: ride.pickupLng });
+  const dispatch = await dispatchRide({
+    id: ride.id,
+    pickupLat: ride.pickupLat,
+    pickupLng: ride.pickupLng,
+    vehicleType: ride.vehicleType
+  });
   const expiresAt = new Date(Date.now() + RIDE_REQUEST_EXPIRY_MS).toISOString();
   const rideRequest: RideRequest = {
     id: makeId('request'),
