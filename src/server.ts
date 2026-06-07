@@ -23,9 +23,9 @@ let isListening = false;
 let closeServer: ((callback: (error?: Error | null) => void) => void) | undefined;
 const exitProcess = process.exit.bind(process) as ExitFn;
 
-process.on('uncaughtException', (err) => {
+process.on('uncaughtException', (error) => {
   logger.error('uncaught exception', {
-    ...getErrorDetails(err),
+    ...getErrorDetails(error),
     isListening
   });
   shutdownServer(exitProcess, closeServer);
@@ -77,12 +77,12 @@ try {
     isListening = false;
   });
 
-  server.on('error', (err: any) => {
+  server.on('error', (error: unknown) => {
     logger.error('http server error', {
-      ...getErrorDetails(err),
+      ...getErrorDetails(error),
       port: env.port
     });
-    console.error('🔍 [ERROR EVENT]', err);
+    console.error('🔍 [ERROR EVENT]', error);
     shutdownServer(exitProcess, closeServer);
   });
 

@@ -15,6 +15,19 @@ function removeTempDir(dir: string) {
   rmSync(dir, { recursive: true, force: true });
 }
 
+function renderEnv(entries: Record<string, string>) {
+  return `${Object.entries(entries)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n')}\n`;
+}
+
+function writeEnvFile(dir: string, entries: Record<string, string>) {
+  writeFileSync(
+    path.join(dir, '.env'),
+    renderEnv(entries)
+  );
+}
+
 async function getFreePort() {
   const server = net.createServer();
   await new Promise<void>((resolve, reject) => {
@@ -42,7 +55,13 @@ async function waitFor(check: () => boolean, timeoutMs: number, message: string)
 test('config falls back to .env.example in development when .env is missing', () => {
   const tempDir = createTempDir('drive-env-fallback-');
   try {
-    writeFileSync(path.join(tempDir, '.env.example'), 'NODE_ENV=development\nPORT=9091\nLOG_LEVEL=warn\nJWT_SECRET=example-secret\nADMIN_SEED_PASSWORD=example-admin\n');
+    writeFileSync(path.join(tempDir, '.env.example'), renderEnv({
+      NODE_ENV: 'development',
+      PORT: '9091',
+      LOG_LEVEL: 'warn',
+      JWT_SECRET: 'example-secret',
+      ADMIN_SEED_PASSWORD: 'example-admin'
+    }));
     const childEnv = { ...process.env };
     delete childEnv.NODE_ENV;
     delete childEnv.PORT;
@@ -77,10 +96,13 @@ test('server stays running when an unhandled rejection happens after startup', a
   const hookPath = path.join(tempDir, 'trigger-rejection.cjs');
   const port = await getFreePort();
 
-  writeFileSync(
-    path.join(tempDir, '.env'),
-    `NODE_ENV=development\nPORT=${port}\nLOG_LEVEL=debug\nJWT_SECRET=test-secret\nADMIN_SEED_PASSWORD=test-admin-password\n`
-  );
+  writeEnvFile(tempDir, {
+    NODE_ENV: 'development',
+    PORT: String(port),
+    LOG_LEVEL: 'debug',
+    JWT_SECRET: 'test-secret',
+    ADMIN_SEED_PASSWORD: 'test-admin-password'
+  });
   writeFileSync(hookPath, "setTimeout(() => Promise.reject(new Error('post-startup rejection test')), 50);\n");
 
   const child = spawn(process.execPath, [path.join(process.cwd(), 'dist/src/server.js')], {
