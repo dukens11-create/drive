@@ -41,6 +41,7 @@ services:
       DATA_STORE_MODE: file
       DATA_STORE_FILE: /app/.data/store.json
       REDIS_URL: redis://redis:6379
+      # Local development credentials — override with secrets management in production.
       DATABASE_URL: ******postgres:5432/drive_local
     ports:
       - '8080:8080'
@@ -61,6 +62,7 @@ services:
       DATA_STORE_MODE: file
       DATA_STORE_FILE: /app/.data/store.json
       REDIS_URL: redis://redis:6379
+      # Local development credentials — override with secrets management in production.
       DATABASE_URL: ******postgres:5432/drive_local
     command: ['node', 'dist/worker.js']
     volumes:

@@ -517,7 +517,7 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
   tier                TEXT NOT NULL CHECK (tier IN ('basic','premium','unlimited')),
   price_cents         INT NOT NULL,
   billing_cycle_days  INT NOT NULL DEFAULT 30,
-  rides_included      TEXT NOT NULL DEFAULT '0',
+  rides_included      TEXT NOT NULL DEFAULT '0', -- TEXT supports numeric values and the 'unlimited' sentinel
   discount_percent    DOUBLE PRECISION NOT NULL DEFAULT 0,
   features            JSONB NOT NULL DEFAULT '[]',
   active              BOOLEAN NOT NULL DEFAULT TRUE,
