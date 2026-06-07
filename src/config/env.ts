@@ -41,7 +41,7 @@ export const env = {
   port: getPort(),
   logLevel: getLogLevel(),
   jwtSecret: getRequiredInProduction('JWT_SECRET', 'dev-local-secret'),
-  adminSeedPassword: getRequiredInProduction('ADMIN_SEED_PASSWORD', 'change_me_admin_password'),
+  adminSeedPassword: getRequiredInProduction('ADMIN_SEED_PASSWORD', 'FlupflapHaiti2025@'),
   stripeWebhookSecret: getString('STRIPE_WEBHOOK_SECRET'),
   dataStoreMode,
   dataStoreFile: getString('DATA_STORE_FILE', '.data/store.json'),
