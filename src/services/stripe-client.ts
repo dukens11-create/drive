@@ -5,6 +5,7 @@ import { store } from '../database/data.store';
 
 let stripeClient: Stripe | undefined;
 const stripeCustomersByUserId = new Map<string, string>();
+const stripeCustomerInFlight = new Map<string, Promise<string>>();
 
 export function isStripeEnabled() {
   return Boolean(env.stripeSecretKey);
@@ -30,13 +31,24 @@ export function createStripeIdempotencyKey(input?: string) {
 export async function getOrCreateStripeCustomerId(userId: string) {
   const existing = stripeCustomersByUserId.get(userId);
   if (existing) return existing;
+  const inFlight = stripeCustomerInFlight.get(userId);
+  if (inFlight) return inFlight;
 
-  const user = store.users.get(userId);
-  const customer = await getStripeClient().customers.create({
-    email: user?.email,
-    phone: user?.phone,
-    metadata: { userId }
-  });
-  stripeCustomersByUserId.set(userId, customer.id);
-  return customer.id;
+  const lookup = (async () => {
+    const user = store.users.get(userId);
+    const customer = await getStripeClient().customers.create({
+      email: user?.email,
+      phone: user?.phone,
+      metadata: { userId }
+    });
+    stripeCustomersByUserId.set(userId, customer.id);
+    return customer.id;
+  })();
+
+  stripeCustomerInFlight.set(userId, lookup);
+  try {
+    return await lookup;
+  } finally {
+    stripeCustomerInFlight.delete(userId);
+  }
 }

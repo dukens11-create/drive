@@ -4,6 +4,7 @@ import { makeId, markStoreDirty, store, timestamp, type Payment, type PaymentMet
 import { applyCaptureLedger, applyRefundLedger } from '../utils/payment.records';
 import { createStripeIdempotencyKey, getOrCreateStripeCustomerId, getStripeClient, isStripeEnabled } from './stripe-client';
 import { constructStripeEvent, getStripeSignatureHeader } from '../utils/stripe-signature';
+import { getErrorDetails, logger } from '../utils';
 
 const PAYMENT_METHOD_TYPES = new Set<PaymentMethodType>(['card', 'apple_pay', 'google_pay', 'paypal', 'bank_transfer', 'wallet']);
 
@@ -75,7 +76,7 @@ async function createStripeIntent(body: any, amountCents: number, paymentMethod?
     amount: amountCents,
     currency,
     customer: customerId,
-    payment_method: body?.paymentMethodId || paymentMethod?.token,
+    payment_method: body?.providerPaymentMethodId || body?.stripePaymentMethodId || paymentMethod?.token,
     payment_method_types: ['card'],
     metadata: {
       riderId: body?.riderId || '',
@@ -274,6 +275,7 @@ export async function refund(body: any, _params?: any, _query?: any) {
 
   const requestedAmountCents = body?.amountCents == null ? payment.amountCents : Number(body.amountCents);
   if (!requestedAmountCents || requestedAmountCents <= 0) return { module: 'payments', action: 'refund', error: 'amountCents must be positive' };
+  if (requestedAmountCents !== payment.amountCents) return { module: 'payments', action: 'refund', error: 'partial refunds are not supported' };
 
   const destination = body?.destination === 'original_payment_method' ? 'original_payment_method' : 'wallet';
 
@@ -290,11 +292,10 @@ export async function refund(body: any, _params?: any, _query?: any) {
         idempotencyKey: createStripeIdempotencyKey(body?.idempotencyKey)
       });
       payment.stripeRefundId = refundResult.id;
-    } catch {
+    } catch (error) {
+      logger.error('stripe refund failed', getErrorDetails(error));
       return { module: 'payments', action: 'refund', ok: false, error: 'stripe_unavailable', message: 'Payment processing unavailable. Try again later.' };
     }
-  } else if (requestedAmountCents !== payment.amountCents) {
-    return { module: 'payments', action: 'refund', error: 'partial refunds are not supported' };
   }
 
   payment.status = 'refunded';
@@ -344,7 +345,8 @@ export async function save_method(body: any, _params?: any, _query?: any) {
           });
         }
       }
-    } catch {
+    } catch (error) {
+      logger.error('stripe save method failed', getErrorDetails(error));
       return { module: 'payments', action: 'save-method', ok: false, error: 'stripe_unavailable', message: 'Payment processing unavailable. Try again later.' };
     }
   }
@@ -384,6 +386,7 @@ export async function list_methods(body: any, _params?: any, _query?: any) {
       });
 
       const methods = stripeMethods.data.map(method => ({
+        createdAt: method.created ? new Date(method.created * 1000).toISOString() : timestamp(),
         id: method.id,
         userId,
         type: 'card' as const,
@@ -395,11 +398,11 @@ export async function list_methods(body: any, _params?: any, _query?: any) {
         expiryYear: method.card?.exp_year,
         token: method.id,
         isDefault: defaultPaymentMethodId === method.id,
-        createdAt: timestamp(),
         updatedAt: timestamp()
       }));
       return { module: 'payments', action: 'list-methods', ok: true, userId, methods };
-    } catch {
+    } catch (error) {
+      logger.error('stripe list methods failed', getErrorDetails(error));
       return { module: 'payments', action: 'list-methods', ok: false, error: 'stripe_unavailable', message: 'Payment processing unavailable. Try again later.' };
     }
   }
@@ -426,7 +429,8 @@ export async function set_default_method(body: any, _params?: any, _query?: any)
           default_payment_method: paymentMethod.token
         }
       });
-    } catch {
+    } catch (error) {
+      logger.error('stripe set default method failed', getErrorDetails(error));
       return { module: 'payments', action: 'set-default-method', ok: false, error: 'stripe_unavailable', message: 'Payment processing unavailable. Try again later.' };
     }
   }
@@ -451,7 +455,8 @@ export async function remove_method(body: any, _params?: any, _query?: any) {
   if (isStripeEnabled() && paymentMethod.token) {
     try {
       await getStripeClient().paymentMethods.detach(paymentMethod.token);
-    } catch {
+    } catch (error) {
+      logger.error('stripe remove method failed', getErrorDetails(error));
       return { module: 'payments', action: 'remove-method', ok: false, error: 'stripe_unavailable', message: 'Payment processing unavailable. Try again later.' };
     }
   }
@@ -509,7 +514,7 @@ export async function list_refunds(body: any, _params?: any, _query?: any) {
   return { module: 'payments', action: 'list-refunds', ok: true, refunds };
 }
 
-export async function stripe_webhook(body: any, _params?: any, _query?: any, headers?: any) {
+export async function stripe_webhook(body: any, _params?: any, _query?: any, headers?: any, rawBody?: string | Buffer) {
   const eventPayload = body?.event || body;
   if (!eventPayload || typeof eventPayload?.type !== 'string') {
     return { module: 'payments', action: 'stripe-webhook', error: 'invalid stripe event payload' };
@@ -518,9 +523,17 @@ export async function stripe_webhook(body: any, _params?: any, _query?: any, hea
   if (env.stripeWebhookSecret) {
     try {
       const signature = getStripeSignatureHeader(headers);
-      const rawPayload = Buffer.from(JSON.stringify(eventPayload));
+      const rawPayload = Buffer.isBuffer(rawBody)
+        ? rawBody
+        : typeof rawBody === 'string'
+          ? Buffer.from(rawBody, 'utf8')
+          : undefined;
+      if (!rawPayload) {
+        return { module: 'payments', action: 'stripe-webhook', error: 'raw webhook body required' };
+      }
       constructStripeEvent(rawPayload, signature, env.stripeWebhookSecret);
-    } catch {
+    } catch (error) {
+      logger.error('stripe webhook verification failed', getErrorDetails(error));
       return { module: 'payments', action: 'stripe-webhook', error: 'invalid stripe signature' };
     }
   }

@@ -171,7 +171,7 @@ test('stripe webhook rejects invalid payloads', async () => {
   });
 });
 
-test('public stripe webhook endpoint accepts valid event payloads without auth', async () => {
+test('public stripe webhook endpoint rejects unsigned payloads when webhook secret is missing', async () => {
   await withServer(async baseUrl => {
     const webhookRes = await fetch(`${baseUrl}/api/webhooks/stripe`, {
       method: 'POST',
@@ -181,10 +181,10 @@ test('public stripe webhook endpoint accepts valid event payloads without auth',
         data: { object: { id: 'pm_test_123' } }
       })
     });
-    assert.equal(webhookRes.status, 200);
+    assert.equal(webhookRes.status, 400);
     const body = await webhookRes.json();
-    assert.equal(body.ok, true);
-    assert.equal(body.result.action, 'payment_method_attached');
+    assert.equal(body.ok, false);
+    assert.match(body.error, /missing stripe webhook secret/);
   });
 });
 

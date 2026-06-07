@@ -60,14 +60,22 @@ function getStripeConfig() {
   const secretKey = getString('STRIPE_SECRET_KEY');
   const publishableKey = getString('STRIPE_PUBLISHABLE_KEY');
   const webhookSecret = getString('STRIPE_WEBHOOK_SECRET');
-  const hasAnyStripeKey = Boolean(secretKey || publishableKey || webhookSecret);
 
-  if (hasAnyStripeKey && (!secretKey || !publishableKey || !webhookSecret)) {
-    throw new Error('STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET must be set together');
+  if (Boolean(secretKey) !== Boolean(publishableKey)) {
+    const missing = [
+      !secretKey ? 'STRIPE_SECRET_KEY' : '',
+      !publishableKey ? 'STRIPE_PUBLISHABLE_KEY' : ''
+    ].filter(Boolean);
+    throw new Error(`Missing Stripe keys: ${missing.join(', ')}`);
   }
 
-  if (process.env.NODE_ENV === 'production' && !hasAnyStripeKey) {
-    throw new Error('Stripe keys are required in production');
+  if (process.env.NODE_ENV === 'production' && (!secretKey || !publishableKey || !webhookSecret)) {
+    const missing = [
+      !secretKey ? 'STRIPE_SECRET_KEY' : '',
+      !publishableKey ? 'STRIPE_PUBLISHABLE_KEY' : '',
+      !webhookSecret ? 'STRIPE_WEBHOOK_SECRET' : ''
+    ].filter(Boolean);
+    throw new Error(`Missing Stripe keys: ${missing.join(', ')}`);
   }
 
   return { secretKey, publishableKey, webhookSecret };

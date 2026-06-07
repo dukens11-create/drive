@@ -6,7 +6,6 @@ import { requireAuth } from '../middleware/auth.middleware';
 const router = Router();
 router.get('/health', controller.health);
 router.post('/stripe-webhook', controller.stripe_webhook);
-router.post('/webhooks/stripe', controller.stripe_webhook);
 router.use(requireAuth);
 router.post('/create-intent', validateBody(genericSchema), controller.create_intent);
 router.post('/capture', validateBody(genericSchema), controller.capture);

@@ -10,9 +10,7 @@ export function getStripeSignatureHeader(headers?: IncomingHttpHeaders | Record<
 
 export function constructStripeEvent(payload: Buffer | string, signature?: string, webhookSecret?: string) {
   const rawPayload = Buffer.isBuffer(payload) ? payload : Buffer.from(payload, 'utf8');
-  if (!webhookSecret) {
-    return JSON.parse(rawPayload.toString('utf8'));
-  }
+  if (!webhookSecret) throw new Error('missing stripe webhook secret');
   if (!signature) throw new Error('missing stripe signature');
   if (!isStripeEnabled()) throw new Error('stripe secret key is missing');
   return getStripeClient().webhooks.constructEvent(rawPayload, signature, webhookSecret);
