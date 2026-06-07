@@ -515,7 +515,7 @@ test('chat: sending a message triggers push notification for recipients', async 
 
     const logs = await get(baseUrl, '/api/notifications/logs', recipient.token);
     assert.equal(logs.status, 200);
-    assert.equal(logs.body.some((entry: any) => entry.template === 'chat_message' && entry.status === 'sent'), true);
+    assert.ok(logs.body.some((entry: any) => entry.template === 'chat_message' && entry.status === 'sent'));
   });
 });
 

@@ -32,9 +32,20 @@ function normalizeDataPayload(data: any) {
   if (!data || typeof data !== 'object') return undefined;
   const entries = Object.entries(data)
     .filter((entry): entry is [string, unknown] => Boolean(entry[0]))
-    .map(([key, value]) => [key, String(value ?? '')] as const);
+    .map(([key, value]) => {
+      if (value == null) return [key, ''] as const;
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        return [key, String(value)] as const;
+      }
+      return [key, JSON.stringify(value)] as const;
+    });
   if (entries.length === 0) return undefined;
   return Object.fromEntries(entries);
+}
+
+function normalizeDeviceTopics(topics: any) {
+  if (Array.isArray(topics) && topics.length > 0) return Array.from(new Set(topics.map((topic: any) => String(topic).trim()).filter(Boolean)));
+  return [...DEFAULT_DEVICE_TOPICS];
 }
 
 function getActorId(body: any) {
@@ -377,7 +388,7 @@ export async function registerDeviceToken(body: any) {
       userId,
       token,
       platform: body?.platform === 'ios' || body?.platform === 'android' ? body.platform : 'web',
-      topics: Array.isArray(body?.topics) && body.topics.length > 0 ? Array.from(new Set(body.topics)) : [...DEFAULT_DEVICE_TOPICS],
+      topics: normalizeDeviceTopics(body?.topics),
       lastSeenAt: timestamp(),
       createdAt: timestamp(),
       updatedAt: timestamp()
@@ -385,7 +396,7 @@ export async function registerDeviceToken(body: any) {
     store.deviceTokens.push(deviceToken);
   } else {
     deviceToken.platform = body?.platform || deviceToken.platform;
-    deviceToken.topics = Array.isArray(body?.topics) && body.topics.length > 0 ? Array.from(new Set(body.topics)) : deviceToken.topics;
+    deviceToken.topics = body?.topics ? normalizeDeviceTopics(body?.topics) : deviceToken.topics;
     deviceToken.lastSeenAt = timestamp();
     deviceToken.updatedAt = timestamp();
   }
@@ -417,6 +428,9 @@ export async function unregisterDeviceToken(body: any, params?: any) {
   if (!userId) return { module: 'notifications', action: 'unregister-device-token', error: 'userId required' };
   const deviceTokenId = params?.deviceTokenId || body?.deviceTokenId;
   const token = typeof body?.token === 'string' ? body.token.trim() : '';
+  if (!deviceTokenId && !token) {
+    return { module: 'notifications', action: 'unregister-device-token', error: 'deviceTokenId or token required' };
+  }
   const index = store.deviceTokens.findIndex(entry =>
     entry.userId === userId && ((deviceTokenId && entry.id === deviceTokenId) || (token && entry.token === token))
   );

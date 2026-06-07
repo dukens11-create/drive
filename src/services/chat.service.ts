@@ -14,6 +14,7 @@ import {
 import { isSupportedLocale, SUPPORTED_LOCALES } from '../i18n';
 import { sendRealtimePushEvent } from './notifications.service';
 import { notificationTemplates } from '../utils/fcm-templates';
+import { logger } from '../utils/logger';
 
 const typingState = new Map<string, Map<string, string>>();
 
@@ -185,7 +186,8 @@ export async function sendMessage(body: any, params?: any) {
         template: 'chat_message',
         data: chatTemplate.data
       });
-    } catch {
+    } catch (error: any) {
+      logger.warn('Chat push notification failed', { recipientId, conversationId, messageId: message.id, error: error?.message });
     }
   }
 

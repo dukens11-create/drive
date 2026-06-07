@@ -10,14 +10,18 @@ function canUseFirebaseAdmin() {
 
 export function initializeFCM() {
   if (initialized || !canUseFirebaseAdmin()) return;
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: env.fcmProjectId,
-      privateKey: env.fcmPrivateKey?.replace(/\\n/g, '\n'),
-      clientEmail: env.fcmClientEmail
-    })
-  });
-  initialized = true;
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: env.fcmProjectId,
+        privateKey: env.fcmPrivateKey?.replace(/\\n/g, '\n'),
+        clientEmail: env.fcmClientEmail
+      })
+    });
+    initialized = true;
+  } catch (error: any) {
+    logger.warn('FCM initialization failed', { error: error?.message });
+  }
 }
 
 type FCMMessage = {
