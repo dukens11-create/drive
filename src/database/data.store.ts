@@ -1156,7 +1156,9 @@ export const store = {
   bankAccounts: new PersistentMap<string, BankAccount>(),
   payoutRequests: new PersistentMap<string, PayoutRequest>(),
   locationHistory: createPersistentArray<DriverLocationPoint>(),
-  dispatchEvents: createPersistentArray<DispatchEvent>()
+  dispatchEvents: createPersistentArray<DispatchEvent>(),
+  // Ephemeral store – not persisted (tokens expire in 1 hour)
+  passwordResetTokens: new Map<string, { userId: string; expiresAt: string }>()
 };
 
 function toSerializableStore(): PersistedStore {
