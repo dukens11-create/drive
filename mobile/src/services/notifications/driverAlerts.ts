@@ -12,7 +12,7 @@ type DriverAlertKind =
   | 'rider-no-show'
   | 'trip-canceled';
 
-const driverAlertSound = require('../../../assets/sounds/incoming-request.wav');
+const driverAlertSound = require('../../../assets/sounds/incoming_request.wav');
 
 const foregroundSounds: Record<DriverAlertKind, number | null> = {
   'incoming-request': driverAlertSound,
@@ -34,8 +34,8 @@ const vibrationPatterns: Record<DriverAlertKind, number[] | number> = {
   'trip-canceled': [0, 200, 100, 200],
 };
 
-const notificationSounds: Record<DriverAlertKind, 'default' | 'incoming-request.wav'> = {
-  'incoming-request': 'incoming-request.wav',
+const notificationSounds: Record<DriverAlertKind, 'default' | 'incoming_request.wav'> = {
+  'incoming-request': 'incoming_request.wav',
   accepted: 'default',
   'driver-arrived': 'default',
   'trip-started': 'default',
@@ -92,7 +92,7 @@ export const configureDriverAlerts = async () => {
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 300, 150, 300],
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-      sound: 'incoming-request.wav',
+      sound: 'incoming_request.wav',
     });
   }
 };
