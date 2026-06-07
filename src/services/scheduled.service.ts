@@ -6,6 +6,7 @@ import {
   type ScheduledRide,
   type ScheduledRideStatus
 } from '../database/data.store';
+import { runScheduledRidesDispatcher } from '../jobs/scheduled-rides-dispatcher';
 
 function getUserId(body: any) {
   return body?.actor?.id || body?.riderId || body?.userId;
@@ -37,6 +38,7 @@ export async function bookScheduledRide(body: any) {
     dropoffAddress: body?.dropoffAddress,
     scheduledAt,
     status: 'scheduled',
+    dispatch_attempts: 0,
     createdAt: timestamp(),
     updatedAt: timestamp()
   };
@@ -93,21 +95,5 @@ export async function getScheduledRide(body: any, params?: any) {
 
 /** Called by a background worker or cron to dispatch due scheduled rides. */
 export async function dispatchDueScheduledRides() {
-  const now = Date.now();
-  const dispatchWindowMs = 10 * 60 * 1000; // dispatch rides due within 10 minutes
-  let dispatched = 0;
-
-  for (const ride of store.scheduledRides.values()) {
-    if (ride.status !== 'scheduled') continue;
-    const scheduledTime = new Date(ride.scheduledAt).getTime();
-    if (scheduledTime - now <= dispatchWindowMs) {
-      ride.status = 'dispatched';
-      ride.updatedAt = timestamp();
-      store.scheduledRides.set(ride.id, ride);
-      dispatched++;
-    }
-  }
-
-  if (dispatched > 0) markStoreDirty();
-  return { dispatched };
+  return runScheduledRidesDispatcher();
 }
