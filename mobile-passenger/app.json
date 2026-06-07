@@ -19,7 +19,7 @@
         "expo-notifications",
         {
           "sounds": [
-            "./assets/sounds/incoming_request.wav"
+            "./assets/sounds/incoming_request_sound.wav"
           ]
         }
       ],

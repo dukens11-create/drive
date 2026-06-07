@@ -5,7 +5,7 @@ import { AppState, Platform, Vibration } from 'react-native';
 
 type DriverAlertKind = 'incoming-request' | 'accepted' | 'trip-started' | 'trip-ended';
 
-const driverAlertSound = require('../../../assets/sounds/incoming-request.wav');
+const driverAlertSound = require('../../../assets/sounds/incoming_request_sound.wav');
 
 const foregroundSounds: Record<DriverAlertKind, number | null> = {
   'incoming-request': driverAlertSound,
@@ -21,8 +21,8 @@ const vibrationPatterns: Record<DriverAlertKind, number[] | number> = {
   'trip-ended': [0, 180, 60, 180, 60, 180],
 };
 
-const notificationSounds: Record<DriverAlertKind, 'default' | 'incoming-request.wav'> = {
-  'incoming-request': 'incoming-request.wav',
+const notificationSounds: Record<DriverAlertKind, 'default' | 'incoming_request_sound.wav'> = {
+  'incoming-request': 'incoming_request_sound.wav',
   accepted: 'default',
   'trip-started': 'default',
   'trip-ended': 'default',
@@ -76,7 +76,7 @@ export const configureDriverAlerts = async () => {
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 300, 150, 300],
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-      sound: 'incoming-request.wav',
+      sound: 'incoming_request_sound.wav',
     });
   }
 };
