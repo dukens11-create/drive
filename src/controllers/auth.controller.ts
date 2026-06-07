@@ -13,3 +13,4 @@ export async function logout(req:any,res:any){res.json(await service.logout({ ..
 export async function sessions(req:any,res:any){res.json(await service.listSessions({ actor: req.user }, req.params, req.query));}
 export async function login_history(req:any,res:any){res.json(await service.loginHistory({ actor: req.user }, req.params, req.query));}
 export async function revoke_session(req:any,res:any){res.json(await service.revokeSession({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function password_reset_request(req:any,res:any){res.json(await service.requestPasswordReset(req.body, req.params, req.query));}

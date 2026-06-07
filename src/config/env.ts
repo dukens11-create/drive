@@ -56,7 +56,33 @@ function getLogLevel() {
   throw new Error('LOG_LEVEL must be one of debug, info, warn, error');
 }
 
+function getStripeConfig() {
+  const secretKey = getString('STRIPE_SECRET_KEY');
+  const publishableKey = getString('STRIPE_PUBLISHABLE_KEY');
+  const webhookSecret = getString('STRIPE_WEBHOOK_SECRET');
+
+  if (Boolean(secretKey) !== Boolean(publishableKey)) {
+    const missing = [
+      !secretKey ? 'STRIPE_SECRET_KEY' : '',
+      !publishableKey ? 'STRIPE_PUBLISHABLE_KEY' : ''
+    ].filter(Boolean);
+    throw new Error(`Missing Stripe keys: ${missing.join(', ')}`);
+  }
+
+  if (process.env.NODE_ENV === 'production' && (!secretKey || !publishableKey || !webhookSecret)) {
+    const missing = [
+      !secretKey ? 'STRIPE_SECRET_KEY' : '',
+      !publishableKey ? 'STRIPE_PUBLISHABLE_KEY' : '',
+      !webhookSecret ? 'STRIPE_WEBHOOK_SECRET' : ''
+    ].filter(Boolean);
+    throw new Error(`Missing Stripe keys: ${missing.join(', ')}`);
+  }
+
+  return { secretKey, publishableKey, webhookSecret };
+}
+
 const dataStoreMode = getString('DATA_STORE_MODE', 'memory') === 'file' ? 'file' : 'memory';
+const stripe = getStripeConfig();
 
 export const env = {
   nodeEnv: getString('NODE_ENV', 'development'),
@@ -64,21 +90,29 @@ export const env = {
   logLevel: getLogLevel(),
   jwtSecret: getRequiredInProduction('JWT_SECRET', 'dev-local-secret'),
   adminSeedPassword: getRequiredInProduction('ADMIN_SEED_PASSWORD', 'FlupflapHaiti2025@'),
+<<<<<<< HEAD
   stripeWebhookSecret: getString('STRIPE_WEBHOOK_SECRET'),
   kycProvider: getString('KYC_PROVIDER', 'persona'),
   kycProviderApiKey: getString('KYC_PROVIDER_API_KEY'),
   kycProviderWebhookSecret: getString('KYC_PROVIDER_WEBHOOK_SECRET'),
   kycTemplateId: getString('KYC_TEMPLATE_ID'),
   kycProviderBaseUrl: getString('KYC_PROVIDER_BASE_URL', 'https://verify.drive.local'),
+=======
+  stripeSecretKey: stripe.secretKey,
+  stripePublishableKey: stripe.publishableKey,
+  stripeWebhookSecret: stripe.webhookSecret,
+>>>>>>> origin/main
   dataStoreMode,
   dataStoreFile: getString('DATA_STORE_FILE', '.data/store.json'),
   // Twilio (SMS)
   twilioAccountSid: getString('TWILIO_ACCOUNT_SID'),
   twilioAuthToken: getString('TWILIO_AUTH_TOKEN'),
-  twilioFromNumber: getString('TWILIO_FROM_NUMBER'),
+  twilioPhoneNumber: getString('TWILIO_PHONE_NUMBER', getString('TWILIO_FROM_NUMBER')),
+  twilioFromNumber: getString('TWILIO_FROM_NUMBER', getString('TWILIO_PHONE_NUMBER')),
   // SendGrid (email)
   sendGridApiKey: getString('SENDGRID_API_KEY'),
   sendGridFromEmail: getString('SENDGRID_FROM_EMAIL'),
+  sendGridFromName: getString('SENDGRID_FROM_NAME', 'Drive App'),
   // Firebase Cloud Messaging (push notifications)
   fcmServerKey: getString('FCM_SERVER_KEY'),
   // App base URL for links in emails
