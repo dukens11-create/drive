@@ -6,7 +6,7 @@ type ExitFn = (code: number) => never;
 
 function shutdownServer(exit: ExitFn, close?: (callback: (error?: Error | null) => void) => void) {
   if (!close) {
-    exit(1);
+    return exit(1);
   }
 
   close(error => {
@@ -65,10 +65,11 @@ try {
     isListening = true;
     const addr = server.address();
     console.log('🔍 [LISTENING EVENT] Server is listening:', addr);
+    const addressDetails = typeof addr === 'string'
+      ? { address: addr }
+      : { address: addr?.address, family: addr?.family, port: addr?.port };
     logger.info('http server listening', {
-      address: typeof addr === 'string' ? addr : addr?.address,
-      family: typeof addr === 'string' ? undefined : addr?.family,
-      port: typeof addr === 'string' ? undefined : addr?.port
+      ...addressDetails
     });
   });
 

@@ -16,6 +16,8 @@ function loadEnvFile() {
     return exampleEnvPath;
   }
 
+  // Load with the explicit `.env` path even when it is absent so dotenv keeps
+  // the runtime behavior predictable and any real values still come from process.env.
   dotenv.config({ path: envPath });
   return undefined;
 }
