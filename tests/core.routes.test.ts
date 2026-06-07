@@ -834,6 +834,9 @@ test('driver vehicle endpoints support ride-type dispatch filtering', async () =
     assert.equal(deleteVehicleResponse.status, 200);
     const deleteVehicleBody = await deleteVehicleResponse.json();
     assert.equal(deleteVehicleBody.error, 'cannot delete active vehicle');
+    const stillPresentVehiclesResponse = await getJson(baseUrl, `/api/drivers/${comfortDriver.user.id}/vehicles`, comfortDriver.accessToken);
+    const stillPresentVehiclesBody = await stillPresentVehiclesResponse.json();
+    assert.equal(stillPresentVehiclesBody.vehicles.some((vehicle: { vehicleId: string }) => vehicle.vehicleId === comfortVehicleBody.vehicle.vehicleId), true);
 
     const xlVehicleCreate = await postJson(baseUrl, `/api/drivers/${comfortDriver.user.id}/vehicles`, {
       make: 'Chevrolet',

@@ -9,6 +9,8 @@ import {
   type KycVerification
 } from '../database/data.store';
 
+const KYC_SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
+
 function getSessionUrl(providerSessionId: string) {
   return `${env.kycProviderBaseUrl.replace(/\/$/, '')}/session/${providerSessionId}`;
 }
@@ -95,7 +97,7 @@ export function verifyKycWebhookSignature(rawBody: string, signature?: string) {
 export async function createKycSession(userId: string, documentType = 'driver_license', country = 'US') {
   const providerSessionId = makeId('persona');
   const createdAt = timestamp();
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString();
+  const expiresAt = new Date(Date.now() + KYC_SESSION_EXPIRY_MS).toISOString();
   const session: KycSession = {
     id: makeId('kyc_session'),
     userId,
