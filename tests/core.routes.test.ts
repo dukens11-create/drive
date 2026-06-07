@@ -419,6 +419,7 @@ test('POST /api/auth/signup for driver returns a pending KYC session and /api/dr
 test('rider profile endpoints allow reading and updating rider profile data', async () => {
   await withServer(async baseUrl => {
     const rider = await signup(baseUrl, 'rider');
+    const updatedEmail = `updated-${randomUUID()}@example.com`;
 
     const initialProfileResponse = await getJson(baseUrl, '/api/riders/profile', rider.accessToken);
     assert.equal(initialProfileResponse.status, 200);
@@ -435,7 +436,7 @@ test('rider profile endpoints allow reading and updating rider profile data', as
       body: JSON.stringify({
         fullName: 'Rider Example',
         phone: '+14155550123',
-        email: `updated-${randomUUID()}@example.com`,
+        email: updatedEmail,
         preferredLanguage: 'en',
         accessibilityNeeds: 'Wheelchair ramp',
         favoriteLocations: [{ label: 'Home', lat: 37.7, lng: -122.4 }]
@@ -446,6 +447,7 @@ test('rider profile endpoints allow reading and updating rider profile data', as
     assert.equal(updateProfileBody.ok, true);
     assert.equal(updateProfileBody.rider.fullName, 'Rider Example');
     assert.equal(updateProfileBody.rider.phone, '+14155550123');
+    assert.equal(updateProfileBody.rider.email, updatedEmail);
     assert.equal(updateProfileBody.rider.preferredLanguage, 'en');
     assert.equal(updateProfileBody.rider.favoriteLocations.length, 1);
 
@@ -832,5 +834,39 @@ test('driver vehicle endpoints support ride-type dispatch filtering', async () =
     assert.equal(deleteVehicleResponse.status, 200);
     const deleteVehicleBody = await deleteVehicleResponse.json();
     assert.equal(deleteVehicleBody.error, 'cannot delete active vehicle');
+
+    const xlVehicleCreate = await postJson(baseUrl, `/api/drivers/${comfortDriver.user.id}/vehicles`, {
+      make: 'Chevrolet',
+      model: 'Suburban',
+      year: 2024,
+      licensePlate: 'XL1234',
+      color: 'White',
+      seats: 6,
+      vehicleType: 'xl',
+      insuranceExpiry: '2031-02-01',
+      registrationExpiry: '2031-02-01'
+    }, comfortDriver.accessToken);
+    const xlVehicleBody = await xlVehicleCreate.json();
+    assert.equal(xlVehicleBody.ok, true);
+    assert.equal(xlVehicleBody.vehicle.vehicleType, 'xl');
+
+    const xlVerifyResponse = await postJson(baseUrl, '/api/admin/verify-vehicle', {
+      vehicleId: xlVehicleBody.vehicle.vehicleId,
+      approved: true
+    }, adminToken);
+    assert.equal((await xlVerifyResponse.json()).ok, true);
+
+    const xlActivateResponse = await postJson(baseUrl, '/api/drivers/vehicles/activate', {
+      vehicleId: xlVehicleBody.vehicle.vehicleId
+    }, comfortDriver.accessToken);
+    assert.equal((await xlActivateResponse.json()).ok, true);
+
+    const deleteInactiveVehicleResponse = await fetch(`${baseUrl}/api/drivers/${comfortDriver.user.id}/vehicles/${comfortVehicleBody.vehicle.vehicleId}`, {
+      method: 'DELETE',
+      headers: { authorization: 'Bearer ' + comfortDriver.accessToken }
+    });
+    assert.equal(deleteInactiveVehicleResponse.status, 200);
+    const deleteInactiveVehicleBody = await deleteInactiveVehicleResponse.json();
+    assert.equal(deleteInactiveVehicleBody.ok, true);
   });
 });

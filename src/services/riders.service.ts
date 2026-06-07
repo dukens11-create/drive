@@ -32,8 +32,36 @@ function isValidPhone(phone: string) {
   return /^\d{10,15}$/.test(digits);
 }
 
+function hasOnlyEmailLocalChars(value: string) {
+  for (const character of value) {
+    const isAlphaNumeric = /[A-Za-z0-9]/.test(character);
+    if (isAlphaNumeric) continue;
+    if ('.!#$%&\'*+/=?^_`{|}~-'.includes(character)) continue;
+    return false;
+  }
+  return true;
+}
+
+function hasOnlyDomainChars(value: string) {
+  for (const character of value) {
+    const isAlphaNumeric = /[A-Za-z0-9]/.test(character);
+    if (isAlphaNumeric) continue;
+    if (character === '-' || character === '.') continue;
+    return false;
+  }
+  return true;
+}
+
 function isValidEmail(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  if (!email || email.length > 254 || email.includes(' ')) return false;
+  const atIndex = email.indexOf('@');
+  if (atIndex <= 0 || atIndex !== email.lastIndexOf('@')) return false;
+  const localPart = email.slice(0, atIndex);
+  const domain = email.slice(atIndex + 1);
+  if (!localPart || !domain || domain.startsWith('.') || domain.endsWith('.') || !domain.includes('.')) return false;
+  if (!hasOnlyEmailLocalChars(localPart) || !hasOnlyDomainChars(domain)) return false;
+  const labels = domain.split('.');
+  return labels.every(label => label.length > 0 && !label.startsWith('-') && !label.endsWith('-'));
 }
 
 export async function register(body: any, _params?: any, _query?: any) {

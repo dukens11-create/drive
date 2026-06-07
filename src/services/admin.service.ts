@@ -33,6 +33,12 @@ function sanitizeUser(user: (User & { suspended?: boolean }) | undefined): SafeU
   return safe;
 }
 
+function sanitizeSuspensionReason(reason: unknown) {
+  if (typeof reason !== 'string') return undefined;
+  const sanitized = reason.replace(/[\r\n\t]+/g, ' ').trim().slice(0, 255);
+  return sanitized || undefined;
+}
+
 function setUserSuspensionState(user: User, suspend: boolean, options?: { reason?: unknown; durationDays?: unknown; actor?: AdminActor }) {
   if (suspend) {
     const durationDays = Number(options?.durationDays);
@@ -40,7 +46,7 @@ function setUserSuspensionState(user: User, suspend: boolean, options?: { reason
       ? new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString()
       : undefined;
     user.suspended = true;
-    user.suspendReason = typeof options?.reason === 'string' && options.reason.trim() ? options.reason.trim() : undefined;
+    user.suspendReason = sanitizeSuspensionReason(options?.reason);
     user.suspendExpiresAt = suspendExpiresAt;
     user.suspendedAt = timestamp();
     user.suspendedBy = actorId(options?.actor);

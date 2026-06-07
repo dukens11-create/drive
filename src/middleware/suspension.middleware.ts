@@ -1,5 +1,10 @@
 import { store } from '../database/data.store';
 
+function sanitizeMessageReason(reason: unknown) {
+  if (typeof reason !== 'string') return '';
+  return reason.replace(/[\r\n\t]+/g, ' ').trim().slice(0, 255);
+}
+
 function hasExpiredSuspension(user: any) {
   if (!user?.suspendExpiresAt) return false;
   const expiresAt = new Date(user.suspendExpiresAt).getTime();
@@ -23,8 +28,8 @@ export function getActiveSuspension(user: any) {
   return {
     module: 'auth',
     error: 'account_suspended',
-    message: user.suspendReason
-      ? `Your account has been suspended. Reason: ${user.suspendReason}`
+    message: sanitizeMessageReason(user.suspendReason)
+      ? `Your account has been suspended. Reason: ${sanitizeMessageReason(user.suspendReason)}`
       : 'Your account has been suspended.',
     suspendedAt: user.suspendedAt,
     expiresAt: user.suspendExpiresAt,
