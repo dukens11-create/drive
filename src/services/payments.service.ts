@@ -2,14 +2,11 @@ import { handleStripeWebhook } from '../utils/stripe.webhook';
 import { env } from '../config/env';
 import { makeId, markStoreDirty, store, timestamp, type Payment, type PaymentMethod, type PaymentMethodType } from '../database/data.store';
 import { applyCaptureLedger, applyRefundLedger } from '../utils/payment.records';
-<<<<<<< HEAD
 import { sendEmail } from './email.service';
 import { emailTemplates } from '../utils/email-templates';
-=======
 import { createStripeIdempotencyKey, getOrCreateStripeCustomerId, getStripeClient, isStripeEnabled } from './stripe-client';
 import { constructStripeEvent, getStripeSignatureHeader } from '../utils/stripe-signature';
 import { getErrorDetails, logger } from '../utils';
->>>>>>> origin/main
 
 const PAYMENT_METHOD_TYPES = new Set<PaymentMethodType>(['card', 'apple_pay', 'google_pay', 'paypal', 'bank_transfer', 'wallet']);
 

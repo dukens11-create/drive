@@ -4666,14 +4666,10 @@ window.addEventListener('load', async () => {
 
   // Map controls
   setupMapControls();
-<<<<<<< Updated upstream
   window.addEventListener('resize', () => {
     mapState.mapboxInstance?.resize?.();
   });
-  mapState.mapboxToken = readMapboxToken();
-=======
   mapState.mapboxToken = readMapboxToken() || mapState.mapboxToken;
->>>>>>> Stashed changes
   const mapboxTokenInput = document.getElementById('mapbox-token-input');
   if (mapboxTokenInput && mapState.mapboxToken) {
     mapboxTokenInput.value = mapState.mapboxToken;
