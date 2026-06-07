@@ -637,3 +637,94 @@ test('ride and driver core flow enforces auth boundaries and status transitions'
     assert.equal(driverHistoryBody.rides.some((ride: { id: string; status: string }) => ride.id === rideId && ride.status === 'completed'), true);
   });
 });
+
+test('driver vehicle endpoints support ride-type dispatch filtering', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+    const economyDriver = await signup(baseUrl, 'driver');
+    const comfortDriver = await signup(baseUrl, 'driver');
+    const adminToken = await loginAdmin(baseUrl);
+
+    const prepareDriver = async (driverToken: string, driverId: string, lat: number, lng: number) => {
+      const applyResponse = await postJson(baseUrl, '/api/drivers/apply', {}, driverToken);
+      assert.equal((await applyResponse.json()).ok, true);
+
+      const documentsResponse = await postJson(baseUrl, '/api/drivers/documents', {
+        documents: [
+          { type: 'Driver License', fileName: `${driverId}-license.jpg`, expiryDate: '2030-08-31', documentNumber: `DOC-${driverId.slice(-6)}` },
+          { type: 'Selfie Photo', fileName: `${driverId}-selfie.jpg`, selfieMatchScore: 0.95 }
+        ]
+      }, driverToken);
+      assert.equal((await documentsResponse.json()).ok, true);
+
+      const kycResponse = await postJson(baseUrl, '/api/kyc/webhook', { userId: driverId, status: 'verified' });
+      assert.equal((await kycResponse.json()).ok, true);
+      const approvalResponse = await postJson(baseUrl, '/api/admin/approve-driver', { userId: driverId, approved: true }, adminToken);
+      assert.equal((await approvalResponse.json()).ok, true);
+      assert.equal((await postJson(baseUrl, '/api/drivers/location', { lat, lng }, driverToken).then(res => res.json())).ok, true);
+      assert.equal((await postJson(baseUrl, '/api/drivers/availability', { status: 'online' }, driverToken).then(res => res.json())).ok, true);
+    };
+
+    await prepareDriver(economyDriver.accessToken, economyDriver.user.id, 37.72, -122.41);
+    await prepareDriver(comfortDriver.accessToken, comfortDriver.user.id, 37.721, -122.409);
+
+    const economyVehicleCreate = await postJson(baseUrl, `/api/drivers/${economyDriver.user.id}/vehicles`, {
+      make: 'Toyota',
+      model: 'Prius',
+      year: 2021,
+      licensePlate: 'ECON123',
+      color: 'Blue',
+      seats: 4,
+      vehicleType: 'economy',
+      insuranceExpiry: '2030-01-01',
+      registrationExpiry: '2030-01-01'
+    }, economyDriver.accessToken);
+    assert.equal(economyVehicleCreate.status, 200);
+    const economyVehicleBody = await economyVehicleCreate.json();
+    assert.equal(economyVehicleBody.ok, true);
+    assert.equal(economyVehicleBody.vehicle.vehicleType, 'economy');
+
+    const comfortVehicleCreate = await postJson(baseUrl, `/api/drivers/${comfortDriver.user.id}/vehicles`, {
+      make: 'Lexus',
+      model: 'ES',
+      year: 2023,
+      licensePlate: 'CFT123',
+      color: 'Black',
+      seats: 4,
+      vehicleType: 'comfort',
+      insuranceExpiry: '2030-02-01',
+      registrationExpiry: '2030-02-01'
+    }, comfortDriver.accessToken);
+    assert.equal(comfortVehicleCreate.status, 200);
+    const comfortVehicleBody = await comfortVehicleCreate.json();
+    assert.equal(comfortVehicleBody.ok, true);
+    assert.equal(comfortVehicleBody.vehicle.vehicleType, 'comfort');
+
+    const comfortVehiclesResponse = await getJson(baseUrl, `/api/drivers/${comfortDriver.user.id}/vehicles`, comfortDriver.accessToken);
+    assert.equal(comfortVehiclesResponse.status, 200);
+    const comfortVehiclesBody = await comfortVehiclesResponse.json();
+    assert.equal(comfortVehiclesBody.ok, true);
+    assert.equal(comfortVehiclesBody.vehicles.length, 1);
+
+    const rideRequestResponse = await postJson(baseUrl, '/api/rides/request', {
+      pickupLat: 37.7,
+      pickupLng: -122.4,
+      dropoffLat: 37.8,
+      dropoffLng: -122.31,
+      rideType: 'comfort'
+    }, rider.accessToken);
+    const rideRequestBody = await rideRequestResponse.json();
+    assert.equal(rideRequestBody.ok, true);
+    assert.equal(rideRequestBody.ride.vehicleType, 'comfort');
+    assert.equal(rideRequestBody.dispatch.selected.driverId, comfortDriver.user.id);
+    assert.equal(rideRequestBody.dispatch.candidates.every((candidate: { vehicleType?: string }) => candidate.vehicleType === 'comfort'), true);
+
+    const deleteVehicleResponse = await fetch(`${baseUrl}/api/drivers/${comfortDriver.user.id}/vehicles/${comfortVehicleBody.vehicle.vehicleId}`, {
+      method: 'DELETE',
+      headers: { authorization: 'Bearer ' + comfortDriver.accessToken }
+    });
+    assert.equal(deleteVehicleResponse.status, 200);
+    const deleteVehicleBody = await deleteVehicleResponse.json();
+    assert.equal(deleteVehicleBody.ok, true);
+  });
+});

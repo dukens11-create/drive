@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import * as controller from '../controllers/drivers.controller';
 import { validateBody } from '../utils/validate';
-import { applySchema, availabilitySchema, documentsSchema, locationSchema } from '../schemas/drivers.schemas';
+import { applySchema, availabilitySchema, documentsSchema, locationSchema, vehicleCreateSchema } from '../schemas/drivers.schemas';
 import { requireAuth, requireRole } from '../middleware/auth.middleware';
 import { signupSchema } from '../schemas/auth.schemas';
 
@@ -13,6 +13,9 @@ router.use(requireAuth);
 router.get('/nearby', controller.nearby);
 router.post('/:id/location', validateBody(locationSchema), controller.locationById);
 router.put('/:id/status', validateBody(availabilitySchema), controller.availabilityById);
+router.post('/:id/vehicles', validateBody(vehicleCreateSchema), controller.createVehicle);
+router.get('/:id/vehicles', controller.listVehicles);
+router.delete('/:id/vehicles/:vehicleId', controller.deleteVehicle);
 router.use(requireRole('driver'));
 router.get('/me', controller.me);
 router.get('/current-trip', controller.currentTrip);

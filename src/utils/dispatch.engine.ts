@@ -1,5 +1,5 @@
 import { store } from '../database/data.store';
-import { isDriverDispatchEligible } from '../services/drivers.service';
+import { getDriverDispatchVehicleType, isDriverDispatchEligible } from '../services/drivers.service';
 
 type Candidate = {
   driverId: string;
@@ -33,14 +33,20 @@ export async function findNearbyDrivers(lat: number, lng: number) {
       distanceMiles: toMiles(lat, lng, Number(d.lat), Number(d.lng)),
       rating: d.rating,
       acceptanceRate: d.acceptanceRate,
-      cancellationRate: d.cancellationRate
+      cancellationRate: d.cancellationRate,
+      vehicleType: getDriverDispatchVehicleType(d.userId)
     }));
 
   return drivers.slice(0, 30);
 }
 
 export async function dispatchRide(ride: any) {
-  const candidates = await findNearbyDrivers(Number(ride.pickupLat), Number(ride.pickupLng));
+  const requestedVehicleType = typeof ride?.vehicleType === 'string' ? ride.vehicleType.trim().toLowerCase() : '';
+  const candidates = (await findNearbyDrivers(Number(ride.pickupLat), Number(ride.pickupLng)))
+    .filter(candidate => {
+      if (!requestedVehicleType) return true;
+      return candidate.vehicleType === requestedVehicleType;
+    });
   const ranked = rankDrivers(candidates);
   return { rideId: ride.id, selected: ranked[0] || null, candidates: ranked };
 }
