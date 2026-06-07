@@ -1,5 +1,5 @@
-import { PassengerPortalPage } from '../components/passenger-portal-page';
+import { RiderDashboard } from '../components/dashboard/RiderDashboard';
 
 export default function Home() {
-  return <PassengerPortalPage section="home" />;
+  return <RiderDashboard />;
 }
