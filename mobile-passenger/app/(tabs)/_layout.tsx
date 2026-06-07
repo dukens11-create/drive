@@ -13,6 +13,7 @@ const iconByRoute: Record<string, keyof typeof Ionicons.glyphMap> = {
   earnings: 'wallet-outline',
   inbox: 'headset-outline',
   profile: 'person',
+  ride: 'car-outline',
 };
 export default function TabLayout() {
   const scheme = useColorScheme();
@@ -46,7 +47,7 @@ export default function TabLayout() {
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
         tabBarLabelPosition: 'below-icon',
         tabBarItemStyle: { paddingBottom: 2 },
-        tabBarIcon: ({ color, size }) => <Ionicons name={iconByRoute[route.name]} size={size} color={color} />,
+        tabBarIcon: ({ color, size }) => <Ionicons name={iconByRoute[route.name] || 'ellipse'} size={size} color={color} />,
       })}
     >
       <Tabs.Screen name="index" options={{ title: t('common.home'), tabBarAccessibilityLabel: `${t('common.home')} tab` }} />
@@ -54,6 +55,7 @@ export default function TabLayout() {
       <Tabs.Screen name="earnings" options={{ title: 'Wallet', tabBarAccessibilityLabel: 'Wallet tab' }} />
       <Tabs.Screen name="inbox" options={{ title: 'Support', tabBarAccessibilityLabel: 'Support tab' }} />
       <Tabs.Screen name="profile" options={{ title: t('common.profile'), tabBarAccessibilityLabel: `${t('common.profile')} tab` }} />
+      <Tabs.Screen name="ride" options={{ href: null }} />
     </Tabs>
   );
 }

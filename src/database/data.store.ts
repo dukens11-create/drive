@@ -39,6 +39,8 @@ export type RideLifecycleState =
   | 'cancelled'
   | 'rated';
 
+export type VehicleType = 'economy' | 'comfort' | 'premium';
+
 export type RideEvent = {
   id: string;
   type: string;
@@ -79,6 +81,7 @@ export type Ride = {
   miles: number;
   minutes: number;
   fareEstimate: number;
+  vehicleType?: VehicleType;
   surgeMultiplier?: number;
   promoId?: string;
   discountCents?: number;
@@ -188,6 +191,8 @@ export type DriverVerificationReview = {
 
 export type DriverProfile = {
   userId: string;
+  primaryVehicleId?: string;
+  vehicleIds?: string[];
   currentTripId?: string;
   status: 'pending' | 'approved' | 'rejected';
   verificationState: 'documents_pending' | 'kyc_pending' | 'review_pending' | 'verified' | 'rejected';
@@ -204,6 +209,23 @@ export type DriverProfile = {
   verificationDocuments?: DriverVerificationDocument[];
   selfieVerification?: DriverSelfieVerification;
   verificationReview?: DriverVerificationReview;
+};
+
+export type Vehicle = {
+  vehicleId: string;
+  driverId: string;
+  make: string;
+  model: string;
+  year: number;
+  licensePlate: string;
+  color: string;
+  seats: number;
+  vehicleType: VehicleType;
+  insuranceExpiry: string;
+  registrationExpiry: string;
+  status: 'active' | 'inactive' | 'pending_verification';
+  verificationDocuments: string[];
+  createdAt: string;
 };
 
 export type RiderFavoriteLocation = {
@@ -839,6 +861,7 @@ type PersistedStore = {
   refreshTokens: Array<[string, RefreshTokenSession]>;
   rides: Ride[];
   drivers: DriverProfile[];
+  vehicles: Vehicle[];
   riders: RiderProfile[];
   rideRequests: RideRequest[];
   payments: Payment[];
@@ -952,6 +975,7 @@ export const store = {
   refreshTokens: new PersistentMap<string, RefreshTokenSession>(),
   rides: new PersistentMap<string, Ride>(),
   drivers: new PersistentMap<string, DriverProfile>(),
+  vehicles: new PersistentMap<string, Vehicle>(),
   riders: new PersistentMap<string, RiderProfile>(),
   rideRequests: new PersistentMap<string, RideRequest>(),
   payments: new PersistentMap<string, Payment>(),
@@ -1006,6 +1030,7 @@ function toSerializableStore(): PersistedStore {
     refreshTokens: Array.from(store.refreshTokens.entries()),
     rides: Array.from(store.rides.values()),
     drivers: Array.from(store.drivers.values()),
+    vehicles: Array.from(store.vehicles.values()),
     riders: Array.from(store.riders.values()),
     rideRequests: Array.from(store.rideRequests.values()),
     payments: Array.from(store.payments.values()),
@@ -1102,6 +1127,7 @@ function hydrateStore() {
     }
     for (const ride of parsed.rides || []) store.rides.set(ride.id, ride);
     for (const driver of parsed.drivers || []) store.drivers.set(driver.userId, driver);
+    for (const vehicle of parsed.vehicles || []) store.vehicles.set(vehicle.vehicleId, vehicle);
     for (const rider of parsed.riders || []) store.riders.set(rider.userId, rider);
     for (const rideRequest of parsed.rideRequests || []) store.rideRequests.set(rideRequest.id, rideRequest);
     for (const payment of parsed.payments || []) store.payments.set(payment.id, payment);

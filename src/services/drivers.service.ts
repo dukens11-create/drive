@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import * as authService from './auth.service';
-import { markStoreDirty, store, timestamp, type DriverProfile, type DriverVerificationDocument } from '../database/data.store';
+import { makeId, markStoreDirty, store, timestamp, type DriverProfile, type DriverVerificationDocument, type Vehicle, type VehicleType } from '../database/data.store';
 import { publishDriverRealtimeLocation, publishDriverStatusChanged } from './realtime-dispatch.service';
 import { findNearbyDrivers, rankDrivers } from '../utils/dispatch.engine';
 
@@ -29,6 +29,7 @@ function canManageDriver(actor: any, targetDriverId: string) {
 function createDefaultDriverProfile(userId: string): DriverProfile {
   return {
     userId,
+    vehicleIds: [],
     status: 'pending',
     verificationState: 'documents_pending',
     availabilityStatus: 'offline',
@@ -124,7 +125,33 @@ function parseLegacyDocument(input: string) {
   };
 }
 
+function normalizeVehicleType(value: unknown): VehicleType | null {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'economy' || normalized === 'comfort' || normalized === 'premium') return normalized;
+  return null;
+}
+
+function getDriverVehicles(driverId: string) {
+  return Array.from(store.vehicles.values())
+    .filter(vehicle => vehicle.driverId === driverId)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+function getActiveDriverVehicle(driverId: string) {
+  const profile = getProfile(driverId);
+  const driverVehicles = getDriverVehicles(driverId);
+  if (!driverVehicles.length) return null;
+  if (profile?.primaryVehicleId) {
+    const preferred = driverVehicles.find(vehicle => vehicle.vehicleId === profile.primaryVehicleId && vehicle.status === 'active');
+    if (preferred) return preferred;
+  }
+  return driverVehicles.find(vehicle => vehicle.status === 'active') || null;
+}
+
 function ensureVerificationData(profile: DriverProfile) {
+  if (!Array.isArray(profile.vehicleIds)) {
+    profile.vehicleIds = [];
+  }
   if (!Array.isArray(profile.verificationDocuments)) {
     profile.verificationDocuments = [];
   }
@@ -278,6 +305,10 @@ export function isDriverDispatchEligible(profile: any) {
   );
 }
 
+export function getDriverDispatchVehicleType(driverId: string) {
+  return getActiveDriverVehicle(driverId)?.vehicleType;
+}
+
 export async function apply(body: any, _params?: any, _query?: any) {
   const userId = body?.actor?.id || body?.userId;
   if (!userId) return { module: 'drivers', action: 'apply', error: 'actor ID or userId is required' };
@@ -307,6 +338,7 @@ export async function apply(body: any, _params?: any, _query?: any) {
 
   const profile = {
     userId,
+    vehicleIds: [] as string[],
     status: 'pending' as const,
     verificationState: 'documents_pending' as const,
     availabilityStatus: 'offline' as const,
@@ -329,6 +361,103 @@ export async function apply(body: any, _params?: any, _query?: any) {
   };
   store.drivers.set(userId, profile);
   return { module: 'drivers', action: 'apply', ok: true, profile };
+}
+
+export async function createVehicle(body: any, params?: any, _query?: any) {
+  const driverId = params?.id || body?.driverId || body?.userId;
+  if (!driverId) return { module: 'drivers', action: 'create-vehicle', error: 'driverId is required' };
+  if (!canManageDriver(body?.actor, driverId)) return { module: 'drivers', action: 'create-vehicle', error: 'forbidden' };
+
+  const profile = getProfile(driverId);
+  if (!profile) return { module: 'drivers', action: 'create-vehicle', error: 'driver not found' };
+
+  const vehicleType = normalizeVehicleType(body?.vehicleType);
+  if (!vehicleType) return { module: 'drivers', action: 'create-vehicle', error: 'vehicleType must be economy, comfort, or premium' };
+
+  const year = Number(body?.year);
+  const seats = Number(body?.seats);
+  if (!Number.isInteger(year) || year < 1980 || year > 2100) return { module: 'drivers', action: 'create-vehicle', error: 'year must be a valid integer between 1980 and 2100' };
+  if (!Number.isInteger(seats) || seats < 1 || seats > 12) return { module: 'drivers', action: 'create-vehicle', error: 'seats must be an integer between 1 and 12' };
+
+  const make = String(body?.make || '').trim();
+  const model = String(body?.model || '').trim();
+  const color = String(body?.color || '').trim();
+  const licensePlate = String(body?.licensePlate || '').trim().toUpperCase();
+  if (!make || !model || !color || !licensePlate) {
+    return { module: 'drivers', action: 'create-vehicle', error: 'make, model, color, and licensePlate are required' };
+  }
+
+  const insuranceExpiry = String(body?.insuranceExpiry || '').trim();
+  const registrationExpiry = String(body?.registrationExpiry || '').trim();
+  if (!insuranceExpiry || !registrationExpiry) {
+    return { module: 'drivers', action: 'create-vehicle', error: 'insuranceExpiry and registrationExpiry are required' };
+  }
+
+  ensureVerificationData(profile);
+  const createdAt = timestamp();
+  const vehicle: Vehicle = {
+    vehicleId: makeId('vehicle'),
+    driverId,
+    make,
+    model,
+    year,
+    licensePlate,
+    color,
+    seats,
+    vehicleType,
+    insuranceExpiry,
+    registrationExpiry,
+    status: body?.status === 'inactive' || body?.status === 'pending_verification' ? body.status : 'active',
+    verificationDocuments: Array.isArray(body?.verificationDocuments) ? body.verificationDocuments.map((entry: unknown) => String(entry)) : [],
+    createdAt
+  };
+
+  if (vehicle.status === 'active') {
+    getDriverVehicles(driverId)
+      .filter(existing => existing.status === 'active')
+      .forEach(existing => {
+        existing.status = 'inactive';
+        store.vehicles.set(existing.vehicleId, existing);
+      });
+    profile.primaryVehicleId = vehicle.vehicleId;
+  }
+
+  store.vehicles.set(vehicle.vehicleId, vehicle);
+  if (!profile.vehicleIds!.includes(vehicle.vehicleId)) profile.vehicleIds!.push(vehicle.vehicleId);
+  markStoreDirty();
+  return { module: 'drivers', action: 'create-vehicle', ok: true, vehicle, vehicles: getDriverVehicles(driverId) };
+}
+
+export async function listVehicles(body: any, params?: any, _query?: any) {
+  const driverId = params?.id || body?.driverId || body?.userId;
+  if (!driverId) return { module: 'drivers', action: 'list-vehicles', error: 'driverId is required' };
+  if (!canManageDriver(body?.actor, driverId)) return { module: 'drivers', action: 'list-vehicles', error: 'forbidden' };
+  const profile = getProfile(driverId);
+  if (!profile) return { module: 'drivers', action: 'list-vehicles', error: 'driver not found' };
+  ensureVerificationData(profile);
+  return { module: 'drivers', action: 'list-vehicles', ok: true, vehicles: getDriverVehicles(driverId), primaryVehicleId: profile.primaryVehicleId };
+}
+
+export async function deleteVehicle(body: any, params?: any, _query?: any) {
+  const driverId = params?.id || body?.driverId || body?.userId;
+  const vehicleId = params?.vehicleId || body?.vehicleId;
+  if (!driverId) return { module: 'drivers', action: 'delete-vehicle', error: 'driverId is required' };
+  if (!vehicleId) return { module: 'drivers', action: 'delete-vehicle', error: 'vehicleId is required' };
+  if (!canManageDriver(body?.actor, driverId)) return { module: 'drivers', action: 'delete-vehicle', error: 'forbidden' };
+
+  const profile = getProfile(driverId);
+  if (!profile) return { module: 'drivers', action: 'delete-vehicle', error: 'driver not found' };
+  const existing = store.vehicles.get(vehicleId);
+  if (!existing || existing.driverId !== driverId) return { module: 'drivers', action: 'delete-vehicle', error: 'vehicle not found' };
+
+  store.vehicles.delete(vehicleId);
+  ensureVerificationData(profile);
+  profile.vehicleIds = profile.vehicleIds!.filter(id => id !== vehicleId);
+  if (profile.primaryVehicleId === vehicleId) {
+    profile.primaryVehicleId = getDriverVehicles(driverId).find(vehicle => vehicle.status === 'active')?.vehicleId;
+  }
+  markStoreDirty();
+  return { module: 'drivers', action: 'delete-vehicle', ok: true, vehicleId, vehicles: getDriverVehicles(driverId) };
 }
 
 export async function register(body: any, _params?: any, _query?: any) {
