@@ -1,6 +1,7 @@
 import { appendAuditLog, makeId, markStoreDirty, store, timestamp } from '../database/data.store';
 import { sendRealtimePushEvent } from './notifications.service';
 import { logger } from '../utils/logger';
+import { notificationTemplates } from '../utils/fcm-templates';
 import { sendEmail } from './email.service';
 import { sendSMS } from './sms.service';
 import { emailTemplates } from '../utils/email-templates';
@@ -87,12 +88,17 @@ export async function reply_ticket(body: any, _params?: any, _query?: any) {
       );
     }
     try {
+      const template = notificationTemplates.SUPPORT_REPLY({
+        ticketId: ticket.id,
+        replyPreview: reply.message
+      });
       await sendRealtimePushEvent({
         userId: ticket.userId,
         category: 'support_replies',
-        title: 'New support reply',
-        body: 'Support has replied to your ticket. Open the app to review the response.',
-        template: 'support_reply'
+        title: template.title,
+        body: template.body,
+        template: 'support_reply',
+        data: template.data
       });
     } catch (error: any) {
       logger.warn('Support reply notification failed', { ticketId: ticket.id, userId: ticket.userId, error: error?.message });

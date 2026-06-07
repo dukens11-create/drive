@@ -12,6 +12,9 @@ import {
   type QuickReplyTemplate
 } from '../database/data.store';
 import { isSupportedLocale, SUPPORTED_LOCALES } from '../i18n';
+import { sendRealtimePushEvent } from './notifications.service';
+import { notificationTemplates } from '../utils/fcm-templates';
+import { logger } from '../utils/logger';
 
 const typingState = new Map<string, Map<string, string>>();
 
@@ -163,6 +166,30 @@ export async function sendMessage(body: any, params?: any) {
   lookup.conversation.lastMessageAt = now;
   lookup.conversation.updatedAt = now;
   markStoreDirty();
+
+  const recipients = lookup.conversation.participantIds.filter(userId => userId !== actorId);
+  const senderName = store.users.get(actorId)?.email || 'New message';
+  const chatTemplate = notificationTemplates.CHAT_MESSAGE({
+    senderName,
+    messagePreview: content || (voiceNoteUrl ? 'Sent a voice note' : body?.attachmentUrl ? 'Sent an attachment' : 'Sent a message'),
+    conversationId,
+    senderId: actorId,
+    messageId: message.id
+  });
+  for (const recipientId of recipients) {
+    try {
+      await sendRealtimePushEvent({
+        userId: recipientId,
+        category: 'system',
+        title: chatTemplate.title,
+        body: chatTemplate.body,
+        template: 'chat_message',
+        data: chatTemplate.data
+      });
+    } catch (error: any) {
+      logger.warn('Chat push notification failed', { recipientId, conversationId, messageId: message.id, error: error?.message });
+    }
+  }
 
   return { module: 'chat', action: 'send-message', ok: true, message };
 }
