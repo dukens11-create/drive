@@ -90,7 +90,11 @@ export function detectChargebackHistory(userId: string): boolean {
 // ─── Rule: Multiple chargebacks ───────────────────────────────────────────────
 // The user has 2 or more chargebacks on record
 export function detectMultipleChargebacks(userId: string): boolean {
-  return store.chargebacks.filter(c => c.userId === userId).length >= 2;
+  let count = 0;
+  for (const c of store.chargebacks) {
+    if (c.userId === userId && ++count >= 2) return true;
+  }
+  return false;
 }
 
 // ─── Rule: Impossible travel ──────────────────────────────────────────────────
@@ -110,7 +114,9 @@ export function detectImpossibleTravel(userId: string): boolean {
 
   const latDiff = (r1.dropoffLat ?? 0) - (r2.pickupLat ?? 0);
   const lngDiff = (r1.dropoffLng ?? 0) - (r2.pickupLng ?? 0);
-  const distanceMiles = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff) * 69;
+  // Approximate miles per degree of lat/lng (assumes spherical earth; accurate within ~5% at mid-latitudes)
+  const MILES_PER_DEGREE = 69;
+  const distanceMiles = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff) * MILES_PER_DEGREE;
 
   return distanceMiles > 100 && timeDiffMin < 30;
 }

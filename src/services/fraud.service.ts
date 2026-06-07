@@ -124,10 +124,10 @@ export function createFraudAlert(
   // Automatically suspend users with a critical fraud score
   if (riskLevel === 'critical') {
     const user = store.users.get(userId);
-    if (user && !(user as any).suspended) {
-      (user as any).suspended = true;
-      (user as any).suspendReason = 'Fraud detection – automatic suspension';
-      (user as any).suspendedAt = timestamp();
+    if (user && !user.suspended) {
+      user.suspended = true;
+      user.suspendReason = 'fraud_auto_suspend';
+      user.suspendedAt = timestamp();
       store.users.set(userId, user);
 
       appendAuditLog(
@@ -179,9 +179,9 @@ export async function reviewFraudAlert(body: any, params?: any) {
   // If admin clears the alert, unsuspend the user (if suspended by fraud detection)
   if (action === 'none') {
     const user = store.users.get(alert.userId);
-    if (user && (user as any).suspended && ((user as any).suspendReason as string | undefined)?.includes('Fraud')) {
-      (user as any).suspended = false;
-      (user as any).suspendReason = null;
+    if (user && user.suspended && user.suspendReason === 'fraud_auto_suspend') {
+      user.suspended = false;
+      user.suspendReason = null;
       store.users.set(alert.userId, user);
     }
   }

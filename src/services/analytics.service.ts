@@ -561,8 +561,10 @@ export async function getDemandForecast(_query: any) {
     const multiplier = hourMultipliers[hour] ?? 0.7;
     const predictedRides = Math.round(50 * multiplier);
 
+    const hh = String(forecastTime.getUTCHours()).padStart(2, '0');
+    const mm = String(forecastTime.getUTCMinutes()).padStart(2, '0');
     forecast.push({
-      time: forecastTime.toUTCString().slice(17, 22),
+      time: `${hh}:${mm}`,
       hour,
       predictedRides,
       confidence: 0.85,

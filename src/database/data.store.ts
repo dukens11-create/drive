@@ -12,6 +12,9 @@ export type User = {
   password: string;
   role: Role;
   createdAt: string;
+  suspended?: boolean;
+  suspendReason?: string | null;
+  suspendedAt?: string;
 };
 
 export type RefreshTokenSession = {

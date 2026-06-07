@@ -24,8 +24,11 @@ export async function runFraudMonitor(): Promise<{ ok: boolean; checked: number;
         .filter(a => a.userId === user.id)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
 
-      // Escalate if there is no previous alert, or the score jumped by >= 20
-      if (!previousAlert || score > previousAlert.score + 20) {
+      // Escalate if there is no previous alert, or the score jumped significantly.
+      // A 20-point jump represents at least one additional medium-weight signal
+      // being detected since the last evaluation.
+      const ESCALATION_THRESHOLD = 20;
+      if (!previousAlert || score > previousAlert.score + ESCALATION_THRESHOLD) {
         createFraudAlert(user.id);
         escalated++;
       }
