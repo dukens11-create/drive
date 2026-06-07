@@ -3,6 +3,9 @@ import * as authService from './auth.service';
 import { makeId, markStoreDirty, store, timestamp, type DriverProfile, type DriverVerificationDocument, type Vehicle, type VehicleType } from '../database/data.store';
 import { publishDriverRealtimeLocation, publishDriverStatusChanged } from './realtime-dispatch.service';
 import { findNearbyDrivers, rankDrivers } from '../utils/dispatch.engine';
+import { sendEmail } from './email.service';
+import { emailTemplates } from '../utils/email-templates';
+import { env } from '../config/env';
 
 type DriverDocumentInput = string | {
   id?: string;
@@ -589,6 +592,26 @@ export async function earnings(body: any, _params?: any, _query?: any) {
     rideCount: rideEarnings.length,
     rideEarnings
   };
+}
+
+export async function sendPayoutConfirmation(body: {
+  userId?: string;
+  amountCents?: number;
+  bankLast4?: string;
+  payoutId?: string;
+}) {
+  const userId = body?.userId;
+  if (!userId) return { module: 'drivers', action: 'payout-confirmation', error: 'userId is required' };
+  const user = store.users.get(userId);
+  if (!user?.email) return { module: 'drivers', action: 'payout-confirmation', ok: true, skipped: true };
+
+  const template = emailTemplates.DRIVER_PAYOUT_CONFIRMATION({
+    amount: Number(body?.amountCents || 0),
+    bankLast4: body?.bankLast4 || 'N/A',
+    statementLink: `${env.appBaseUrl || 'https://app.drive.com'}/wallet/payouts/${body?.payoutId || ''}`
+  });
+  await sendEmail(user.email, template.subject, template.html, { template: 'driver_payout_confirmation', userId });
+  return { module: 'drivers', action: 'payout-confirmation', ok: true };
 }
 
 export async function nearby(body: any, _params?: any, query?: any) {

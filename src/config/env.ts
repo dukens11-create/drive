@@ -98,10 +98,12 @@ export const env = {
   // Twilio (SMS)
   twilioAccountSid: getString('TWILIO_ACCOUNT_SID'),
   twilioAuthToken: getString('TWILIO_AUTH_TOKEN'),
-  twilioFromNumber: getString('TWILIO_FROM_NUMBER'),
+  twilioPhoneNumber: getString('TWILIO_PHONE_NUMBER', getString('TWILIO_FROM_NUMBER')),
+  twilioFromNumber: getString('TWILIO_FROM_NUMBER', getString('TWILIO_PHONE_NUMBER')),
   // SendGrid (email)
   sendGridApiKey: getString('SENDGRID_API_KEY'),
   sendGridFromEmail: getString('SENDGRID_FROM_EMAIL'),
+  sendGridFromName: getString('SENDGRID_FROM_NAME', 'Drive App'),
   // Firebase Cloud Messaging (push notifications)
   fcmServerKey: getString('FCM_SERVER_KEY'),
   // App base URL for links in emails

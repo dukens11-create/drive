@@ -819,6 +819,7 @@ export type NotificationLog = {
   template: string;
   status: 'sent' | 'failed' | 'queued';
   provider: string;
+  providerMessageId?: string;
   errorMessage?: string;
   createdAt: string;
 };
@@ -829,8 +830,14 @@ export type NotificationPreference = {
   smsOptIn: boolean;
   pushOptIn: boolean;
   frequency: 'instant' | 'hourly' | 'daily' | 'weekly';
+  emailFrequency?: 'instant' | 'daily' | 'weekly';
+  smsFrequency?: 'urgent' | 'all';
   categories: string[];
   timezone: string;
+  quietHoursEnabled?: boolean;
+  quietHoursStart?: string;
+  quietHoursEnd?: string;
+  unsubscribedAt?: string;
   quietHours?: {
     enabled: boolean;
     start: string;

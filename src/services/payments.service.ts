@@ -2,6 +2,8 @@ import { handleStripeWebhook } from '../utils/stripe.webhook';
 import { env } from '../config/env';
 import { makeId, markStoreDirty, store, timestamp, type Payment, type PaymentMethod, type PaymentMethodType } from '../database/data.store';
 import { applyCaptureLedger, applyRefundLedger } from '../utils/payment.records';
+import { sendEmail } from './email.service';
+import { emailTemplates } from '../utils/email-templates';
 import { createStripeIdempotencyKey, getOrCreateStripeCustomerId, getStripeClient, isStripeEnabled } from './stripe-client';
 import { constructStripeEvent, getStripeSignatureHeader } from '../utils/stripe-signature';
 import { getErrorDetails, logger } from '../utils';
@@ -264,6 +266,35 @@ export async function capture(body: any, _params?: any, _query?: any) {
   markStoreDirty();
 
   const invoice = applyCaptureLedger(payment);
+
+  const rider = payment.riderId ? store.users.get(payment.riderId) : undefined;
+  const ride = payment.rideId ? store.rides.get(payment.rideId) : undefined;
+  const driver = payment.driverId ? store.users.get(payment.driverId) : undefined;
+  if (rider?.email) {
+    const receiptTemplate = emailTemplates.PAYMENT_RECEIPT({
+      riderName: rider.email?.split('@')[0] || 'Rider',
+      driverName: driver?.email?.split('@')[0] || 'Driver',
+      tripDate: new Date(payment.capturedAt || payment.updatedAt).toLocaleDateString(),
+      pickupAddress: ride ? `${ride.pickupLat}, ${ride.pickupLng}` : 'N/A',
+      dropoffAddress: ride ? `${ride.dropoffLat}, ${ride.dropoffLng}` : 'N/A',
+      duration: ride ? `${ride.minutes} min` : 'N/A',
+      distance: ride ? `${ride.miles} miles` : 'N/A',
+      baseFare: Math.round((ride?.fareDetails?.baseFare || 0) * 100),
+      distanceFare: Math.round((ride?.fareDetails?.distanceFare || 0) * 100),
+      timeFare: Math.round((ride?.fareDetails?.timeFare || 0) * 100),
+      serviceFee: Math.round((ride?.fareDetails?.serviceFee || 0) * 100),
+      taxes: Math.round((ride?.fareDetails?.taxes || 0) * 100),
+      tolls: Math.round((ride?.fareDetails?.tolls || 0) * 100),
+      discount: Math.round((ride?.fareDetails?.discounts || 0) * 100),
+      tip: Math.round((ride?.fareDetails?.tips || 0) * 100),
+      total: payment.amountCents,
+      paymentMethodLast4: payment.paymentMethodId ? store.paymentMethods.get(payment.paymentMethodId)?.last4 : undefined,
+      invoiceNumber: invoice.id,
+      downloadReceiptLink: `${env.appBaseUrl || 'https://app.drive.com'}/payments/invoices/${invoice.id}`
+    });
+    await sendEmail(rider.email, receiptTemplate.subject, receiptTemplate.html, { template: 'payment_receipt', userId: rider.id });
+  }
+
   return { module: 'payments', action: 'capture', ok: true, payment, invoice };
 }
 
