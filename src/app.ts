@@ -9,12 +9,14 @@ import { errorHandler, wrapRouterAsyncHandlers } from './middleware';
 import { authRoutes, ridesRoutes, driversRoutes, ridersRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes, restaurantsRoutes } from './routes';
 import { getErrorDetails, logger } from './utils';
 import { registerTrackingSocket, registerChatSocket } from './websocket';
+import { initializeFCM } from './services/fcm.service';
 
 export function createApp() {
   try {
     const app = express();
     const httpServer = createServer(app);
     const io = new Server(httpServer, { cors: { origin: '*' } });
+    initializeFCM();
 
     app.use(helmet({
       contentSecurityPolicy: {

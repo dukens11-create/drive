@@ -13,6 +13,7 @@ import {
 } from '../database/data.store';
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
+import { sendFCMNotification, subscribeDeviceTokenToTopic } from './fcm.service';
 
 const PUSH_CATEGORIES = ['new_rides', 'trip_updates', 'earnings', 'bonuses', 'support_replies', 'system'] as const;
 type PushCategory = typeof PUSH_CATEGORIES[number];
@@ -25,6 +26,16 @@ const LEGACY_CATEGORY_MAP: Record<string, PushCategory | undefined> = {
 
 const DEFAULT_CATEGORIES: PushCategory[] = [...PUSH_CATEGORIES];
 const DEFAULT_QUIET_HOURS = { enabled: false, start: '22:00', end: '07:00' };
+const DEFAULT_DEVICE_TOPICS = ['rides', 'chat', 'support'];
+
+function normalizeDataPayload(data: any) {
+  if (!data || typeof data !== 'object') return undefined;
+  const entries = Object.entries(data)
+    .filter((entry): entry is [string, unknown] => Boolean(entry[0]))
+    .map(([key, value]) => [key, String(value ?? '')] as const);
+  if (entries.length === 0) return undefined;
+  return Object.fromEntries(entries);
+}
 
 function getActorId(body: any) {
   return body?.actor?.id || body?.userId;
@@ -145,17 +156,8 @@ async function sendViaSendGrid(to: string, subject: string, html: string): Promi
   }
 }
 
-async function sendViaFCM(deviceToken: string, title: string, body: string): Promise<void> {
-  if (env.fcmServerKey) {
-    const res = await fetch('https://fcm.googleapis.com/fcm/send', {
-      method: 'POST',
-      headers: { Authorization: 'key=' + env.fcmServerKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to: deviceToken, notification: { title, body } })
-    });
-    if (!res.ok) throw new Error(`FCM error ${res.status}`);
-  } else {
-    logger.info('[PUSH-STUB] Would send push via FCM', { deviceToken, title, body });
-  }
+async function sendViaFCM(deviceToken: string, title: string, body: string, data?: Record<string, string>) {
+  return sendFCMNotification({ token: deviceToken, title, body, data });
 }
 
 // ─── Core send function ──────────────────────────────────────────────────────
@@ -165,8 +167,9 @@ async function recordAndSend(
   recipient: string,
   template: string,
   provider: string,
-  sendFn: () => Promise<void>,
-  userId?: string
+  sendFn: () => Promise<{ messageId?: string; deliveryStatus?: string } | void>,
+  userId?: string,
+  deviceTokenId?: string
 ) {
   const base = {
     id: makeId('notif'),
@@ -178,10 +181,17 @@ async function recordAndSend(
     createdAt: timestamp()
   };
   try {
-    await sendFn();
-    store.notificationLogs.push({ ...base, status: 'sent' as const });
+    const response = await sendFn();
+    const providerResponse = response && typeof response === 'object' ? response as { messageId?: string; deliveryStatus?: string } : undefined;
+    store.notificationLogs.push({
+      ...base,
+      status: 'sent' as const,
+      fcmMessageId: providerResponse?.messageId,
+      fcmDeliveryStatus: providerResponse?.deliveryStatus || 'sent',
+      deviceTokenId
+    });
   } catch (err: any) {
-    store.notificationLogs.push({ ...base, status: 'failed' as const, errorMessage: err?.message });
+    store.notificationLogs.push({ ...base, status: 'failed' as const, errorMessage: err?.message, deviceTokenId, fcmDeliveryStatus: 'failed' });
     logger.warn('Notification send failed', { channel, recipient, template, error: err?.message });
   }
 }
@@ -230,11 +240,11 @@ export async function sendEmail(email: string, template: string, subject: string
 
 // ─── Push notification helpers ────────────────────────────────────────────────
 
-export async function sendPushNotification(deviceToken: string, title: string, body: string, userId?: string) {
-  await recordAndSend('push', deviceToken, 'generic', 'fcm', () => sendViaFCM(deviceToken, title, body), userId);
+export async function sendPushNotification(deviceToken: string, title: string, body: string, userId?: string, data?: Record<string, string>) {
+  await recordAndSend('push', deviceToken, 'generic', 'fcm', () => sendViaFCM(deviceToken, title, body, data), userId);
 }
 
-export async function sendRideStatusPush(deviceToken: string, status: string, rideId: string, userId?: string) {
+export async function sendRideStatusPush(deviceToken: string, status: string, rideId: string, userId?: string, data?: Record<string, string>) {
   const messages: Record<string, { title: string; body: string }> = {
     accepted: { title: 'Driver accepted your ride', body: 'Your driver is on the way!' },
     started: { title: 'Ride started', body: 'Your trip has begun. Enjoy the ride!' },
@@ -243,7 +253,7 @@ export async function sendRideStatusPush(deviceToken: string, status: string, ri
   };
   const msg = messages[status] || { title: 'Ride update', body: 'Status: ' + status };
   await recordAndSend('push', deviceToken, 'ride_' + status, 'fcm',
-    () => sendViaFCM(deviceToken, msg.title, msg.body), userId);
+    () => sendViaFCM(deviceToken, msg.title, msg.body, { ...(data || {}), rideId: String(rideId), action: `RIDE_${status.toUpperCase()}` }), userId);
 }
 
 // ─── Query helpers ───────────────────────────────────────────────────────────
@@ -298,7 +308,8 @@ async function deliverPushToUser(
   title: string,
   messageBody: string,
   category: PushCategory,
-  template: string
+  template: string,
+  data?: Record<string, string>
 ) {
   const preferences = getNotificationPreferencesForUser(userId);
   if (!preferences.pushOptIn) return { ok: false, error: 'push disabled for user', delivered: 0, queued: 0 };
@@ -332,7 +343,7 @@ async function deliverPushToUser(
   }
 
   for (const target of targets) {
-    await recordAndSend('push', target.token, template, 'fcm', () => sendViaFCM(target.token, title, messageBody), userId);
+    await recordAndSend('push', target.token, template, 'fcm', () => sendViaFCM(target.token, title, messageBody, data), userId, target.id);
   }
   return { ok: true, delivered: targets.length, queued: 0, quietHours: false };
 }
@@ -344,11 +355,12 @@ export async function sendRealtimePushEvent(body: any) {
   if (!userId || !title || !messageBody) return { module: 'notifications', action: 'realtime-push', error: 'userId, title and body are required' };
   const category = normalizePushCategory(body?.category);
   const template = String(body?.template || category).trim();
+  const data = normalizeDataPayload(body?.data);
   return {
     module: 'notifications',
     action: 'realtime-push',
     category,
-    ...(await deliverPushToUser(userId, title, messageBody, category, template))
+    ...(await deliverPushToUser(userId, title, messageBody, category, template, data))
   };
 }
 
@@ -365,18 +377,54 @@ export async function registerDeviceToken(body: any) {
       userId,
       token,
       platform: body?.platform === 'ios' || body?.platform === 'android' ? body.platform : 'web',
-      topics: Array.isArray(body?.topics) ? Array.from(new Set(body.topics)) : [],
+      topics: Array.isArray(body?.topics) && body.topics.length > 0 ? Array.from(new Set(body.topics)) : [...DEFAULT_DEVICE_TOPICS],
+      lastSeenAt: timestamp(),
       createdAt: timestamp(),
       updatedAt: timestamp()
     } satisfies DeviceToken;
     store.deviceTokens.push(deviceToken);
   } else {
     deviceToken.platform = body?.platform || deviceToken.platform;
-    deviceToken.topics = Array.isArray(body?.topics) ? Array.from(new Set(body.topics)) : deviceToken.topics;
+    deviceToken.topics = Array.isArray(body?.topics) && body.topics.length > 0 ? Array.from(new Set(body.topics)) : deviceToken.topics;
+    deviceToken.lastSeenAt = timestamp();
     deviceToken.updatedAt = timestamp();
   }
 
+  for (const topic of deviceToken.topics) {
+    try {
+      await subscribeDeviceTokenToTopic(deviceToken.token, topic);
+    } catch (error: any) {
+      logger.warn('device token topic subscription failed', { userId, topic, error: error?.message });
+    }
+  }
+
   return { module: 'notifications', action: 'register-device-token', ok: true, deviceToken };
+}
+
+export async function listDeviceTokens(body: any) {
+  const userId = getActorId(body);
+  if (!userId) return { module: 'notifications', action: 'list-device-tokens', error: 'userId required' };
+  return {
+    module: 'notifications',
+    action: 'list-device-tokens',
+    ok: true,
+    deviceTokens: store.deviceTokens.filter(entry => entry.userId === userId)
+  };
+}
+
+export async function unregisterDeviceToken(body: any, params?: any) {
+  const userId = getActorId(body);
+  if (!userId) return { module: 'notifications', action: 'unregister-device-token', error: 'userId required' };
+  const deviceTokenId = params?.deviceTokenId || body?.deviceTokenId;
+  const token = typeof body?.token === 'string' ? body.token.trim() : '';
+  const index = store.deviceTokens.findIndex(entry =>
+    entry.userId === userId && ((deviceTokenId && entry.id === deviceTokenId) || (token && entry.token === token))
+  );
+  if (index === -1) {
+    return { module: 'notifications', action: 'unregister-device-token', error: 'device token not found' };
+  }
+  const [removed] = store.deviceTokens.splice(index, 1);
+  return { module: 'notifications', action: 'unregister-device-token', ok: true, deviceToken: removed };
 }
 
 export async function sendPush(body: any) {
@@ -386,6 +434,7 @@ export async function sendPush(body: any) {
   const targetUserId = body?.userId || actorId;
   const category = normalizePushCategory(body?.category);
   const template = String(body?.template || `manual_${category}`).trim();
+  const data = normalizeDataPayload(body?.data);
   if (!title || !messageBody) return { module: 'notifications', action: 'push', error: 'title and body are required' };
   if (body?.userId && body?.actor?.role !== 'admin' && body.userId !== actorId) {
     return { module: 'notifications', action: 'push', error: 'forbidden' };
@@ -396,11 +445,19 @@ export async function sendPush(body: any) {
 
   let targets = [] as DeviceToken[];
   if (body?.deviceToken) {
-    targets = [{ id: makeId('devtok'), userId: targetUserId, token: body.deviceToken, platform: 'web', topics: [], createdAt: timestamp(), updatedAt: timestamp() }];
+    targets = [{
+      id: makeId('devtok'),
+      userId: targetUserId,
+      token: body.deviceToken,
+      platform: 'web',
+      topics: [],
+      createdAt: timestamp(),
+      updatedAt: timestamp()
+    }];
   } else if (body?.topic) {
     targets = store.deviceTokens.filter(entry => entry.topics.includes(body.topic));
   } else if (targetUserId) {
-    const delivery = await deliverPushToUser(targetUserId, title, messageBody, category, template);
+    const delivery = await deliverPushToUser(targetUserId, title, messageBody, category, template, data);
     return { module: 'notifications', action: 'push', category, ...delivery };
   }
 
@@ -416,7 +473,7 @@ export async function sendPush(body: any) {
       return preferences.pushOptIn && categoryAllowed && !isQuietHours(preferences);
     });
   for (const target of uniqueTargets) {
-    await recordAndSend('push', target.token, template, 'fcm', () => sendViaFCM(target.token, title, messageBody), target.userId);
+    await recordAndSend('push', target.token, template, 'fcm', () => sendViaFCM(target.token, title, messageBody, data), target.userId, target.id);
   }
 
   if (uniqueTargets.length === 0) return { module: 'notifications', action: 'push', category, error: 'no target devices found' };

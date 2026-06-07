@@ -5,6 +5,7 @@ export * as carpoolService from './carpool.service';
 export * as corporateService from './corporate.service';
 export * as driversService from './drivers.service';
 export * as etaService from './eta.service';
+export * as fcmService from './fcm.service';
 export * as fraudService from './fraud.service';
 export * as kycService from './kyc.service';
 export * as loyaltyService from './loyalty.service';

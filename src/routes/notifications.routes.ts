@@ -3,6 +3,7 @@ import { z } from 'zod';
 import * as controller from '../controllers/notifications.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { validateBody } from '../utils/validate';
+import deviceTokensRoutes from './device-tokens.routes';
 
 const preferencesSchema = z.object({
   emailOptIn: z.boolean().optional(),
@@ -16,12 +17,6 @@ const preferencesSchema = z.object({
     start: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/),
     end: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/)
   }).optional()
-});
-
-const deviceTokenSchema = z.object({
-  token: z.string().min(1),
-  platform: z.enum(['ios', 'android', 'web']).optional(),
-  topics: z.array(z.string().min(1)).optional()
 });
 
 const pushSchema = z.object({
@@ -59,7 +54,7 @@ router.get('/health', controller.health);
 router.use(requireAuth);
 router.get('/preferences', controller.getPreferences);
 router.post('/preferences', validateBody(preferencesSchema), controller.updatePreferences);
-router.post('/device-tokens', validateBody(deviceTokenSchema), controller.registerDeviceToken);
+router.use('/device-tokens', deviceTokensRoutes);
 router.get('/logs', controller.listLogs);
 router.post('/push', validateBody(pushSchema), controller.sendPush);
 router.post('/email', validateBody(emailSchema), controller.sendEmail);

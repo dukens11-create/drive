@@ -490,6 +490,35 @@ test('chat: call to unknown callee returns 404', async () => {
   });
 });
 
+test('chat: sending a message triggers push notification for recipients', async () => {
+  await withServer(async baseUrl => {
+    const sender = await signup(baseUrl, 'driver');
+    const recipient = await signup(baseUrl, 'rider');
+
+    const token = await post(baseUrl, '/api/notifications/device-tokens', {
+      token: 'chat-recipient-device-token',
+      platform: 'ios',
+      topics: ['chat'],
+    }, recipient.token);
+    assert.equal(token.status, 200);
+
+    const conversation = await post(baseUrl, '/api/chat/conversations', {
+      participantIds: [recipient.userId],
+      type: 'direct',
+    }, sender.token);
+    assert.equal(conversation.status, 201, JSON.stringify(conversation.body));
+
+    const send = await post(baseUrl, `/api/chat/conversations/${conversation.body.id}/messages`, {
+      content: 'Where are you?',
+    }, sender.token);
+    assert.equal(send.status, 201, JSON.stringify(send.body));
+
+    const logs = await get(baseUrl, '/api/notifications/logs', recipient.token);
+    assert.equal(logs.status, 200);
+    assert.equal(logs.body.some((entry: any) => entry.template === 'chat_message' && entry.status === 'sent'), true);
+  });
+});
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 
 test('GET /api/notifications/health returns ok', async () => {
@@ -521,6 +550,12 @@ test('notifications: preferences, device tokens, push/email/sms, and logs work',
     }, rider.token);
     assert.equal(token.status, 200);
     assert.equal(token.body.token, 'device-token-123');
+    assert.ok(token.body.deviceTokenId);
+
+    const listed = await get(baseUrl, '/api/notifications/device-tokens', rider.token);
+    assert.equal(listed.status, 200);
+    assert.equal(Array.isArray(listed.body.deviceTokens), true);
+    assert.equal(listed.body.deviceTokens.length, 1);
 
     const push = await post(baseUrl, '/api/notifications/push', {
       userId: rider.userId,
@@ -566,6 +601,10 @@ test('notifications: preferences, device tokens, push/email/sms, and logs work',
     assert.ok(Array.isArray(logs.body));
     assert.ok(logs.body.length >= 4);
     assert.ok(logs.body.some((entry: any) => entry.status === 'queued' && entry.errorMessage === 'queued_due_to_quiet_hours'));
+
+    const removed = await del(baseUrl, `/api/notifications/device-tokens/${token.body.deviceTokenId}`, rider.token);
+    assert.equal(removed.status, 200);
+    assert.equal(removed.body.ok, true);
   });
 });
 
