@@ -1,6 +1,28 @@
+import { existsSync } from 'fs';
+import path from 'path';
 import dotenv from 'dotenv';
 
-dotenv.config();
+function loadEnvFile() {
+  const envPath = path.resolve(process.cwd(), '.env');
+  if (existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    return envPath;
+  }
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  const exampleEnvPath = path.resolve(process.cwd(), '.env.example');
+  if (!isProduction && existsSync(exampleEnvPath)) {
+    dotenv.config({ path: exampleEnvPath });
+    return exampleEnvPath;
+  }
+
+  // Load with the explicit `.env` path even when it is absent so dotenv keeps
+  // the runtime behavior predictable and any real values still come from process.env.
+  dotenv.config({ path: envPath });
+  return undefined;
+}
+
+export const loadedEnvFilePath = loadEnvFile();
 
 function getString(name: string, fallback?: string) {
   const value = process.env[name];
@@ -62,5 +84,6 @@ export const env = {
   mapboxPublicToken: getString(
     'MAPBOX_PUBLIC_TOKEN',
     'pk.eyJ1IjoiZmx1cGZsYXAiLCJhIjoiY21wMjI3M3dpMDN5eTJycHMyeG8yaDZ3OCJ9.VUXlzIoU5Gxfj6-BVjnxag'
-  )
+  ),
+  loadedEnvFilePath
 };
