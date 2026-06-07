@@ -81,8 +81,10 @@ export type Ride = {
   driverId?: string;
   pickupLat?: number;
   pickupLng?: number;
+  pickupAddress?: string;
   dropoffLat?: number;
   dropoffLng?: number;
+  dropoffAddress?: string;
   miles: number;
   minutes: number;
   fareEstimate: number;
@@ -891,6 +893,7 @@ export type NotificationLog = {
   id: string;
   userId?: string;
   channel: NotificationChannel;
+  category?: 'rides' | 'payments' | 'support' | 'system';
   recipient: string;
   template: string;
   status: 'sent' | 'failed' | 'queued';
@@ -900,6 +903,30 @@ export type NotificationLog = {
   deviceTokenId?: string;
   providerMessageId?: string;
   errorMessage?: string;
+  readAt?: string;
+  archivedAt?: string;
+  deletedAt?: string;
+  createdAt: string;
+};
+
+export type SearchResource = 'drivers' | 'rides';
+
+export type SavedSearch = {
+  id: string;
+  userId: string;
+  name: string;
+  resource: SearchResource;
+  filters: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SearchHistoryEntry = {
+  id: string;
+  userId: string;
+  resource: SearchResource;
+  filters: Record<string, string>;
+  resultCount: number;
   createdAt: string;
 };
 
@@ -1004,6 +1031,8 @@ type PersistedStore = {
   notificationLogs: NotificationLog[];
   notificationPreferences: Array<[string, NotificationPreference]>;
   deviceTokens: DeviceToken[];
+  savedSearches: SavedSearch[];
+  searchHistory: SearchHistoryEntry[];
   bankAccounts: Array<[string, BankAccount]>;
   payoutRequests: Array<[string, PayoutRequest]>;
   locationHistory: DriverLocationPoint[];
@@ -1122,6 +1151,8 @@ export const store = {
   notificationLogs: createPersistentArray<NotificationLog>(),
   notificationPreferences: new PersistentMap<string, NotificationPreference>(),
   deviceTokens: createPersistentArray<DeviceToken>(),
+  savedSearches: createPersistentArray<SavedSearch>(),
+  searchHistory: createPersistentArray<SearchHistoryEntry>(),
   bankAccounts: new PersistentMap<string, BankAccount>(),
   payoutRequests: new PersistentMap<string, PayoutRequest>(),
   locationHistory: createPersistentArray<DriverLocationPoint>(),
@@ -1183,6 +1214,8 @@ function toSerializableStore(): PersistedStore {
     notificationLogs: [...store.notificationLogs],
     notificationPreferences: Array.from(store.notificationPreferences.entries()),
     deviceTokens: [...store.deviceTokens],
+    savedSearches: [...store.savedSearches],
+    searchHistory: [...store.searchHistory],
     bankAccounts: Array.from(store.bankAccounts.entries()),
     payoutRequests: Array.from(store.payoutRequests.entries()),
     locationHistory: [...store.locationHistory],
@@ -1284,6 +1317,8 @@ function hydrateStore() {
     for (const log of parsed.notificationLogs || []) store.notificationLogs.push(log);
     for (const [userId, preference] of parsed.notificationPreferences || []) store.notificationPreferences.set(userId, preference);
     for (const deviceToken of parsed.deviceTokens || []) store.deviceTokens.push(deviceToken);
+    for (const savedSearch of parsed.savedSearches || []) store.savedSearches.push(savedSearch);
+    for (const historyEntry of parsed.searchHistory || []) store.searchHistory.push(historyEntry);
     for (const [id, bankAccount] of parsed.bankAccounts || []) store.bankAccounts.set(id, bankAccount);
     for (const [id, payoutRequest] of parsed.payoutRequests || []) store.payoutRequests.set(id, payoutRequest);
     for (const locationPoint of parsed.locationHistory || []) store.locationHistory.push(locationPoint);

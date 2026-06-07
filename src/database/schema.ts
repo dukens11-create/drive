@@ -191,8 +191,10 @@ CREATE TABLE IF NOT EXISTS rides (
   driver_id               TEXT REFERENCES users (id),
   pickup_lat              DOUBLE PRECISION,
   pickup_lng              DOUBLE PRECISION,
+  pickup_address          TEXT,
   dropoff_lat             DOUBLE PRECISION,
   dropoff_lng             DOUBLE PRECISION,
+  dropoff_address         TEXT,
   miles                   DOUBLE PRECISION NOT NULL DEFAULT 0,
   minutes                 DOUBLE PRECISION NOT NULL DEFAULT 0,
   fare_estimate           DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -234,6 +236,12 @@ CREATE INDEX IF NOT EXISTS idx_rides_rider_id   ON rides (rider_id);
 CREATE INDEX IF NOT EXISTS idx_rides_driver_id  ON rides (driver_id);
 CREATE INDEX IF NOT EXISTS idx_rides_status     ON rides (status);
 CREATE INDEX IF NOT EXISTS idx_rides_created_at ON rides (created_at);
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS pickup_address TEXT;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS dropoff_address TEXT;
+CREATE INDEX IF NOT EXISTS idx_rides_status_created ON rides (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pickup_address_gin ON rides USING GIN (
+  to_tsvector('english', COALESCE(pickup_address, '') || ' ' || COALESCE(dropoff_address, ''))
+);
 
 -- ─── Ride requests ────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS ride_requests (
@@ -254,6 +262,7 @@ CREATE TABLE IF NOT EXISTS ride_requests (
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_drivers_rating ON drivers (rating DESC);
 CREATE INDEX IF NOT EXISTS idx_ride_requests_ride_id ON ride_requests (ride_id);
 
 -- ─── Payments ─────────────────────────────────────────────────────────────────
@@ -815,14 +824,45 @@ CREATE TABLE IF NOT EXISTS notification_logs (
   id            TEXT PRIMARY KEY,
   user_id       TEXT REFERENCES users (id),
   channel       TEXT NOT NULL CHECK (channel IN ('sms','email','push')),
+  category      TEXT NOT NULL DEFAULT 'system',
   recipient     TEXT NOT NULL,
   template      TEXT NOT NULL,
   status        TEXT NOT NULL CHECK (status IN ('sent','failed','queued')),
   provider      TEXT NOT NULL,
   error_message TEXT,
+  read_at       TIMESTAMPTZ,
+  archived_at   TIMESTAMPTZ,
+  deleted_at    TIMESTAMPTZ,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_notification_logs_user_id ON notification_logs (user_id);
+ALTER TABLE notification_logs ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'system';
+ALTER TABLE notification_logs ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
+ALTER TABLE notification_logs ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+ALTER TABLE notification_logs ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_notification_logs_unread ON notification_logs (user_id, read_at);
+
+-- ─── Search preferences & history ──────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS saved_searches (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  resource    TEXT NOT NULL CHECK (resource IN ('drivers','rides')),
+  filters     JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_saved_searches_user_id ON saved_searches (user_id);
+
+CREATE TABLE IF NOT EXISTS search_history (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  resource     TEXT NOT NULL CHECK (resource IN ('drivers','rides')),
+  filters      JSONB NOT NULL DEFAULT '{}'::jsonb,
+  result_count INT NOT NULL DEFAULT 0,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_search_history_user_id ON search_history (user_id, created_at DESC);
 
 -- ─── Notification preferences ─────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS notification_preferences (

@@ -67,6 +67,26 @@ export async function listLogs(req: any, res: any) {
   sendResult(res, result);
 }
 
+export async function hub(req: any, res: any) {
+  sendResult(res, await service.listNotificationHub({ ...req.query, actor: req.user }));
+}
+
+export async function markRead(req: any, res: any) {
+  sendResult(res, await service.markNotificationRead({ ...req.body, actor: req.user }, req.params));
+}
+
+export async function readAll(req: any, res: any) {
+  sendResult(res, await service.markAllNotificationsRead({ ...req.body, ...req.query, actor: req.user }));
+}
+
+export async function unreadCount(req: any, res: any) {
+  sendResult(res, await service.getUnreadNotificationCount({ ...req.query, actor: req.user }));
+}
+
+export async function deleteAll(req: any, res: any) {
+  sendResult(res, await service.deleteAllNotifications({ ...req.body, actor: req.user }));
+}
+
 export async function sendPush(req: any, res: any) {
   sendResult(res, await service.sendPush({ ...req.body, actor: req.user }));
 }
