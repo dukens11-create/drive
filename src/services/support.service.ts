@@ -3,7 +3,7 @@ import { sendRealtimePushEvent } from './notifications.service';
 import { logger } from '../utils/logger';
 import { notificationTemplates } from '../utils/fcm-templates';
 import { sendEmail } from './email.service';
-import { sendSMS } from './sms.service';
+import { sendSMS, sendSupportTicketCreatedSms } from './sms.service';
 import { emailTemplates } from '../utils/email-templates';
 import { smsTemplates } from '../utils/sms-templates';
 import { env } from '../config/env';
@@ -24,6 +24,20 @@ export async function create_ticket(body: any, _params?: any, _query?: any) {
   if (actor) {
     appendAuditLog(actor.sub || actor.id, actor.role, 'ticket_created', ticket.id, 'ticket', { type: ticket.type });
   }
+
+  // SMS confirmation to user when ticket is created
+  if (ticket.userId) {
+    const user = store.users.get(ticket.userId);
+    if (user?.phone) {
+      const ticketNumber = ticket.id.split('_')[1] || ticket.id;
+      sendSupportTicketCreatedSms(
+        user.phone,
+        { ticketNumber },
+        ticket.userId
+      ).catch(err => logger.warn('support_ticket_created SMS failed', { ticketId: ticket.id, error: err?.message }));
+    }
+  }
+
   return { module: 'support', action: 'create-ticket', ok: true, ticket };
 }
 
@@ -101,7 +115,7 @@ export async function reply_ticket(body: any, _params?: any, _query?: any) {
         data: template.data
       });
     } catch (error: any) {
-      logger.warn('Support reply notification failed', { ticketId: ticket.id, userId: ticket.userId, error: error?.message });
+      logger.warn('Support reply push notification failed', { ticketId: ticket.id, userId: ticket.userId, error: error?.message });
     }
   }
   return { module: 'support', action: 'reply-ticket', ok: true, reply, ticket };

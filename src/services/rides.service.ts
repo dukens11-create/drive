@@ -19,6 +19,7 @@ import {
   type RideRequestResponse,
   type VehicleType
 } from '../database/data.store';
+import { env } from '../config/env';
 import { markDriverAssigned, releaseDriverFromRide } from './drivers.service';
 import { sendRealtimePushEvent } from './notifications.service';
 import { sendEmail } from './email.service';
@@ -29,7 +30,7 @@ import { notificationTemplates } from '../utils/fcm-templates';
 import { getPricingForVehicleType } from '../utils/vehicle-pricing';
 import { emailTemplates } from '../utils/email-templates';
 import { smsTemplates } from '../utils/sms-templates';
-import { env } from '../config/env';
+
 
 const CURRENCY = 'USD';
 const DEFAULT_SERVICE_FEE_PERCENT = 0.12;
@@ -965,6 +966,7 @@ export async function complete(body: any, _params?: any, _query?: any) {
 
   const riderProfile = store.riders.get(ride.riderId);
   if (riderProfile?.currentTripId === ride.id) riderProfile.currentTripId = undefined;
+
   publishRideRealtimeUpdate(ride, 'completed');
   if (ride.driverId) publishDriverRealtimeEarnings(ride.driverId);
   return { module: 'rides', action: 'complete', ok: true, ride: toRiderRideSummary(ride), grossCents, discountCents, amountCents, receipt: getRideReceipt(ride) };

@@ -1,4 +1,4 @@
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
+import { createHash, randomBytes, randomInt, scryptSync, timingSafeEqual } from 'crypto';
 import jwt from 'jsonwebtoken';
 import {
   appendAuditLog,
@@ -16,6 +16,7 @@ import { validateTotpToken } from './twofa.service';
 import { createKycSession } from './kyc-provider';
 import { sendEmail } from './email.service';
 import { emailTemplates } from '../utils/email-templates';
+import { logger } from '../utils/logger';
 
 function signAccessToken(user: { id: string; role: string; email?: string; phone?: string }) {
   return jwt.sign({ sub: user.id, role: user.role, email: user.email, phone: user.phone }, env.jwtSecret, {
@@ -154,7 +155,7 @@ export async function signup(body: any, _params?: any, _query?: any) {
   });
 
   if (user.email) {
-    const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
+    const verificationCode = randomInt(100000, 1000000).toString();
     const template = emailTemplates.ACCOUNT_VERIFICATION({
       verificationCode,
       verificationLink: `${env.appBaseUrl || 'https://app.drive.com'}/verify-email?code=${verificationCode}&userId=${user.id}`
@@ -363,4 +364,55 @@ export async function revokeSession(body: any, _params?: any, _query?: any) {
   }
 
   return { module: 'auth', action: 'revoke-session', ok: true, revoked, sessionId };
+}
+
+// ─── Password reset ───────────────────────────────────────────────────────────
+
+const RESET_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
+
+export async function forgotPassword(body: any, _params?: any, _query?: any) {
+  const email = body?.email?.toLowerCase?.();
+  if (!email) return { module: 'auth', action: 'forgot-password', error: 'email is required' };
+
+  // Always return ok to prevent user enumeration
+  const user = Array.from(store.users.values()).find(u => u.email === email);
+  if (user) {
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_MS).toISOString();
+    store.passwordResetTokens.set(token, { userId: user.id, expiresAt });
+    const resetLink = `${env.appBaseUrl}/reset-password?token=${token}`;
+    const template = emailTemplates.PASSWORD_RESET({ resetLink, expiresInMinutes: 60 });
+    sendEmail(user.email!, template.subject, template.html, { template: 'password_reset', userId: user.id })
+      .catch(err => logger.warn('Password reset email failed', { userId: user.id, error: err?.message }));
+    appendAuditLog(user.id, user.role, 'auth_password_reset_requested', user.id, 'user', {});
+  }
+
+  return { module: 'auth', action: 'forgot-password', ok: true, message: 'If an account with that email exists, a reset link has been sent.' };
+}
+
+export async function resetPassword(body: any, _params?: any, _query?: any) {
+  const token = body?.token;
+  const newPassword = body?.password;
+  if (!token) return { module: 'auth', action: 'reset-password', error: 'token is required' };
+  if (!newPassword || newPassword.length < 8) {
+    return { module: 'auth', action: 'reset-password', error: 'password must be at least 8 characters' };
+  }
+
+  const record = store.passwordResetTokens.get(token);
+  if (!record) return { module: 'auth', action: 'reset-password', error: 'invalid or expired reset token' };
+  if (new Date(record.expiresAt).getTime() <= Date.now()) {
+    store.passwordResetTokens.delete(token);
+    return { module: 'auth', action: 'reset-password', error: 'reset token has expired' };
+  }
+
+  const user = store.users.get(record.userId);
+  if (!user) return { module: 'auth', action: 'reset-password', error: 'user not found' };
+
+  const salt = randomBytes(16);
+  const hash = scryptSync(newPassword, salt, 64);
+  user.password = `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`;
+  store.passwordResetTokens.delete(token);
+  appendAuditLog(user.id, user.role, 'auth_password_reset_completed', user.id, 'user', {});
+
+  return { module: 'auth', action: 'reset-password', ok: true };
 }
