@@ -85,5 +85,8 @@ export const env = {
     'MAPBOX_PUBLIC_TOKEN',
     'pk.eyJ1IjoiZmx1cGZsYXAiLCJhIjoiY21wMjI3M3dpMDN5eTJycHMyeG8yaDZ3OCJ9.VUXlzIoU5Gxfj6-BVjnxag'
   ),
+  // PostgreSQL database connection
+  databaseUrl: getString('DATABASE_URL'),
+  databasePoolMax: Number(getString('DATABASE_POOL_MAX', '10')),
   loadedEnvFilePath
 };

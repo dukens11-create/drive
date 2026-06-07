@@ -10,11 +10,30 @@ services:
       timeout: 5s
       retries: 5
 
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: drive
+      POSTGRES_PASSWORD: drive_local
+      POSTGRES_DB: drive_local
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U drive -d drive_local']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build: .
     restart: unless-stopped
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     env_file:
       - .env
@@ -22,6 +41,7 @@ services:
       DATA_STORE_MODE: file
       DATA_STORE_FILE: /app/.data/store.json
       REDIS_URL: redis://redis:6379
+      DATABASE_URL: ******postgres:5432/drive_local
     ports:
       - '8080:8080'
     volumes:
@@ -33,12 +53,15 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     env_file:
       - .env
     environment:
       DATA_STORE_MODE: file
       DATA_STORE_FILE: /app/.data/store.json
       REDIS_URL: redis://redis:6379
+      DATABASE_URL: ******postgres:5432/drive_local
     command: ['node', 'dist/worker.js']
     volumes:
       - drive_data:/app/.data
@@ -89,3 +112,4 @@ services:
 
 volumes:
   drive_data:
+  postgres_data:
