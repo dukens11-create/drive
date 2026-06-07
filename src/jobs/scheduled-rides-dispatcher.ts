@@ -27,7 +27,9 @@ export async function runScheduledRidesDispatcher() {
       const scheduledAtMs = new Date(scheduledRide.scheduledAt).getTime();
       if (!Number.isFinite(scheduledAtMs) || scheduledAtMs - now > DISPATCH_WINDOW_MS) continue;
 
-      const lastAttemptMs = new Date(scheduledRide.last_dispatch_attempt_at || '').getTime();
+      const lastAttemptMs = scheduledRide.last_dispatch_attempt_at
+        ? new Date(scheduledRide.last_dispatch_attempt_at).getTime()
+        : 0;
       if (Number.isFinite(lastAttemptMs) && now - lastAttemptMs < RETRY_COOLDOWN_MS) continue;
 
       attempted += 1;
@@ -36,7 +38,6 @@ export async function runScheduledRidesDispatcher() {
 
       try {
         const dispatch = await dispatchRide({
-          id: scheduledRide.id,
           pickupLat: scheduledRide.pickupLat,
           pickupLng: scheduledRide.pickupLng
         });
@@ -50,7 +51,9 @@ export async function runScheduledRidesDispatcher() {
           pickupLat: scheduledRide.pickupLat,
           pickupLng: scheduledRide.pickupLng,
           dropoffLat: scheduledRide.dropoffLat,
-          dropoffLng: scheduledRide.dropoffLng
+          dropoffLng: scheduledRide.dropoffLng,
+          pickupAddress: scheduledRide.pickupAddress,
+          dropoffAddress: scheduledRide.dropoffAddress
         });
 
         if (!result?.ok || !result?.ride?.id) {
@@ -65,13 +68,13 @@ export async function runScheduledRidesDispatcher() {
       } catch (error: any) {
         failed += 1;
         const reason = String(error?.message || DEFAULT_FAILURE_REASON);
-        scheduledRide.dispatch_failed_reason = reason || DEFAULT_FAILURE_REASON;
+        scheduledRide.dispatch_failed_reason = reason;
         scheduledRide.updatedAt = timestamp();
 
         if ((scheduledRide.dispatch_attempts || 0) >= MAX_DISPATCH_ATTEMPTS) {
           scheduledRide.status = 'canceled';
           scheduledRide.canceledAt = timestamp();
-          scheduledRide.cancellationReason = DEFAULT_FAILURE_REASON;
+          scheduledRide.cancellationReason = reason;
           canceled += 1;
         }
       }

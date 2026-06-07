@@ -93,7 +93,7 @@ export async function getScheduledRide(body: any, params?: any) {
   return { module: 'scheduled', ok: true, scheduledRide: ride };
 }
 
-/** Called by a background worker or cron to dispatch due scheduled rides. */
+/** Delegates scheduled-ride dispatching to the background dispatcher job logic. */
 export async function dispatchDueScheduledRides() {
   return runScheduledRidesDispatcher();
 }
