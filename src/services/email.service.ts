@@ -1,45 +1,8 @@
-<<<<<<< HEAD
-/**
- * Email service – sends transactional emails via SendGrid using HTML templates.
- * Falls back to a stub log when SendGrid credentials are not configured.
- */
-import { env } from '../config/env';
-import { logNotification } from '../utils/notification-logger';
-import { emailTemplates } from '../utils/email-templates';
-import { logger } from '../utils/logger';
-
-async function sendViaSendGrid(to: string, subject: string, html: string): Promise<string | undefined> {
-  if (env.sendGridApiKey && env.sendGridFromEmail) {
-    const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer ' + env.sendGridApiKey,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        personalizations: [{ to: [{ email: to }], subject }],
-        from: { email: env.sendGridFromEmail },
-        content: [{ type: 'text/html', value: html }],
-        tracking_settings: {
-          click_tracking: { enable: true },
-          open_tracking: { enable: true }
-        }
-      })
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`SendGrid error ${res.status}: ${body}`);
-    }
-    const messageId = res.headers.get('x-message-id') ?? undefined;
-    return messageId;
-  }
-  logger.info('[EMAIL-STUB] Would send email via SendGrid', { to, subject });
-  return undefined;
-=======
 import sgMail from '@sendgrid/mail';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { logNotification } from '../utils/notification-logger';
+import { emailTemplates } from '../utils/email-templates';
 
 let initialized = false;
 
@@ -47,31 +10,14 @@ export function initializeEmailService() {
   if (!env.sendGridApiKey || initialized) return;
   sgMail.setApiKey(env.sendGridApiKey);
   initialized = true;
->>>>>>> origin/main
 }
 
 export async function sendEmail(
   to: string,
   subject: string,
-<<<<<<< HEAD
-  html: string,
-  options?: { template?: string; userId?: string }
-): Promise<{ ok: boolean; messageId?: string; error?: string }> {
-  try {
-    const messageId = await sendViaSendGrid(to, subject, html);
-    logNotification({
-      channel: 'email',
-      recipient: to,
-      template: options?.template || subject,
-      status: 'sent',
-      provider: 'sendgrid',
-      userId: options?.userId,
-      messageId
-    });
-=======
   htmlContent: string,
   data?: Record<string, any>
-) {
+): Promise<{ ok: boolean; messageId?: string; error?: string }> {
   try {
     initializeEmailService();
     const fromEmail = env.sendGridFromEmail || 'noreply@drive.app';
@@ -104,22 +50,29 @@ export async function sendEmail(
       messageId
     });
 
->>>>>>> origin/main
     return { ok: true, messageId };
   } catch (error: any) {
     logNotification({
       channel: 'email',
       recipient: to,
-<<<<<<< HEAD
-      template: options?.template || subject,
+      template: String(data?.template || subject),
       status: 'failed',
       provider: 'sendgrid',
-      userId: options?.userId,
+      userId: data?.userId,
       errorMessage: error?.message
     });
-    logger.error('Email send failed', { to, subject, error: error?.message });
-    return { ok: false, error: error?.message };
+
+    logger.warn('Email send failed', { to, subject, error: error?.message });
+    return { ok: false, error: error?.message || 'email_send_failed' };
   }
+}
+
+export async function sendBulkEmail(recipients: string[], subject: string, htmlContent: string) {
+  const deliveries = await Promise.all(recipients.map(to => sendEmail(to, subject, htmlContent, { template: 'bulk_campaign' })));
+  return {
+    ok: deliveries.every(delivery => delivery.ok),
+    deliveries
+  };
 }
 
 export async function sendRideConfirmationEmail(
@@ -210,27 +163,7 @@ export async function sendBulkPromotionalEmail(
   const results = await Promise.allSettled(
     recipients.map(to => sendPromotionalEmail(to, data))
   );
-  const sent = results.filter(r => r.status === 'fulfilled' && r.value.ok).length;
+  const sent = results.filter(r => r.status === 'fulfilled' && (r as any).value.ok).length;
   const failed = results.length - sent;
   return { ok: true, sent, failed, total: results.length };
-=======
-      template: String(data?.template || subject),
-      status: 'failed',
-      provider: 'sendgrid',
-      userId: data?.userId,
-      errorMessage: error?.message
-    });
-
-    logger.warn('Email send failed', { to, subject, error: error?.message });
-    return { ok: false, error: error?.message || 'email_send_failed' };
-  }
-}
-
-export async function sendBulkEmail(recipients: string[], subject: string, htmlContent: string) {
-  const deliveries = await Promise.all(recipients.map(to => sendEmail(to, subject, htmlContent, { template: 'bulk_campaign' })));
-  return {
-    ok: deliveries.every(delivery => delivery.ok),
-    deliveries
-  };
->>>>>>> origin/main
 }

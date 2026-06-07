@@ -13,14 +13,9 @@ import {
 import { env } from '../config/env';
 import { getActiveSuspension } from '../middleware/suspension.middleware';
 import { validateTotpToken } from './twofa.service';
-<<<<<<< HEAD
-import { sendAccountVerificationEmail, sendPasswordResetEmail } from './email.service';
-import { logger } from '../utils/logger';
-=======
 import { createKycSession } from './kyc-provider';
 import { sendEmail } from './email.service';
 import { emailTemplates } from '../utils/email-templates';
->>>>>>> origin/main
 
 function signAccessToken(user: { id: string; role: string; email?: string; phone?: string }) {
   return jwt.sign({ sub: user.id, role: user.role, email: user.email, phone: user.phone }, env.jwtSecret, {
@@ -158,26 +153,8 @@ export async function signup(body: any, _params?: any, _query?: any) {
     userAgent: body?.userAgent
   });
 
-<<<<<<< HEAD
-  // Send account verification email if the user signed up with an email
   if (user.email) {
     const verificationCode = randomInt(100000, 1000000).toString();
-    sendAccountVerificationEmail(
-      user.email,
-      {
-        userName: user.email.split('@')[0],
-        verificationCode,
-        verifyLink: `${env.appBaseUrl}/verify-email?code=${verificationCode}&userId=${user.id}`,
-        expiresInHours: 24
-      },
-      user.id
-    ).catch(err => logger.warn('account_verification email failed', { userId: user.id, error: err?.message }));
-  }
-
-  return { module: 'auth', action: 'signup', ok: true, user: sanitizeUser(user), accessToken, refreshToken };
-=======
-  if (user.email) {
-    const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
     const template = emailTemplates.ACCOUNT_VERIFICATION({
       verificationCode,
       verificationLink: `${env.appBaseUrl || 'https://app.drive.com'}/verify-email?code=${verificationCode}&userId=${user.id}`
@@ -214,7 +191,6 @@ export async function requestPasswordReset(body: any, _params?: any, _query?: an
   await sendEmail(email, template.subject, template.html, { template: 'password_reset', userId: user.id });
   appendAuditLog(user.id, user.role, 'auth_password_reset_requested', user.id, 'user');
   return { module: 'auth', action: 'password-reset-request', ok: true };
->>>>>>> origin/main
 }
 
 export async function login(body: any, _params?: any, _query?: any) {
@@ -404,15 +380,9 @@ export async function forgotPassword(body: any, _params?: any, _query?: any) {
     const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_MS).toISOString();
     store.passwordResetTokens.set(token, { userId: user.id, expiresAt });
     const resetLink = `${env.appBaseUrl}/reset-password?token=${token}`;
-    sendPasswordResetEmail(
-      user.email!,
-      {
-        userName: user.email!.split('@')[0],
-        resetLink,
-        expiresInMinutes: 60
-      },
-      user.id
-    ).catch(err => logger.warn('password_reset email failed', { userId: user.id, error: err?.message }));
+    const template = emailTemplates.PASSWORD_RESET({ resetLink, expiresInMinutes: 60 });
+    sendEmail(user.email!, template.subject, template.html, { template: 'password_reset', userId: user.id })
+      .catch(() => {});
     appendAuditLog(user.id, user.role, 'auth_password_reset_requested', user.id, 'user', {});
   }
 

@@ -2,17 +2,11 @@ import { handleStripeWebhook } from '../utils/stripe.webhook';
 import { env } from '../config/env';
 import { makeId, markStoreDirty, store, timestamp, type Payment, type PaymentMethod, type PaymentMethodType } from '../database/data.store';
 import { applyCaptureLedger, applyRefundLedger } from '../utils/payment.records';
-<<<<<<< HEAD
-import { sendPaymentReceiptEmail } from './email.service';
-import { sendPaymentFailedSms } from './sms.service';
-import { logger } from '../utils/logger';
-=======
 import { sendEmail } from './email.service';
 import { emailTemplates } from '../utils/email-templates';
 import { createStripeIdempotencyKey, getOrCreateStripeCustomerId, getStripeClient, isStripeEnabled } from './stripe-client';
 import { constructStripeEvent, getStripeSignatureHeader } from '../utils/stripe-signature';
 import { getErrorDetails, logger } from '../utils';
->>>>>>> origin/main
 
 const PAYMENT_METHOD_TYPES = new Set<PaymentMethodType>(['card', 'apple_pay', 'google_pay', 'paypal', 'bank_transfer', 'wallet']);
 
@@ -273,34 +267,6 @@ export async function capture(body: any, _params?: any, _query?: any) {
 
   const invoice = applyCaptureLedger(payment);
 
-<<<<<<< HEAD
-  // Send payment receipt email to the rider
-  if (payment.riderId) {
-    const rider = store.users.get(payment.riderId);
-    if (rider?.email) {
-      const ride = payment.rideId ? store.rides.get(payment.rideId) : undefined;
-      const driver = ride?.driverId ? store.users.get(ride.driverId) : undefined;
-      const fareDetails = ride?.fareDetails;
-      sendPaymentReceiptEmail(
-        rider.email,
-        {
-          riderName: rider.email.split('@')[0],
-          driverName: driver?.email?.split('@')[0] || 'Your driver',
-          tripDate: new Date(payment.capturedAt || payment.updatedAt).toLocaleDateString(),
-          distance: ride?.miles ?? 0,
-          duration: ride?.minutes ? `${Math.round(ride.minutes)} min` : '',
-          baseFare: fareDetails ? Math.round(fareDetails.baseFare * 100) : 0,
-          distanceFare: fareDetails ? Math.round(fareDetails.distanceFare * 100) : 0,
-          timeFare: fareDetails ? Math.round(fareDetails.timeFare * 100) : 0,
-          serviceFee: fareDetails ? Math.round(fareDetails.serviceFee * 100) : 0,
-          taxes: fareDetails && fareDetails.taxes > 0 ? Math.round(fareDetails.taxes * 100) : undefined,
-          total: payment.amountCents,
-          invoiceNumber: invoice?.invoiceNumber
-        },
-        payment.riderId
-      ).catch(err => logger.warn('payment_receipt email failed', { paymentId: payment.id, error: err?.message }));
-    }
-=======
   const rider = payment.riderId ? store.users.get(payment.riderId) : undefined;
   const ride = payment.rideId ? store.rides.get(payment.rideId) : undefined;
   const driver = payment.driverId ? store.users.get(payment.driverId) : undefined;
@@ -327,7 +293,6 @@ export async function capture(body: any, _params?: any, _query?: any) {
       downloadReceiptLink: `${env.appBaseUrl || 'https://app.drive.com'}/payments/invoices/${invoice.id}`
     });
     await sendEmail(rider.email, receiptTemplate.subject, receiptTemplate.html, { template: 'payment_receipt', userId: rider.id });
->>>>>>> origin/main
   }
 
   return { module: 'payments', action: 'capture', ok: true, payment, invoice };
