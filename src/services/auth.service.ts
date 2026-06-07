@@ -12,6 +12,8 @@ import {
 } from '../database/data.store';
 import { env } from '../config/env';
 import { validateTotpToken } from './twofa.service';
+import { sendAccountVerificationEmail, sendPasswordResetEmail } from './email.service';
+import { logger } from '../utils/logger';
 
 function signAccessToken(user: { id: string; role: string; email?: string; phone?: string }) {
   return jwt.sign({ sub: user.id, role: user.role, email: user.email, phone: user.phone }, env.jwtSecret, {
@@ -147,6 +149,21 @@ export async function signup(body: any, _params?: any, _query?: any) {
     ipAddress: body?.ipAddress,
     userAgent: body?.userAgent
   });
+
+  // Send account verification email if the user signed up with an email
+  if (user.email) {
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    sendAccountVerificationEmail(
+      user.email,
+      {
+        userName: user.email.split('@')[0],
+        verificationCode,
+        verifyLink: `${env.appBaseUrl}/verify-email?code=${verificationCode}&userId=${user.id}`,
+        expiresInHours: 24
+      },
+      user.id
+    ).catch(err => logger.warn('account_verification email failed', { userId: user.id, error: err?.message }));
+  }
 
   return { module: 'auth', action: 'signup', ok: true, user: sanitizeUser(user), accessToken, refreshToken };
 }
@@ -306,4 +323,61 @@ export async function revokeSession(body: any, _params?: any, _query?: any) {
   }
 
   return { module: 'auth', action: 'revoke-session', ok: true, revoked, sessionId };
+}
+
+// ─── Password reset ───────────────────────────────────────────────────────────
+
+const RESET_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
+
+export async function forgotPassword(body: any, _params?: any, _query?: any) {
+  const email = body?.email?.toLowerCase?.();
+  if (!email) return { module: 'auth', action: 'forgot-password', error: 'email is required' };
+
+  // Always return ok to prevent user enumeration
+  const user = Array.from(store.users.values()).find(u => u.email === email);
+  if (user) {
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_MS).toISOString();
+    store.passwordResetTokens.set(token, { userId: user.id, expiresAt });
+    const resetLink = `${env.appBaseUrl}/reset-password?token=${token}`;
+    sendPasswordResetEmail(
+      user.email!,
+      {
+        userName: user.email!.split('@')[0],
+        resetLink,
+        expiresInMinutes: 60
+      },
+      user.id
+    ).catch(err => logger.warn('password_reset email failed', { userId: user.id, error: err?.message }));
+    appendAuditLog(user.id, user.role, 'auth_password_reset_requested', user.id, 'user', {});
+  }
+
+  return { module: 'auth', action: 'forgot-password', ok: true, message: 'If an account with that email exists, a reset link has been sent.' };
+}
+
+export async function resetPassword(body: any, _params?: any, _query?: any) {
+  const token = body?.token;
+  const newPassword = body?.password;
+  if (!token) return { module: 'auth', action: 'reset-password', error: 'token is required' };
+  if (!newPassword || newPassword.length < 8) {
+    return { module: 'auth', action: 'reset-password', error: 'password must be at least 8 characters' };
+  }
+
+  const record = store.passwordResetTokens.get(token);
+  if (!record) return { module: 'auth', action: 'reset-password', error: 'invalid or expired reset token' };
+  if (new Date(record.expiresAt).getTime() <= Date.now()) {
+    store.passwordResetTokens.delete(token);
+    return { module: 'auth', action: 'reset-password', error: 'reset token has expired' };
+  }
+
+  const user = store.users.get(record.userId);
+  if (!user) return { module: 'auth', action: 'reset-password', error: 'user not found' };
+
+  const salt = randomBytes(16);
+  const hash = scryptSync(newPassword, salt, 64);
+  user.password = `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`;
+  store.passwordResetTokens.delete(token);
+  appendAuditLog(user.id, user.role, 'auth_password_reset_completed', user.id, 'user', {});
+
+  return { module: 'auth', action: 'reset-password', ok: true };
 }

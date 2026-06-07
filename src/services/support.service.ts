@@ -1,5 +1,7 @@
 import { appendAuditLog, makeId, markStoreDirty, store, timestamp } from '../database/data.store';
 import { sendRealtimePushEvent } from './notifications.service';
+import { sendSupportReplyEmail } from './email.service';
+import { sendSupportReplySms, sendSupportTicketCreatedSms } from './sms.service';
 import { logger } from '../utils/logger';
 
 export async function create_ticket(body: any, _params?: any, _query?: any) {
@@ -18,6 +20,20 @@ export async function create_ticket(body: any, _params?: any, _query?: any) {
   if (actor) {
     appendAuditLog(actor.sub || actor.id, actor.role, 'ticket_created', ticket.id, 'ticket', { type: ticket.type });
   }
+
+  // SMS confirmation to user when ticket is created
+  if (ticket.userId) {
+    const user = store.users.get(ticket.userId);
+    if (user?.phone) {
+      const ticketNumber = ticket.id.split('_')[1] || ticket.id;
+      sendSupportTicketCreatedSms(
+        user.phone,
+        { ticketNumber },
+        ticket.userId
+      ).catch(err => logger.warn('support_ticket_created SMS failed', { ticketId: ticket.id, error: err?.message }));
+    }
+  }
+
   return { module: 'support', action: 'create-ticket', ok: true, ticket };
 }
 
@@ -69,7 +85,44 @@ export async function reply_ticket(body: any, _params?: any, _query?: any) {
         template: 'support_reply'
       });
     } catch (error: any) {
-      logger.warn('Support reply notification failed', { ticketId: ticket.id, userId: ticket.userId, error: error?.message });
+      logger.warn('Support reply push notification failed', { ticketId: ticket.id, userId: ticket.userId, error: error?.message });
+    }
+
+    const user = store.users.get(ticket.userId);
+    const ticketNumber = ticket.id.split('_')[1] || ticket.id;
+    const conversationHistory = ticket.replies
+      .slice(-3)
+      .map(r => ({
+        author: r.authorRole,
+        message: r.message.substring(0, 200),
+        createdAt: r.createdAt
+      }));
+
+    // Email notification to user
+    if (user?.email) {
+      sendSupportReplyEmail(
+        user.email,
+        {
+          userName: user.email.split('@')[0],
+          ticketNumber,
+          reply: reply.message,
+          ticketStatus: ticket.status,
+          conversationHistory
+        },
+        ticket.userId
+      ).catch(err => logger.warn('support_reply email failed', { ticketId: ticket.id, error: err?.message }));
+    }
+
+    // SMS for urgent tickets
+    if (user?.phone && ticket.type === 'urgent') {
+      sendSupportReplySms(
+        user.phone,
+        {
+          ticketNumber,
+          preview: reply.message.substring(0, 50)
+        },
+        ticket.userId
+      ).catch(err => logger.warn('support_reply SMS failed', { ticketId: ticket.id, error: err?.message }));
     }
   }
   return { module: 'support', action: 'reply-ticket', ok: true, reply, ticket };

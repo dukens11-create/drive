@@ -19,8 +19,11 @@ import {
   type RideRequestResponse,
   type VehicleType
 } from '../database/data.store';
+import { env } from '../config/env';
 import { markDriverAssigned, releaseDriverFromRide } from './drivers.service';
 import { sendRealtimePushEvent } from './notifications.service';
+import { sendRideConfirmationEmail, sendPaymentReceiptEmail, sendDriverEarningsEmail } from './email.service';
+import { sendRideRequestSms, sendDriverArrivingSms } from './sms.service';
 import { publishDriverRealtimeEarnings, publishRideRealtimeUpdate, publishRiderRatingSubmitted } from './realtime-dispatch.service';
 import { logger } from '../utils/logger';
 
@@ -479,6 +482,22 @@ export async function request(body: any, _params?: any, _query?: any) {
     updatedAt: now
   };
   store.rideRequests.set(rideRequest.id, rideRequest);
+
+  // SMS alert to all nearby drivers about the new ride request
+  for (const candidate of dispatch.candidates) {
+    const driverUser = store.users.get(candidate.driverId);
+    if (driverUser?.phone) {
+      sendRideRequestSms(
+        driverUser.phone,
+        {
+          pickupStreet: typeof body?.pickupAddress === 'string' ? body.pickupAddress.split(',')[0] : 'your location',
+          fareEstimate: Math.round(ride.fareEstimate * 100)
+        },
+        candidate.driverId
+      ).catch(err => logger.warn('ride_request SMS failed', { driverId: candidate.driverId, error: err?.message }));
+    }
+  }
+
   if (dispatch.selected?.driverId && dispatch.candidates.length === 1) {
     const assigned = markDriverAssigned(dispatch.selected.driverId);
     if (assigned.ok) {
@@ -658,6 +677,32 @@ export async function accept(body: any, params?: any, _query?: any) {
     'Your driver is heading to your pickup location.',
     'trip_update_accepted'
   );
+
+  // Ride confirmation email to rider
+  const riderUser = store.users.get(ride.riderId);
+  if (riderUser?.email) {
+    const driverProfile = store.drivers.get(driverId);
+    const activeVehicle = driverProfile?.primaryVehicleId ? store.vehicles.get(driverProfile.primaryVehicleId) : undefined;
+    sendRideConfirmationEmail(
+      riderUser.email,
+      {
+        riderName: riderUser.email.split('@')[0],
+        driverName: store.users.get(driverId)?.email?.split('@')[0] || 'Your driver',
+        driverRating: driverProfile?.rating ?? 5,
+        carColor: activeVehicle?.color || '',
+        carMake: activeVehicle?.make || '',
+        carModel: activeVehicle?.model || '',
+        licensePlate: activeVehicle?.licensePlate || '',
+        pickupAddress: String(body?.pickupAddress || `${ride.pickupLat ?? ''},${ride.pickupLng ?? ''}`),
+        dropoffAddress: String(body?.dropoffAddress || `${ride.dropoffLat ?? ''},${ride.dropoffLng ?? ''}`),
+        eta: Math.round(ride.minutes || 10),
+        fareEstimate: Math.round(ride.fareEstimate * 100),
+        trackingLink: `${env.appBaseUrl}/rides/${ride.id}`
+      },
+      ride.riderId
+    ).catch(err => logger.warn('ride_confirmation email failed', { rideId: ride.id, error: err?.message }));
+  }
+
   publishRideRealtimeUpdate(ride, 'accepted');
   return { module: 'rides', action: 'accept', ok: true, ride: toRiderRideSummary(ride), request };
 }
@@ -682,6 +727,23 @@ export async function arrive(body: any, _params?: any, _query?: any) {
     'Your driver is waiting at the pickup location.',
     'trip_update_arrived'
   );
+
+  // SMS to rider when driver arrives at pickup
+  const riderUser = store.users.get(ride.riderId);
+  if (riderUser?.phone) {
+    const driverProfile = store.drivers.get(driverId);
+    const activeVehicle = driverProfile?.primaryVehicleId ? store.vehicles.get(driverProfile.primaryVehicleId) : undefined;
+    sendDriverArrivingSms(
+      riderUser.phone,
+      {
+        carColor: activeVehicle?.color || '',
+        carMake: activeVehicle?.make || '',
+        licensePlate: activeVehicle?.licensePlate || ''
+      },
+      ride.riderId
+    ).catch(err => logger.warn('driver_arriving SMS failed', { rideId: ride.id, error: err?.message }));
+  }
+
   publishRideRealtimeUpdate(ride, 'arrived_at_pickup');
   return { module: 'rides', action: 'arrive', ok: true, ride: toRiderRideSummary(ride), arrivedAt: now };
 }
@@ -783,6 +845,57 @@ export async function complete(body: any, _params?: any, _query?: any) {
 
   const riderProfile = store.riders.get(ride.riderId);
   if (riderProfile?.currentTripId === ride.id) riderProfile.currentTripId = undefined;
+
+  // Send payment receipt email to rider
+  const riderUser = store.users.get(ride.riderId);
+  if (riderUser?.email && ride.fareDetails) {
+    const driverUser = ride.driverId ? store.users.get(ride.driverId) : undefined;
+    sendPaymentReceiptEmail(
+      riderUser.email,
+      {
+        riderName: riderUser.email.split('@')[0],
+        driverName: driverUser?.email?.split('@')[0] || 'Your driver',
+        tripDate: new Date(completedAt).toLocaleDateString(),
+        distance: ride.miles ?? 0,
+        duration: `${Math.round(ride.minutes ?? 0)} min`,
+        baseFare: Math.round(ride.fareDetails.baseFare * 100),
+        distanceFare: Math.round(ride.fareDetails.distanceFare * 100),
+        timeFare: Math.round(ride.fareDetails.timeFare * 100),
+        surgeFare: ride.fareDetails.surgeFare > 0 ? Math.round(ride.fareDetails.surgeFare * 100) : undefined,
+        surgeMultiplier: ride.fareDetails.surgeMultiplier > 1 ? ride.fareDetails.surgeMultiplier : undefined,
+        serviceFee: Math.round(ride.fareDetails.serviceFee * 100),
+        taxes: ride.fareDetails.taxes > 0 ? Math.round(ride.fareDetails.taxes * 100) : undefined,
+        tolls: ride.fareDetails.tolls > 0 ? Math.round(ride.fareDetails.tolls * 100) : undefined,
+        discount: ride.fareDetails.discounts > 0 ? Math.round(ride.fareDetails.discounts * 100) : undefined,
+        tip: ride.fareDetails.tips > 0 ? Math.round(ride.fareDetails.tips * 100) : undefined,
+        total: Math.round(ride.fareDetails.total * 100)
+      },
+      ride.riderId
+    ).catch(err => logger.warn('payment_receipt email failed', { rideId: ride.id, error: err?.message }));
+  }
+
+  // Send driver earnings email
+  if (ride.driverId && ride.fareDetails) {
+    const driverUser = store.users.get(ride.driverId);
+    if (driverUser?.email) {
+      sendDriverEarningsEmail(
+        driverUser.email,
+        {
+          driverName: driverUser.email.split('@')[0],
+          riderName: riderUser?.email?.split('@')[0] || 'Passenger',
+          distance: ride.miles ?? 0,
+          duration: `${Math.round(ride.minutes ?? 0)} min`,
+          grossFare: Math.round(ride.fareDetails.subtotal * 100),
+          platformFee: Math.round((ride.fareDetails.subtotal - ride.fareDetails.driverEarnings) * 100),
+          earnings: Math.round(ride.fareDetails.driverEarnings * 100),
+          tip: ride.fareDetails.tips > 0 ? Math.round(ride.fareDetails.tips * 100) : undefined,
+          walletLink: `${env.appBaseUrl}/wallet`
+        },
+        ride.driverId
+      ).catch(err => logger.warn('driver_earnings email failed', { rideId: ride.id, error: err?.message }));
+    }
+  }
+
   publishRideRealtimeUpdate(ride, 'completed');
   if (ride.driverId) publishDriverRealtimeEarnings(ride.driverId);
   return { module: 'rides', action: 'complete', ok: true, ride: toRiderRideSummary(ride), grossCents, discountCents, amountCents, receipt: getRideReceipt(ride) };
