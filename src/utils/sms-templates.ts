@@ -48,7 +48,7 @@ export const smsTemplates = {
     ticketNumber: string;
     preview: string;
   }) =>
-    `Support replied to ticket #${data.ticketNumber}: ${data.preview} View in app`,
+    `Support replied to ticket #${data.ticketNumber}: ${data.preview.slice(0, 50)} View in app`,
 
   SUPPORT_TICKET_CREATED: (data: {
     ticketNumber: string;

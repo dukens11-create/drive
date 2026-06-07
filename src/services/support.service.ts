@@ -1,10 +1,8 @@
 import { appendAuditLog, makeId, markStoreDirty, store, timestamp } from '../database/data.store';
 import { sendRealtimePushEvent } from './notifications.service';
-import { sendSupportReplyEmail } from './email.service';
-import { sendSupportReplySms, sendSupportTicketCreatedSms } from './sms.service';
-import { logger } from '../utils/logger';
 import { sendEmail } from './email.service';
-import { sendSMS } from './sms.service';
+import { sendSMS, sendSupportTicketCreatedSms } from './sms.service';
+import { logger } from '../utils/logger';
 import { emailTemplates } from '../utils/email-templates';
 import { smsTemplates } from '../utils/sms-templates';
 import { env } from '../config/env';

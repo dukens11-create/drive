@@ -16,6 +16,7 @@ import { validateTotpToken } from './twofa.service';
 import { createKycSession } from './kyc-provider';
 import { sendEmail } from './email.service';
 import { emailTemplates } from '../utils/email-templates';
+import { logger } from '../utils/logger';
 
 function signAccessToken(user: { id: string; role: string; email?: string; phone?: string }) {
   return jwt.sign({ sub: user.id, role: user.role, email: user.email, phone: user.phone }, env.jwtSecret, {
@@ -382,7 +383,7 @@ export async function forgotPassword(body: any, _params?: any, _query?: any) {
     const resetLink = `${env.appBaseUrl}/reset-password?token=${token}`;
     const template = emailTemplates.PASSWORD_RESET({ resetLink, expiresInMinutes: 60 });
     sendEmail(user.email!, template.subject, template.html, { template: 'password_reset', userId: user.id })
-      .catch(() => {});
+      .catch(err => logger.warn('Password reset email failed', { userId: user.id, error: err?.message }));
     appendAuditLog(user.id, user.role, 'auth_password_reset_requested', user.id, 'user', {});
   }
 

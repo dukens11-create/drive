@@ -149,7 +149,7 @@ export const emailTemplates = {
   }),
 
   PROMOTIONAL: (data: any) => ({
-    subject: `[PROMOTION] Get ${dollars(Number(data?.discountAmount || 0))} off your next ride`,
+    subject: `Special Offer Just For You! 🎉 Save ${dollars(Number(data?.discountAmount || 0))}`,
     html: `
       <h2>Special Offer Just For You! 🎉</h2>
       ${data?.userName ? `<p>Hi ${escapeHtml(data.userName)},</p>` : ''}
