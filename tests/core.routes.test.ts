@@ -340,6 +340,8 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
       'id="fare-surge"',
       'id="route-instructions"',
       'id="header-current-time"',
+      'id="map-loading"',
+      'id="map-fallback-detail"',
       'trip-timeline',
       'Driver',
       'Rider',
@@ -347,6 +349,10 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
     ].forEach(token => {
       assert.match(body, new RegExp(token));
     });
+    const mapboxCssIndex = body.indexOf('https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.css');
+    const riderCssIndex = body.indexOf('/rider-dashboard.css');
+    assert.equal(mapboxCssIndex >= 0, true);
+    assert.equal(riderCssIndex > mapboxCssIndex, true);
     assert.doesNotMatch(body, /\s(onclick|onsubmit)=/);
     assert.doesNotMatch(body, /<script>([\s\S]*?)<\/script>/i);
   });
