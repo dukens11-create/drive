@@ -333,6 +333,7 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
       'class="dashboard-grid"',
       'id="profile-card"',
       'id="pickup-input"',
+<<<<<<< HEAD
       'id="pickup-coordinates"',
       'id="pickup-address"',
       'id="pickup-suggestions"',
@@ -340,11 +341,22 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
       'id="destination-coordinates"',
       'id="destination-address"',
       'id="destination-suggestions"',
+=======
+      'id="pickup-input-message"',
+      'id="destination-input"',
+      'id="destination-input-message"',
+>>>>>>> origin/main
       'id="request-ride-button"',
       'id="cancel-ride-button"',
       'id="fare-base"',
       'id="fare-surge"',
+<<<<<<< HEAD
       'id="location-error"',
+=======
+      'id="route-category-badge"',
+      'id="long-distance-banner"',
+      'id="ride-validation-message"',
+>>>>>>> origin/main
       'id="route-instructions"',
       'id="header-current-time"',
       'id="map-loading"',
@@ -387,7 +399,11 @@ test('GET /rider-dashboard.js includes Mapbox route rendering and fare breakdown
       'fare-distance-fare',
       'fare-time-fare',
       'fare-surge',
-      'fare-taxes'
+      'fare-taxes',
+      'MAX_RIDE_DISTANCE_MILES',
+      'MINIMUM_FARES',
+      'International ride requests are currently unavailable.',
+      'Long-distance trips over 6 hours are unavailable for on-demand booking.'
     ].forEach(token => {
       assert.equal(body.includes(token), true, `Expected rider-dashboard.js to include ${token}`);
     });

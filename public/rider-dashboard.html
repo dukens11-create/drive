@@ -122,8 +122,15 @@
                   />
                   <div id="pickup-suggestions" class="autocomplete-suggestions d-none" role="listbox" aria-label="Pickup suggestions"></div>
                 </div>
+<<<<<<< HEAD
                 <input id="pickup-coordinates" type="hidden" />
                 <input id="pickup-address" type="hidden" />
+=======
+                <div id="pickup-input-message" class="input-message d-none" aria-live="polite">
+                  <span class="input-message-icon" aria-hidden="true">ⓘ</span>
+                  <span id="pickup-input-message-text"></span>
+                </div>
+>>>>>>> origin/main
               </div>
 
               <div class="form-group">
@@ -142,8 +149,15 @@
                   />
                   <div id="destination-suggestions" class="autocomplete-suggestions d-none" role="listbox" aria-label="Destination suggestions"></div>
                 </div>
+<<<<<<< HEAD
                 <input id="destination-coordinates" type="hidden" />
                 <input id="destination-address" type="hidden" />
+=======
+                <div id="destination-input-message" class="input-message d-none" aria-live="polite">
+                  <span class="input-message-icon" aria-hidden="true">ⓘ</span>
+                  <span id="destination-input-message-text"></span>
+                </div>
+>>>>>>> origin/main
               </div>
 
               <button id="current-location-button" type="button" class="btn btn-secondary btn-block">
@@ -196,6 +210,10 @@
                   </div>
                 </button>
               </div>
+              <div id="ride-validation-message" class="ride-validation-message d-none" aria-live="polite">
+                <i class="bi bi-exclamation-circle" aria-hidden="true"></i>
+                <span id="ride-validation-message-text"></span>
+              </div>
             </div>
 
             <div class="card fare-card">
@@ -242,7 +260,7 @@
                   <span class="fare-value" id="fare-time-fare">$0.00</span>
                 </div>
                 <div class="fare-row">
-                  <span class="fare-label">Surge fare</span>
+                  <span class="fare-label">Surge adjustment</span>
                   <span class="fare-value" id="fare-surge">$0.00</span>
                 </div>
                 <div class="fare-row">
@@ -258,7 +276,7 @@
             </div>
 
             <div class="button-group">
-              <button id="request-ride-button" type="button" class="btn btn-primary btn-block btn-lg">
+              <button id="request-ride-button" type="button" class="btn btn-primary btn-block btn-lg" title="Enter a valid pickup and destination.">
                 <span class="btn-spinner" aria-hidden="true"></span>
                 <i class="bi bi-lightning-charge-fill btn-icon"></i>
                 <span class="btn-label">Request Ride</span>
@@ -277,6 +295,10 @@
                 <div>
                   <p class="card-eyebrow">Live navigation</p>
                   <h2 class="card-title">Route map</h2>
+                </div>
+                <div id="route-category-badge" class="route-category-badge route-category-badge--local">
+                  <span id="route-category-icon" aria-hidden="true">📍</span>
+                  <span id="route-category-text">Local Route</span>
                 </div>
                 <div class="map-summary">
                   <div class="map-summary-chip">
@@ -300,6 +322,13 @@
                     <strong id="map-route-traffic">Clear route</strong>
                   </div>
                 </div>
+              </div>
+              <div id="long-distance-banner" class="long-distance-banner d-none" aria-live="polite">
+                <div class="long-distance-banner-copy">
+                  <span class="long-distance-banner-icon" aria-hidden="true">ⓘ</span>
+                  <span id="long-distance-banner-text">This is a long-distance trip. Consider scheduling in advance.</span>
+                </div>
+                <button id="dismiss-long-distance-banner" type="button" class="long-distance-banner-dismiss" aria-label="Dismiss long-distance notice">×</button>
               </div>
 
               <div class="map-container">
