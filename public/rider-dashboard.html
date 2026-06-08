@@ -108,24 +108,49 @@
 
               <div class="form-group">
                 <label for="pickup-input" class="form-label">Pickup location</label>
-                <div class="input-wrapper">
+                <div class="input-wrapper location-input-wrapper">
                   <i class="input-icon bi bi-geo-alt-fill"></i>
-                  <input id="pickup-input" type="text" class="form-input" placeholder="Enter pickup (lat, lng or address)" />
+                  <input
+                    id="pickup-input"
+                    type="text"
+                    class="form-input location-input"
+                    placeholder="Enter pickup address, city, airport, or coordinates"
+                    autocomplete="off"
+                    aria-autocomplete="list"
+                    aria-controls="pickup-suggestions"
+                    aria-expanded="false"
+                  />
+                  <div id="pickup-suggestions" class="autocomplete-suggestions d-none" role="listbox" aria-label="Pickup suggestions"></div>
                 </div>
+                <input id="pickup-coordinates" type="hidden" />
+                <input id="pickup-address" type="hidden" />
               </div>
 
               <div class="form-group">
                 <label for="destination-input" class="form-label">Destination</label>
-                <div class="input-wrapper">
+                <div class="input-wrapper location-input-wrapper">
                   <i class="input-icon bi bi-flag-fill"></i>
-                  <input id="destination-input" type="text" class="form-input" placeholder="Enter destination (lat, lng or address)" />
+                  <input
+                    id="destination-input"
+                    type="text"
+                    class="form-input location-input"
+                    placeholder="Enter destination address, city, airport, or coordinates"
+                    autocomplete="off"
+                    aria-autocomplete="list"
+                    aria-controls="destination-suggestions"
+                    aria-expanded="false"
+                  />
+                  <div id="destination-suggestions" class="autocomplete-suggestions d-none" role="listbox" aria-label="Destination suggestions"></div>
                 </div>
+                <input id="destination-coordinates" type="hidden" />
+                <input id="destination-address" type="hidden" />
               </div>
 
               <button id="current-location-button" type="button" class="btn btn-secondary btn-block">
                 <i class="bi bi-crosshair2"></i>
                 <span>Use current location</span>
               </button>
+              <div id="location-error" class="location-error d-none" role="status" aria-live="polite"></div>
             </div>
 
             <div class="card ride-type-card">

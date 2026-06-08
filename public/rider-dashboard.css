@@ -454,6 +454,10 @@ input {
   position: relative;
 }
 
+.location-input-wrapper {
+  position: relative;
+}
+
 .input-wrapper.is-loading::after {
   content: '';
   position: absolute;
@@ -498,6 +502,71 @@ input {
   background: rgba(59, 130, 246, 0.02);
   box-shadow: 0 0 0 4px rgba(27, 128, 255, 0.12), 0 0 12px rgba(59, 130, 246, 0.3);
   transform: translateY(-1px);
+}
+
+.location-input {
+  padding-right: 44px;
+}
+
+.autocomplete-suggestions {
+  position: absolute;
+  top: calc(100% - 2px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: 220px;
+  overflow-y: auto;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(203, 213, 225, 0.88);
+  border-top: none;
+  border-radius: 0 0 18px 18px;
+  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.16);
+}
+
+.suggestion-item {
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.82);
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background 200ms ease, color 200ms ease;
+}
+
+.suggestion-item:hover,
+.suggestion-item:focus-visible,
+.suggestion-item.is-active {
+  background: rgba(27, 128, 255, 0.08);
+  outline: none;
+}
+
+.suggestion-item:last-child {
+  border-bottom: none;
+}
+
+.suggestion-item-main {
+  display: block;
+  font-weight: 600;
+}
+
+.suggestion-item-secondary {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.location-error {
+  margin-top: 10px;
+  color: #92400e;
+  background: rgba(255, 184, 77, 0.18);
+  border: 1px solid rgba(255, 184, 77, 0.28);
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 0.86rem;
+  font-weight: 600;
 }
 
 .form-group:focus-within .form-label {

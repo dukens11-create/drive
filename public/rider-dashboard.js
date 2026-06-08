@@ -18,8 +18,9 @@ const MAP_FLY_TARGET_ZOOM = 13;
 const MAP_FLY_MAX_ZOOM = 14;
 const CURRENT_LOCATION_TIMEOUT_MS = 12000;
 const WATCH_LOCATION_TIMEOUT_MS = 10000;
-const GEOCODE_DEBOUNCE_MS = 500;
-const MIN_GEOCODE_QUERY_LENGTH = 3;
+const GEOCODE_DEBOUNCE_MS = 300;
+const MIN_GEOCODE_QUERY_LENGTH = 2;
+const MAX_GEOCODE_SUGGESTIONS = 5;
 const GEOCODE_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const DEFAULT_SERVICE_FEE_PERCENT = 0.12;
 const MIN_TRIP_MINUTES = 4;
@@ -80,7 +81,12 @@ let statusProgressionTimerId = null;
 let assignedDriver = null;
 let estimateRetryCount = 0;
 let estimateRetryTimerId = null;
+let latestKnownRiderPosition = null;
 const geocodeDebounceTimers = {};
+const locationSuggestions = {
+  'pickup-input': [],
+  'destination-input': []
+};
 
 const mapState = {
   map: null,
@@ -157,6 +163,30 @@ function safeSetText(id, value) {
 
 function formatCoordinatePair(lat, lng) {
   return `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
+}
+
+function getLocationFieldConfig(id) {
+  return id === 'pickup-input'
+    ? {
+      suggestionsId: 'pickup-suggestions',
+      coordinatesFieldId: 'pickup-coordinates',
+      addressFieldId: 'pickup-address'
+    }
+    : {
+      suggestionsId: 'destination-suggestions',
+      coordinatesFieldId: 'destination-coordinates',
+      addressFieldId: 'destination-address'
+    };
+}
+
+function getLocationElements(id) {
+  const config = getLocationFieldConfig(id);
+  return {
+    input: document.getElementById(id),
+    suggestions: document.getElementById(config.suggestionsId),
+    coordinatesField: document.getElementById(config.coordinatesFieldId),
+    addressField: document.getElementById(config.addressFieldId)
+  };
 }
 
 function setButtonLoading(id, isLoading) {
@@ -468,91 +498,298 @@ function writeGeocodeCache(cache) {
   localStorage.setItem(MAPBOX_GEOCODE_CACHE_STORAGE_KEY, JSON.stringify(cache || {}));
 }
 
-async function geocodeAddress(query) {
-  const normalizedQuery = String(query || '').trim().toLowerCase();
-  if (!normalizedQuery) return null;
+function createCoordinateFeature(lat, lng, label = formatCoordinatePair(lat, lng)) {
+  return {
+    type: 'Feature',
+    center: [Number(lng), Number(lat)],
+    place_name: label,
+    text: label,
+    place_type: ['coordinate'],
+    properties: { isCoordinate: true }
+  };
+}
+
+function getFeatureCoordinates(feature) {
+  const center = Array.isArray(feature?.center)
+    ? feature.center
+    : Array.isArray(feature?.geometry?.coordinates)
+      ? feature.geometry.coordinates
+      : null;
+  const lng = Number(center?.[0]);
+  const lat = Number(center?.[1]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
+function parseSuggestion(feature) {
+  const coordinates = getFeatureCoordinates(feature);
+  if (!coordinates) return null;
+  const displayText = String(feature?.place_name || feature?.text || formatCoordinatePair(coordinates.lat, coordinates.lng)).trim();
+  const mainText = String(feature?.text || displayText).trim();
+  const secondary = feature?.properties?.isCoordinate
+    ? 'Coordinates'
+    : displayText !== mainText
+      ? displayText
+      : Array.isArray(feature?.place_type) && feature.place_type.length
+        ? feature.place_type.join(', ')
+        : '';
+  return {
+    displayText,
+    mainText,
+    secondary,
+    lat: coordinates.lat,
+    lng: coordinates.lng,
+    feature
+  };
+}
+
+function hideSuggestions(id) {
+  const { input, suggestions } = getLocationElements(id);
+  if (suggestions) {
+    suggestions.classList.add('d-none');
+    suggestions.replaceChildren();
+  }
+  if (input) input.setAttribute('aria-expanded', 'false');
+}
+
+function setLocationError(message = '') {
+  const errorNode = document.getElementById('location-error');
+  if (!errorNode) return;
+  const hasMessage = Boolean(String(message || '').trim());
+  errorNode.textContent = hasMessage ? message : '';
+  errorNode.classList.toggle('d-none', !hasMessage);
+}
+
+function clearStoredLocation(id, options = {}) {
+  const { keepInputValue = false } = options;
+  const { input, coordinatesField, addressField } = getLocationElements(id);
+  if (coordinatesField) coordinatesField.value = '';
+  if (addressField) addressField.value = '';
+  if (input) {
+    delete input.dataset.committedValue;
+    if (!keepInputValue) input.value = '';
+  }
+}
+
+async function geocodeAddress(query, options = {}) {
+  const { limit = 1 } = options;
+  const rawQuery = String(query || '').trim();
+  const normalizedQuery = rawQuery.toLowerCase();
+  if (!rawQuery) return [];
+
+  const parsedCoordinates = parseCoordinateInput(rawQuery);
+  if (parsedCoordinates) {
+    return [createCoordinateFeature(parsedCoordinates.lat, parsedCoordinates.lng, rawQuery)];
+  }
+
+  if (rawQuery.length < MIN_GEOCODE_QUERY_LENGTH) return [];
 
   const now = Date.now();
   const cache = readGeocodeCache();
-  const cached = cache[normalizedQuery];
+  const cacheKey = `${normalizedQuery}::${Math.max(1, Math.min(MAX_GEOCODE_SUGGESTIONS, Number(limit) || 1))}`;
+  const cached = cache[cacheKey] || cache[normalizedQuery];
   if (cached && now - Number(cached.cachedAt || 0) < GEOCODE_CACHE_TTL_MS) {
-    return { lat: Number(cached.lat), lng: Number(cached.lng) };
+    if (Array.isArray(cached.features)) return cached.features;
+    if (Number.isFinite(Number(cached.lat)) && Number.isFinite(Number(cached.lng))) {
+      return [createCoordinateFeature(Number(cached.lat), Number(cached.lng), cached.placeName || rawQuery)];
+    }
   }
 
   const token = mapState.token || readMapboxToken();
-  if (!token) return null;
+  if (!token) return [];
 
   try {
-    const encodedQuery = encodeURIComponent(normalizedQuery);
+    const encodedQuery = encodeURIComponent(rawQuery);
+    const requestLimit = Math.max(1, Math.min(MAX_GEOCODE_SUGGESTIONS, Number(limit) || 1));
     const url = new URL(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedQuery}.json`);
+    url.searchParams.set('access_token', token);
+    url.searchParams.set('autocomplete', 'true');
+    url.searchParams.set('limit', String(requestLimit));
+    const response = await fetch(url.toString());
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) return [];
+
+    const features = (Array.isArray(payload?.features) ? payload.features : [])
+      .filter(feature => getFeatureCoordinates(feature))
+      .slice(0, requestLimit);
+
+    cache[cacheKey] = { features, cachedAt: now };
+    if (requestLimit === 1 && features[0]) {
+      const coordinates = getFeatureCoordinates(features[0]);
+      cache[normalizedQuery] = {
+        lat: coordinates?.lat,
+        lng: coordinates?.lng,
+        placeName: String(features[0].place_name || rawQuery),
+        cachedAt: now
+      };
+    }
+    writeGeocodeCache(cache);
+    return features;
+  } catch (_error) {
+    return [];
+  }
+}
+
+async function reverseGeocodeCoordinates(lat, lng) {
+  const numericLat = Number(lat);
+  const numericLng = Number(lng);
+  if (!Number.isFinite(numericLat) || !Number.isFinite(numericLng)) return formatCoordinatePair(lat, lng);
+
+  const cache = readGeocodeCache();
+  const cacheKey = `reverse::${numericLat.toFixed(5)},${numericLng.toFixed(5)}`;
+  const cached = cache[cacheKey];
+  if (cached && Date.now() - Number(cached.cachedAt || 0) < GEOCODE_CACHE_TTL_MS && cached.placeName) {
+    return cached.placeName;
+  }
+
+  const token = mapState.token || readMapboxToken();
+  if (!token) return formatCoordinatePair(numericLat, numericLng);
+
+  try {
+    const url = new URL(`https://api.mapbox.com/geocoding/v5/mapbox.places/${numericLng},${numericLat}.json`);
     url.searchParams.set('access_token', token);
     url.searchParams.set('limit', '1');
     const response = await fetch(url.toString());
     const payload = await response.json().catch(() => null);
-    const feature = payload?.features?.[0];
-    const center = Array.isArray(feature?.center) ? feature.center : null;
-    const lng = Number(center?.[0]);
-    const lat = Number(center?.[1]);
-    if (!response.ok || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-
-    cache[normalizedQuery] = { lat, lng, cachedAt: now };
-    writeGeocodeCache(cache);
-    return { lat, lng };
+    const placeName = String(payload?.features?.[0]?.place_name || '').trim() || formatCoordinatePair(numericLat, numericLng);
+    if (response.ok) {
+      cache[cacheKey] = { placeName, cachedAt: Date.now() };
+      writeGeocodeCache(cache);
+    }
+    return placeName;
   } catch (_error) {
-    return null;
+    return formatCoordinatePair(numericLat, numericLng);
   }
 }
 
-async function resolveCoordinateInput(id, options = {}) {
-  const { fitRoute = true, showError = false } = options;
-  const input = document.getElementById(id);
-  const rawValue = String(input?.value || '').trim();
-  if (!input || !rawValue) return parseCoordinateInput(rawValue);
-  const parsedCoordinates = parseCoordinateInput(rawValue);
-  if (parsedCoordinates) return parsedCoordinates;
+function showSuggestions(id, features) {
+  const { input, suggestions } = getLocationElements(id);
+  if (!input || !suggestions) return;
 
-  const token = mapState.token || readMapboxToken();
-  if (!token) {
-    if (showError) {
-      showPopup('Mapbox token missing. Enter coordinates as "lat, lng" or add a token to geocode places.');
+  suggestions.replaceChildren();
+  if (!Array.isArray(features) || !features.length) {
+    suggestions.classList.add('d-none');
+    input.setAttribute('aria-expanded', 'false');
+    return;
+  }
+
+  features.forEach((feature, index) => {
+    const suggestion = parseSuggestion(feature);
+    if (!suggestion) return;
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'suggestion-item';
+    button.setAttribute('role', 'option');
+    button.dataset.index = String(index);
+
+    const main = document.createElement('span');
+    main.className = 'suggestion-item-main';
+    main.textContent = suggestion.mainText;
+
+    button.appendChild(main);
+
+    if (suggestion.secondary) {
+      const secondary = document.createElement('span');
+      secondary.className = 'suggestion-item-secondary';
+      secondary.textContent = suggestion.secondary;
+      button.appendChild(secondary);
     }
+
+    button.addEventListener('mousedown', event => {
+      event.preventDefault();
+    });
+    button.addEventListener('click', () => {
+      resolveCoordinateInput(id, { fitRoute: true, feature }).catch(() => {});
+    });
+    suggestions.appendChild(button);
+  });
+
+  suggestions.classList.remove('d-none');
+  input.setAttribute('aria-expanded', 'true');
+}
+
+function queueGeocodeResolution(id) {
+  if (geocodeDebounceTimers[id]) window.clearTimeout(geocodeDebounceTimers[id]);
+  const { input } = getLocationElements(id);
+  const value = String(input?.value || '').trim();
+  if (!value || value.length < MIN_GEOCODE_QUERY_LENGTH) {
+    locationSuggestions[id] = [];
+    hideSuggestions(id);
+    return;
+  }
+
+  geocodeDebounceTimers[id] = window.setTimeout(async () => {
+    const activeValue = String(getLocationElements(id).input?.value || '').trim();
+    if (activeValue !== value) return;
+    setInputLoading(id, true);
+    try {
+      const suggestions = await geocodeAddress(value, { limit: MAX_GEOCODE_SUGGESTIONS });
+      if (String(getLocationElements(id).input?.value || '').trim() !== value) return;
+      locationSuggestions[id] = suggestions;
+      showSuggestions(id, suggestions);
+      setLocationError(suggestions.length ? '' : 'Location not found');
+    } finally {
+      setInputLoading(id, false);
+    }
+  }, GEOCODE_DEBOUNCE_MS);
+}
+
+async function resolveCoordinateInput(id, options = {}) {
+  const { fitRoute = true, showError = false, feature = null } = options;
+  const { input, coordinatesField, addressField } = getLocationElements(id);
+  const rawValue = String(input?.value || '').trim();
+  if (!input || !coordinatesField || !addressField) return null;
+  if (!rawValue) {
+    clearStoredLocation(id);
+    hideSuggestions(id);
     return null;
   }
 
   setInputLoading(id, true);
   try {
-    const coordinates = await geocodeAddress(rawValue);
-    if (!coordinates) {
-      if (showError) showPopup(`Address not found for "${rawValue}".`);
+    const parsedCoordinates = parseCoordinateInput(rawValue);
+    let selectedFeature = feature;
+    if (!selectedFeature && parsedCoordinates) {
+      const placeName = await reverseGeocodeCoordinates(parsedCoordinates.lat, parsedCoordinates.lng);
+      selectedFeature = createCoordinateFeature(parsedCoordinates.lat, parsedCoordinates.lng, placeName);
+    }
+    if (!selectedFeature) {
+      const suggestions = locationSuggestions[id] || await geocodeAddress(rawValue, { limit: MAX_GEOCODE_SUGGESTIONS });
+      locationSuggestions[id] = suggestions;
+      selectedFeature = suggestions[0] || null;
+    }
+
+    const suggestion = parseSuggestion(selectedFeature);
+    if (!suggestion) {
+      clearStoredLocation(id, { keepInputValue: true });
+      hideSuggestions(id);
+      if (showError) setLocationError('Location not found');
       return null;
     }
-    input.value = formatCoordinatePair(coordinates.lat, coordinates.lng);
+
+    input.value = suggestion.displayText;
+    input.dataset.committedValue = suggestion.displayText;
+    coordinatesField.value = formatCoordinatePair(suggestion.lat, suggestion.lng);
+    addressField.value = suggestion.displayText;
     mapState.lastFetchedRouteKey = '';
+    hideSuggestions(id);
+    setLocationError('');
     await refreshFareEstimate({ fitRoute });
-    return coordinates;
+    return { lat: suggestion.lat, lng: suggestion.lng };
   } finally {
     setInputLoading(id, false);
   }
 }
 
-function queueGeocodeResolution(id, options = {}) {
-  if (geocodeDebounceTimers[id]) window.clearTimeout(geocodeDebounceTimers[id]);
-  const input = document.getElementById(id);
-  const value = String(input?.value || '').trim();
-  if (!value || parseCoordinateInput(value) || value.length < MIN_GEOCODE_QUERY_LENGTH) return;
-  geocodeDebounceTimers[id] = window.setTimeout(() => {
-    resolveCoordinateInput(id, options).catch(() => {});
-  }, GEOCODE_DEBOUNCE_MS);
-}
-
 function getPickupAndDestination(options = {}) {
   const { allowFallback = false } = options;
-  const pickup = parseCoordinateInput(document.getElementById('pickup-input')?.value);
-  const destination = parseCoordinateInput(document.getElementById('destination-input')?.value);
+  const pickup = parseCoordinateInput(document.getElementById('pickup-coordinates')?.value);
+  const destination = parseCoordinateInput(document.getElementById('destination-coordinates')?.value);
   if (!allowFallback) {
     return { pickup, destination, hasValidCoordinates: Boolean(pickup && destination) };
   }
-  const nextPickup = pickup || DEFAULT_PICKUP;
+  const nextPickup = pickup || latestKnownRiderPosition || DEFAULT_PICKUP;
   const nextDestination = destination || {
     lat: nextPickup.lat + 0.012,
     lng: nextPickup.lng + 0.008
@@ -570,8 +807,12 @@ async function requestRide(pickup, destination) {
     pickupLng: pickup.lng,
     dropoffLat: destination.lat,
     dropoffLng: destination.lng,
-    pickupLabel: document.getElementById('pickup-input')?.value.trim() || `${pickup.lat.toFixed(5)}, ${pickup.lng.toFixed(5)}`,
-    destinationLabel: document.getElementById('destination-input')?.value.trim() || `${destination.lat.toFixed(5)}, ${destination.lng.toFixed(5)}`,
+    pickupLabel: document.getElementById('pickup-address')?.value.trim()
+      || document.getElementById('pickup-input')?.value.trim()
+      || `${pickup.lat.toFixed(5)}, ${pickup.lng.toFixed(5)}`,
+    destinationLabel: document.getElementById('destination-address')?.value.trim()
+      || document.getElementById('destination-input')?.value.trim()
+      || `${destination.lat.toFixed(5)}, ${destination.lng.toFixed(5)}`,
     rideType: selectedRideType,
     miles: estimate.route.distanceMiles,
     minutes: estimate.route.etaMinutes,
@@ -1062,9 +1303,6 @@ async function fetchDirectionsRoute(pickup, destination) {
     const distanceMiles = rawDistanceMiles > 0 && rawDistanceMiles < MAX_DISTANCE_MILES
       ? roundToTwo(rawDistanceMiles)
       : null;
-    if (process?.env?.NODE_ENV !== 'production') {
-      console.log('[Mapbox] Route data:', { durationSeconds, rawEtaMinutes, etaMinutes, distanceMeters, rawDistanceMiles, distanceMiles });
-    }
 
     const instructions = (Array.isArray(route.legs) ? route.legs : [])
       .flatMap(leg => Array.isArray(leg.steps) ? leg.steps : [])
@@ -1402,7 +1640,7 @@ async function handleRequestRide() {
   ]);
   const { pickup, destination, hasValidCoordinates } = getPickupAndDestination();
   if (!hasValidCoordinates || !pickup || !destination) {
-    showPopup('Enter valid pickup and destination coordinates to request a ride.');
+    showPopup('Enter valid pickup and destination locations to request a ride.');
     return;
   }
   setButtonLoading('request-ride-button', true);
@@ -1475,6 +1713,7 @@ function startRiderLocationSync() {
     const lat = Number(position.coords.latitude);
     const lng = Number(position.coords.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    latestKnownRiderPosition = { lat, lng };
     if (Date.now() - lastLocationPushAt < MIN_LOCATION_PUSH_INTERVAL_MS) return;
     lastLocationPushAt = Date.now();
     if (currentRide?.id && ACTIVE_RIDE_STATUSES.includes(currentRide.status)) {
@@ -1512,12 +1751,38 @@ function renderUserProfile() {
 
 function seedDefaultInputs() {
   const pickupInput = document.getElementById('pickup-input');
+  const pickupCoordinates = document.getElementById('pickup-coordinates');
+  const pickupAddress = document.getElementById('pickup-address');
   const destinationInput = document.getElementById('destination-input');
+  const destinationCoordinates = document.getElementById('destination-coordinates');
+  const destinationAddress = document.getElementById('destination-address');
+  const defaultDestination = {
+    lat: DEFAULT_PICKUP.lat + 0.012,
+    lng: DEFAULT_PICKUP.lng + 0.008
+  };
+
   if (pickupInput && !pickupInput.value.trim()) {
-    pickupInput.value = formatCoordinatePair(DEFAULT_PICKUP.lat, DEFAULT_PICKUP.lng);
+    const label = 'San Francisco, CA';
+    pickupInput.value = label;
+    pickupInput.dataset.committedValue = label;
   }
+  if (pickupCoordinates && !pickupCoordinates.value.trim()) {
+    pickupCoordinates.value = formatCoordinatePair(DEFAULT_PICKUP.lat, DEFAULT_PICKUP.lng);
+  }
+  if (pickupAddress && !pickupAddress.value.trim()) {
+    pickupAddress.value = String(pickupInput?.value || 'San Francisco, CA');
+  }
+
   if (destinationInput && !destinationInput.value.trim()) {
-    destinationInput.value = formatCoordinatePair(DEFAULT_PICKUP.lat + 0.012, DEFAULT_PICKUP.lng + 0.008);
+    const label = 'Mission Bay, San Francisco, CA';
+    destinationInput.value = label;
+    destinationInput.dataset.committedValue = label;
+  }
+  if (destinationCoordinates && !destinationCoordinates.value.trim()) {
+    destinationCoordinates.value = formatCoordinatePair(defaultDestination.lat, defaultDestination.lng);
+  }
+  if (destinationAddress && !destinationAddress.value.trim()) {
+    destinationAddress.value = String(destinationInput?.value || 'Mission Bay, San Francisco, CA');
   }
 }
 
@@ -1700,12 +1965,16 @@ function setupHandlers() {
       showPopup('Geolocation unavailable in this browser.');
       return;
     }
-    navigator.geolocation.getCurrentPosition(position => {
-      const lat = Number(position.coords.latitude).toFixed(5);
-      const lng = Number(position.coords.longitude).toFixed(5);
+    navigator.geolocation.getCurrentPosition(async position => {
+      const lat = Number(position.coords.latitude);
+      const lng = Number(position.coords.longitude);
+      latestKnownRiderPosition = { lat, lng };
       const pickupInput = document.getElementById('pickup-input');
-      if (pickupInput) pickupInput.value = formatCoordinatePair(lat, lng);
-      refreshFareEstimate({ fitRoute: true }).catch(() => {});
+      if (pickupInput) {
+        pickupInput.value = formatCoordinatePair(lat, lng);
+        delete pickupInput.dataset.committedValue;
+      }
+      await resolveCoordinateInput('pickup-input', { fitRoute: true, showError: true }).catch(() => {});
     }, () => {
       showPopup('Unable to read your current location.');
     }, { enableHighAccuracy: true, timeout: CURRENT_LOCATION_TIMEOUT_MS });
@@ -1722,20 +1991,44 @@ function setupHandlers() {
   ['pickup-input', 'destination-input'].forEach(id => {
     document.getElementById(id)?.addEventListener('input', () => {
       mapState.lastFetchedRouteKey = '';
-      const value = String(document.getElementById(id)?.value || '').trim();
+      const { input, coordinatesField, addressField } = getLocationElements(id);
+      const value = String(input?.value || '').trim();
+      if (geocodeDebounceTimers[id]) window.clearTimeout(geocodeDebounceTimers[id]);
+      setLocationError('');
+
+      if (coordinatesField?.value || addressField?.value) {
+        const committedValue = String(input?.dataset.committedValue || addressField?.value || '').trim();
+        if (value !== committedValue) clearStoredLocation(id, { keepInputValue: true });
+      }
+
       if (!value) {
-        refreshFareEstimate({ fitRoute: true }).catch(() => {});
+        locationSuggestions[id] = [];
+        hideSuggestions(id);
         return;
       }
-      if (parseCoordinateInput(value)) {
-        setInputLoading(id, false);
-        refreshFareEstimate({ fitRoute: true }).catch(() => {});
-        return;
-      }
-      queueGeocodeResolution(id, { fitRoute: true, showError: false });
+      queueGeocodeResolution(id);
+    });
+    document.getElementById(id)?.addEventListener('keydown', event => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      resolveCoordinateInput(id, { fitRoute: true, showError: true }).catch(() => {});
     });
     document.getElementById(id)?.addEventListener('blur', () => {
-      resolveCoordinateInput(id, { fitRoute: true, showError: true }).catch(() => {});
+      window.setTimeout(() => {
+        hideSuggestions(id);
+      }, 200);
+      const { input, coordinatesField } = getLocationElements(id);
+      const value = String(input?.value || '').trim();
+      if (!value) {
+        clearStoredLocation(id);
+        return;
+      }
+      if (value !== String(input?.dataset.committedValue || '').trim() || !String(coordinatesField?.value || '').trim()) {
+        resolveCoordinateInput(id, { fitRoute: true, showError: true }).catch(() => {});
+      }
+    });
+    document.getElementById(id)?.addEventListener('focus', () => {
+      if (locationSuggestions[id]?.length) showSuggestions(id, locationSuggestions[id]);
     });
   });
 
