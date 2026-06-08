@@ -6,23 +6,25 @@ function loadEnvFile() {
   const envPath = path.resolve(process.cwd(), '.env');
   if (existsSync(envPath)) {
     dotenv.config({ path: envPath });
-    return envPath;
+    return { path: envPath, source: '.env' as const };
   }
 
   const isProduction = process.env.NODE_ENV === 'production';
   const exampleEnvPath = path.resolve(process.cwd(), '.env.example');
   if (!isProduction && existsSync(exampleEnvPath)) {
     dotenv.config({ path: exampleEnvPath });
-    return exampleEnvPath;
+    return { path: exampleEnvPath, source: '.env.example' as const };
   }
 
   // Load with the explicit `.env` path even when it is absent so dotenv keeps
   // the runtime behavior predictable and any real values still come from process.env.
   dotenv.config({ path: envPath });
-  return undefined;
+  return { path: undefined, source: 'process.env' as const };
 }
 
-export const loadedEnvFilePath = loadEnvFile();
+const loadedEnvFile = loadEnvFile();
+export const loadedEnvFilePath = loadedEnvFile.path;
+export const loadedEnvFileSource = loadedEnvFile.source;
 
 function getString(name: string, fallback?: string) {
   const value = process.env[name];
@@ -127,11 +129,25 @@ export const env = {
   // PostgreSQL database connection
   databaseUrl: getString('DATABASE_URL'),
   databasePoolMax: Number(getString('DATABASE_POOL_MAX', '10')),
-  loadedEnvFilePath
+  loadedEnvFilePath,
+  loadedEnvFileSource,
+  corsAllowedOrigins: getString('CORS_ALLOWED_ORIGINS')
 };
 
 const hasAnyFirebaseCredential = Boolean(env.fcmProjectId || env.fcmPrivateKey || env.fcmClientEmail);
 const hasAllFirebaseCredentials = Boolean(env.fcmProjectId && env.fcmPrivateKey && env.fcmClientEmail);
 if (hasAnyFirebaseCredential && !hasAllFirebaseCredentials) {
   throw new Error('FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, and FIREBASE_CLIENT_EMAIL must be set together');
+}
+
+if (env.dataStoreMode === 'file' && !env.dataStoreFile.trim()) {
+  throw new Error('DATA_STORE_FILE must be set when DATA_STORE_MODE=file');
+}
+
+if (env.loadedEnvFileSource === '.env.example') {
+  console.warn('[config] Loaded .env.example fallback. Create / update .env for persistent local configuration.');
+}
+
+if (env.loadedEnvFileSource === 'process.env' && env.nodeEnv !== 'production') {
+  console.warn('[config] No .env file found. Using process environment values only.');
 }

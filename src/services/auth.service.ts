@@ -199,14 +199,42 @@ export async function login(body: any, _params?: any, _query?: any) {
   const phone = body?.phone;
   const password = body?.password;
 
+  if ((!email && !phone) || !password) {
+    return {
+      module: 'auth',
+      action: 'login',
+      error: 'email or phone and password are required',
+      errorCode: 'AUTH_MISSING_CREDENTIALS'
+    };
+  }
+
   const user = Array.from(store.users.values()).find(u => (email && u.email === email) || (phone && u.phone === phone));
-  if (!user || !verifyPassword(password || '', user.password)) {
+  if (!user) {
     appendAuditLog('anonymous', 'anonymous', 'auth_login_failed', user?.id || email || phone, user ? 'user' : 'identifier', {
-      reason: 'invalid_credentials',
+      reason: 'user_not_found',
       ipAddress: body?.ipAddress,
       userAgent: body?.userAgent
     });
-    return { module: 'auth', action: 'login', error: 'invalid credentials' };
+    return {
+      module: 'auth',
+      action: 'login',
+      error: 'user not found',
+      errorCode: 'AUTH_USER_NOT_FOUND'
+    };
+  }
+
+  if (!verifyPassword(password, user.password)) {
+    appendAuditLog('anonymous', 'anonymous', 'auth_login_failed', user.id, 'user', {
+      reason: 'password_mismatch',
+      ipAddress: body?.ipAddress,
+      userAgent: body?.userAgent
+    });
+    return {
+      module: 'auth',
+      action: 'login',
+      error: 'wrong password',
+      errorCode: 'AUTH_INVALID_PASSWORD'
+    };
   }
 
   const suspension = getActiveSuspension(user);

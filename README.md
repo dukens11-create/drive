@@ -107,11 +107,18 @@ Ride requests persist broadcast history, acceptance responses, 30-second expiry 
 ## Backend quick start
 
 ```bash
-cp .env.example .env
 npm install
 npm run build
 npm start
 ```
+
+Development uses the checked-in `.env` with file persistence (`DATA_STORE_MODE=file`, `DATA_STORE_FILE=.data/store.json`) so auth users and refresh sessions survive restarts.
+
+Seeded development login accounts:
+
+- Admin: `admin@drive.com` / `FlupflapHaiti2025@`
+- Rider: `rider@test.com` / `Test123!@#$`
+- Driver: `driver@test.com` / `Driver123!@#$`
 
 Backend source is organized under `src/`:
 

@@ -63,7 +63,9 @@ try {
       port: env.port,
       nodeEnv: env.nodeEnv,
       dataStoreMode: env.dataStoreMode,
-      loadedEnvFilePath: env.loadedEnvFilePath ?? null
+      dataStoreFile: env.dataStoreMode === 'file' ? env.dataStoreFile : null,
+      loadedEnvFilePath: env.loadedEnvFilePath ?? null,
+      loadedEnvFileSource: env.loadedEnvFileSource
     });
   });
 
