@@ -46,3 +46,13 @@ export const vehicleCreateSchema = z.object({
   status: z.enum(['active', 'inactive', 'pending_verification', 'rejected']).optional(),
   verificationDocuments: z.array(z.string()).optional()
 }).passthrough();
+
+export const vehicleProfileSchema = z.object({
+  make: z.string().min(1),
+  model: z.string().min(1),
+  year: z.number().int().min(1990).max(2099),
+  color: z.string().min(1),
+  plateNumber: z.string().min(1).max(10),
+  type: z.enum(['sedan', 'suv', 'minivan', 'truck', 'hybrid']),
+  photoUrl: z.string().min(1).optional()
+}).passthrough();

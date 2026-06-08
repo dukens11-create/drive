@@ -909,3 +909,104 @@ test('driver vehicle endpoints support ride-type dispatch filtering', async () =
     assert.equal(deleteInactiveVehicleBody.ok, true);
   });
 });
+
+test('driver vehicle profile endpoints expose assigned driver vehicle details to riders', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+    const driver = await signup(baseUrl, 'driver');
+    const adminToken = await loginAdmin(baseUrl);
+
+    assert.equal((await postJson(baseUrl, '/api/drivers/apply', {}, driver.accessToken).then(res => res.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/drivers/documents', {
+      documents: [
+        { type: 'Driver License', fileName: 'license.jpg', expiryDate: '2031-08-31', documentNumber: 'DRV-1001' },
+        { type: 'Selfie Photo', fileName: 'selfie.jpg', selfieMatchScore: 0.98 }
+      ]
+    }, driver.accessToken).then(res => res.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/kyc/webhook', { userId: driver.user.id, status: 'verified' }).then(res => res.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/admin/approve-driver', { userId: driver.user.id, approved: true }, adminToken).then(res => res.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/drivers/location', { lat: 10.001, lng: 10.001 }, driver.accessToken).then(res => res.json())).ok, true);
+    const dispatchVehicleResponse = await postJson(baseUrl, `/api/drivers/${driver.user.id}/vehicles`, {
+      make: 'Toyota',
+      model: 'Prius Prime',
+      year: 2023,
+      licensePlate: `PRM${driver.user.id.slice(-3).toUpperCase()}`,
+      color: 'Black',
+      seats: 4,
+      vehicleType: 'premium',
+      insuranceExpiry: '2031-01-01',
+      registrationExpiry: '2031-01-01'
+    }, driver.accessToken);
+    const dispatchVehicleBody = await dispatchVehicleResponse.json();
+    assert.equal(dispatchVehicleBody.ok, true);
+    assert.equal((await postJson(baseUrl, '/api/admin/verify-vehicle', {
+      vehicleId: dispatchVehicleBody.vehicle.vehicleId,
+      approved: true
+    }, adminToken).then(res => res.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/drivers/vehicles/activate', {
+      vehicleId: dispatchVehicleBody.vehicle.vehicleId
+    }, driver.accessToken).then(res => res.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/drivers/availability', { status: 'online' }, driver.accessToken).then(res => res.json())).ok, true);
+
+    const photoForm = new FormData();
+    photoForm.append('photo', new Blob(['vehicle-photo'], { type: 'image/jpeg' }), 'vehicle.jpg');
+    const photoUploadResponse = await fetch(`${baseUrl}/api/drivers/vehicle/photo`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + driver.accessToken },
+      body: photoForm
+    });
+    assert.equal(photoUploadResponse.status, 200);
+    const photoUploadBody = await photoUploadResponse.json();
+    assert.equal(photoUploadBody.ok, true);
+    assert.equal(String(photoUploadBody.photoUrl).includes(`/uploads/vehicles/${driver.user.id}/photo.`), true);
+
+    const saveVehicleResponse = await postJson(baseUrl, '/api/drivers/vehicle', {
+      make: 'Toyota',
+      model: 'Camry',
+      year: 2022,
+      color: 'Black',
+      plateNumber: 'ABC123',
+      type: 'sedan',
+      photoUrl: photoUploadBody.photoUrl
+    }, driver.accessToken);
+    assert.equal(saveVehicleResponse.status, 200);
+    const saveVehicleBody = await saveVehicleResponse.json();
+    assert.equal(saveVehicleBody.ok, true);
+    assert.equal(saveVehicleBody.vehicle.plateNumber, 'ABC123');
+
+    const getVehicleResponse = await getJson(baseUrl, '/api/drivers/vehicle', driver.accessToken);
+    assert.equal(getVehicleResponse.status, 200);
+    const getVehicleBody = await getVehicleResponse.json();
+    assert.equal(getVehicleBody.ok, true);
+    assert.equal(getVehicleBody.vehicle.make, 'Toyota');
+    assert.equal(getVehicleBody.vehicle.photoUrl, photoUploadBody.photoUrl);
+
+    const rideRequestResponse = await postJson(baseUrl, '/api/rides/request', {
+      pickupLat: 10.002,
+      pickupLng: 10.002,
+      dropoffLat: 10.021,
+      dropoffLng: 10.031,
+      rideType: 'premium'
+    }, rider.accessToken);
+    const rideRequestBody = await rideRequestResponse.json();
+    assert.equal(rideRequestBody.ok, true);
+
+    let acceptedRideBody = rideRequestBody;
+    if (rideRequestBody.ride?.status !== 'accepted') {
+      const acceptRideResponse = await postJson(baseUrl, `/api/rides/${rideRequestBody.ride.id}/accept`, {}, driver.accessToken);
+      acceptedRideBody = await acceptRideResponse.json();
+      assert.equal(acceptedRideBody.ok, true);
+    }
+    assert.equal(acceptedRideBody.ride.driver.vehicle.plateNumber, 'ABC123');
+
+    const assignedDriverResponse = await getJson(baseUrl, `/api/rides/${rideRequestBody.ride.id}/driver`, rider.accessToken);
+    assert.equal(assignedDriverResponse.status, 200);
+    const assignedDriverBody = await assignedDriverResponse.json();
+    assert.equal(assignedDriverBody.ok, true);
+    assert.equal(assignedDriverBody.driver.name.length > 0, true);
+    assert.equal(assignedDriverBody.driver.vehicle.model, 'Camry');
+    assert.equal(assignedDriverBody.driver.vehicle.photoUrl, photoUploadBody.photoUrl);
+
+    await postJson(baseUrl, '/api/drivers/availability', { status: 'offline' }, driver.accessToken);
+  });
+});

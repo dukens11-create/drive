@@ -1,12 +1,24 @@
 import { Router } from 'express';
+import multer from 'multer';
 import * as controller from '../controllers/drivers.controller';
 import { validateBody } from '../utils/validate';
-import { applySchema, availabilitySchema, documentsSchema, locationSchema, vehicleCreateSchema } from '../schemas/drivers.schemas';
+import { applySchema, availabilitySchema, documentsSchema, locationSchema, vehicleCreateSchema, vehicleProfileSchema } from '../schemas/drivers.schemas';
 import { requireAuth, requireRole } from '../middleware/auth.middleware';
 import { signupSchema } from '../schemas/auth.schemas';
 import { genericSchema } from '../schemas/kyc.schemas';
 
 const router = Router();
+const vehiclePhotoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, callback) => {
+    if (String(file.mimetype || '').startsWith('image/')) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error('photo must be an image'));
+  }
+});
 
 router.get('/health', controller.health);
 router.post('/register', validateBody(signupSchema), controller.register);
@@ -20,6 +32,9 @@ router.delete('/:id/vehicles/:vehicleId', controller.deleteVehicle);
 router.post('/:id/vehicles/:vehicleId/activate', controller.setActiveVehicle);
 router.use(requireRole('driver'));
 router.get('/me', controller.me);
+router.get('/vehicle', controller.getVehicleProfile);
+router.post('/vehicle', validateBody(vehicleProfileSchema), controller.saveVehicleProfile);
+router.post('/vehicle/photo', vehiclePhotoUpload.single('photo'), controller.uploadVehiclePhoto);
 router.get('/current-trip', controller.currentTrip);
 router.post('/apply', validateBody(applySchema), controller.apply);
 router.post('/availability', validateBody(availabilitySchema), controller.availability);

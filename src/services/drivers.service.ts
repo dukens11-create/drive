@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto';
+import { mkdirSync, writeFileSync } from 'fs';
+import path from 'path';
 import * as authService from './auth.service';
-import { makeId, markStoreDirty, store, timestamp, type DriverProfile, type DriverVerificationDocument, type Vehicle, type VehicleType } from '../database/data.store';
+import { makeId, markStoreDirty, store, timestamp, type DriverProfile, type DriverVehicleProfile, type DriverVerificationDocument, type Vehicle, type VehicleType } from '../database/data.store';
 import { publishDriverRealtimeLocation, publishDriverStatusChanged } from './realtime-dispatch.service';
 import { findNearbyDrivers, rankDrivers } from '../utils/dispatch.engine';
 import { sendEmail } from './email.service';
@@ -20,6 +22,13 @@ type DriverDocumentInput = string | {
 const SELFIE_DOCUMENT_TYPE = 'Selfie Photo';
 const LICENSE_DOCUMENT_TYPE = 'Driver License';
 const LOCATION_HISTORY_LIMIT = 5_000;
+const DRIVER_VEHICLE_TYPES = new Set(['sedan', 'suv', 'minivan', 'truck', 'hybrid']);
+const VEHICLE_PHOTO_MIME_TO_EXTENSION: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp'
+};
 
 function getProfile(userId: string) {
   return store.drivers.get(userId);
@@ -149,6 +158,49 @@ function getActiveDriverVehicle(driverId: string) {
     if (preferred) return preferred;
   }
   return driverVehicles.find(vehicle => vehicle.status === 'active') || null;
+}
+
+function sanitizeDriverVehicleProfile(vehicle: any, fallbackPlate?: string): DriverVehicleProfile | null {
+  const make = String(vehicle?.make || '').trim();
+  const model = String(vehicle?.model || '').trim();
+  const year = Number(vehicle?.year);
+  const color = String(vehicle?.color || '').trim();
+  const plateNumber = String(vehicle?.plateNumber || vehicle?.licensePlate || fallbackPlate || '').trim().toUpperCase();
+  const type = String(vehicle?.type || '').trim().toLowerCase();
+  const photoUrl = String(vehicle?.photoUrl || '').trim();
+
+  if (!make || !model || !Number.isInteger(year) || year < 1990 || year > 2099 || !color || !plateNumber || !DRIVER_VEHICLE_TYPES.has(type)) {
+    return null;
+  }
+
+  return {
+    make,
+    model,
+    year,
+    color,
+    plateNumber,
+    type,
+    photoUrl: photoUrl || undefined,
+    lastUpdated: timestamp()
+  };
+}
+
+function buildDriverVehicleProfile(driverId: string) {
+  const profile = getProfile(driverId);
+  if (!profile) return null;
+  if (profile.vehicle) return profile.vehicle;
+
+  const activeVehicle = getActiveDriverVehicle(driverId);
+  if (!activeVehicle) return null;
+  return {
+    make: activeVehicle.make,
+    model: activeVehicle.model,
+    year: activeVehicle.year,
+    color: activeVehicle.color,
+    plateNumber: activeVehicle.licensePlate,
+    type: activeVehicle.vehicleType === 'xl' ? 'suv' : activeVehicle.vehicleType,
+    lastUpdated: activeVehicle.createdAt
+  };
 }
 
 function ensureVerificationData(profile: DriverProfile) {
@@ -495,6 +547,66 @@ export async function setActiveVehicle(body: any, params?: any, _query?: any) {
   profile.primaryVehicleId = vehicle.vehicleId;
   markStoreDirty();
   return { module: 'drivers', action: 'set-active-vehicle', ok: true, vehicle, vehicles: getDriverVehicles(driverId) };
+}
+
+export async function getVehicleProfile(body: any, _params?: any, _query?: any) {
+  const driverId = body?.actor?.id || body?.driverId || body?.userId;
+  if (!driverId) return { module: 'drivers', action: 'get-vehicle-profile', error: 'driverId is required' };
+  const profile = getProfile(driverId);
+  if (!profile) return { module: 'drivers', action: 'get-vehicle-profile', error: 'driver not found' };
+  return { module: 'drivers', action: 'get-vehicle-profile', ok: true, vehicle: buildDriverVehicleProfile(driverId) };
+}
+
+export async function saveVehicleProfile(body: any, _params?: any, _query?: any) {
+  const driverId = body?.actor?.id || body?.driverId || body?.userId;
+  if (!driverId) return { module: 'drivers', action: 'save-vehicle-profile', error: 'driverId is required' };
+  const profile = getProfile(driverId);
+  if (!profile) return { module: 'drivers', action: 'save-vehicle-profile', error: 'driver not found' };
+
+  const existing = profile.vehicle;
+  const normalized = sanitizeDriverVehicleProfile({
+    ...body,
+    photoUrl: body?.photoUrl || existing?.photoUrl
+  }, existing?.plateNumber);
+  if (!normalized) {
+    return { module: 'drivers', action: 'save-vehicle-profile', error: 'make, model, year, color, plateNumber, and valid type are required' };
+  }
+
+  profile.vehicle = normalized;
+  markStoreDirty();
+  return { module: 'drivers', action: 'save-vehicle-profile', ok: true, vehicle: normalized };
+}
+
+export async function uploadVehiclePhoto(body: any, _params?: any, _query?: any) {
+  const driverId = body?.actor?.id || body?.driverId || body?.userId;
+  if (!driverId) return { module: 'drivers', action: 'upload-vehicle-photo', error: 'driverId is required' };
+  const profile = getProfile(driverId);
+  if (!profile) return { module: 'drivers', action: 'upload-vehicle-photo', error: 'driver not found' };
+  const file = body?.file;
+  if (!file?.buffer || !file?.mimetype) {
+    return { module: 'drivers', action: 'upload-vehicle-photo', error: 'photo file is required' };
+  }
+  const extension = VEHICLE_PHOTO_MIME_TO_EXTENSION[String(file.mimetype || '').toLowerCase()];
+  if (!extension) {
+    return { module: 'drivers', action: 'upload-vehicle-photo', error: 'photo must be an image' };
+  }
+
+  const fileName = `photo.${extension}`;
+  const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'vehicles', driverId);
+  mkdirSync(uploadDir, { recursive: true });
+  writeFileSync(path.join(uploadDir, fileName), file.buffer);
+  const photoUrl = `/uploads/vehicles/${encodeURIComponent(driverId)}/${fileName}`;
+
+  if (profile.vehicle) {
+    profile.vehicle = {
+      ...profile.vehicle,
+      photoUrl,
+      lastUpdated: timestamp()
+    };
+  }
+
+  markStoreDirty();
+  return { module: 'drivers', action: 'upload-vehicle-photo', ok: true, photoUrl };
 }
 
 export async function register(body: any, _params?: any, _query?: any) {

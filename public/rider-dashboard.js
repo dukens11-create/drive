@@ -155,6 +155,70 @@ function safeSetText(id, value) {
   if (node) node.textContent = value;
 }
 
+function sanitizePhoneForUri(value) {
+  const normalized = String(value || '').trim();
+  if (!normalized) return '';
+  if (!/^[+0-9()\-\s]+$/.test(normalized)) return '';
+  return normalized.replace(/\s+/g, '');
+}
+
+function getDriverVehicleDisplay(vehicle = {}) {
+  const label = String(vehicle.label || '').trim();
+  const make = String(vehicle.make || '').trim();
+  const model = String(vehicle.model || '').trim();
+  const year = Number(vehicle.year);
+  const color = String(vehicle.color || '').trim();
+  const plateNumber = String(vehicle.plateNumber || '').trim();
+  const title = label || (make && model ? `${make} ${model}` : 'Vehicle details pending');
+  const specs = [Number.isInteger(year) ? String(year) : '', color].filter(Boolean).join(' • ');
+  return {
+    title,
+    specs,
+    plate: plateNumber ? `Plate: ${plateNumber}` : 'Plate: ___'
+  };
+}
+
+function renderDriverCardDetails(driver = {}, etaMinutes = 0) {
+  const assignedCard = document.getElementById('driver-assigned-card');
+  if (!assignedCard) return;
+  const vehicle = driver.vehicle && typeof driver.vehicle === 'object' ? driver.vehicle : {};
+  const vehicleDisplay = getDriverVehicleDisplay(vehicle);
+  safeSetText('driver-name', driver.name || currentRide?.driverName || currentRide?.driverId || '--');
+  safeSetText('driver-vehicle', vehicleDisplay.title);
+  safeSetText('driver-plate', vehicleDisplay.plate);
+  safeSetText('driver-vehicle-specs', vehicleDisplay.specs);
+  safeSetText('driver-rating', `${Number(driver.rating || 4.9).toFixed(2)} ⭐`);
+  if (!etaCountdownIntervalId) {
+    animateNumericText('driver-eta', formatMinutes(etaMinutes || currentRide?.etaMinutes || currentRide?.minutes || 0));
+    animateNumericText('driver-countdown', formatMinutes(etaMinutes || currentRide?.etaMinutes || currentRide?.minutes || 0));
+  }
+
+  const avatarImage = document.getElementById('driver-avatar');
+  const avatarInitial = assignedCard.querySelector('.driver-avatar-initial');
+  if (avatarImage) {
+    if (driver.profilePhotoUrl) {
+      avatarImage.src = driver.profilePhotoUrl;
+      avatarImage.classList.remove('d-none');
+      avatarInitial?.classList.add('d-none');
+    } else {
+      avatarImage.classList.add('d-none');
+      avatarInitial?.classList.remove('d-none');
+      if (avatarInitial) avatarInitial.textContent = driver.avatarInitial || driver.name?.[0] || '?';
+    }
+  }
+
+  const vehiclePhoto = document.getElementById('driver-vehicle-photo');
+  const vehicleIcon = document.getElementById('driver-vehicle-icon');
+  if (vehiclePhoto && vehicle.photoUrl) {
+    vehiclePhoto.src = vehicle.photoUrl;
+    vehiclePhoto.classList.remove('d-none');
+    vehicleIcon?.classList.add('d-none');
+  } else {
+    vehiclePhoto?.classList.add('d-none');
+    vehicleIcon?.classList.remove('d-none');
+  }
+}
+
 function formatCoordinatePair(lat, lng) {
   return `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
 }
@@ -255,7 +319,8 @@ function normalizeRide(ride = {}, index = 0) {
     status: String(ride.status || 'requested'),
     lifecycleState: String(ride.lifecycleState || ride.status || 'requested'),
     driverId: ride.driverId || null,
-    driverName: ride.driverName || (ride.driverId ? `Driver ${String(ride.driverId).slice(0, 6)}` : null),
+    driverName: ride.driverName || ride.driver?.name || (ride.driverId ? `Driver ${String(ride.driverId).slice(0, 6)}` : null),
+    driver: ride.driver && typeof ride.driver === 'object' ? ride.driver : null,
     etaMinutes: Number(ride.etaMinutes || ride.minutes || 0),
     riderLocation: ride.riderLocation && Number.isFinite(Number(ride.riderLocation.lat)) && Number.isFinite(Number(ride.riderLocation.lng))
       ? { lat: Number(ride.riderLocation.lat), lng: Number(ride.riderLocation.lng), updatedAt: ride.riderLocation.updatedAt || new Date().toISOString() }
@@ -686,18 +751,8 @@ function renderRideState() {
   const showDriverCard = Boolean(currentRide && ['accepted', 'arrived_at_pickup', 'started'].includes(currentRide.status));
   if (assignedCard) assignedCard.classList.toggle('d-none', !showDriverCard);
   if (showDriverCard) {
-    safeSetText('driver-name', assignedDriver?.name || currentRide.driverName || currentRide.driverId || '--');
-    safeSetText('driver-vehicle', assignedDriver?.vehicle || '--');
-    safeSetText('driver-plate', assignedDriver?.plate || '--');
-    safeSetText('driver-rating', assignedDriver ? `${Number(assignedDriver.rating || 0).toFixed(2)} ⭐` : '--');
-    if (!etaCountdownIntervalId) {
-      animateNumericText('driver-eta', formatMinutes(currentRide.etaMinutes || currentRide.minutes || 0));
-      animateNumericText('driver-countdown', formatMinutes(currentRide.etaMinutes || currentRide.minutes || 0));
-    }
-    if (assignedDriver?.avatarInitial) {
-      const avatarNode = assignedCard.querySelector('.driver-avatar-initial');
-      if (avatarNode) avatarNode.textContent = assignedDriver.avatarInitial;
-    }
+    const activeDriver = currentRide.driver || assignedDriver || {};
+    renderDriverCardDetails(activeDriver, currentRide.etaMinutes || currentRide.minutes || 0);
     safeSetText('driver-location', currentRide.driverLocation
       ? `${Number(currentRide.driverLocation.lat).toFixed(5)}, ${Number(currentRide.driverLocation.lng).toFixed(5)}`
       : '--');
@@ -1585,17 +1640,16 @@ function renderDriverCard(driver, etaMinutes) {
   const card = document.getElementById('driver-assigned-card');
   if (!card) return;
 
-  // Avatar
-  const avatarNode = card.querySelector('.driver-avatar-initial');
-  if (avatarNode) avatarNode.textContent = driver.avatarInitial || driver.name?.[0] || '?';
-
-  // Info
-  safeSetText('driver-name', driver.name || '--');
-  safeSetText('driver-vehicle', driver.vehicle || '--');
-  safeSetText('driver-plate', driver.plate || '--');
-  safeSetText('driver-rating', `${Number(driver.rating || 0).toFixed(2)} ⭐`);
-  safeSetText('driver-eta', formatMinutes(etaMinutes || 5));
-  safeSetText('driver-countdown', formatMinutes(etaMinutes || 5));
+  const normalizedDriver = driver.vehicle && typeof driver.vehicle === 'object'
+    ? driver
+    : {
+      ...driver,
+      vehicle: {
+        label: String(driver.vehicle || '').trim(),
+        plateNumber: driver.plate || ''
+      }
+    };
+  renderDriverCardDetails(normalizedDriver, etaMinutes || 5);
 
   // Online indicator
   card.querySelector('.driver-online-dot')?.classList.add('is-online');
@@ -1634,12 +1688,22 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
   statusProgressionTimerId = window.setTimeout(() => {
     const driver = pickRandomDriver();
     assignedDriver = driver;
+    const assignedDriverId = `driver_${Date.now()}`;
     const driverEta = MIN_DRIVER_ETA_MINUTES + Math.floor(Math.random() * (MAX_DRIVER_ETA_MINUTES - MIN_DRIVER_ETA_MINUTES));
 
     applyRideStatusUpdate(rideId, {
       status: 'accepted',
-      driverId: `driver_${Date.now()}`,
+      driverId: assignedDriverId,
       driverName: driver.name,
+      driver: {
+        id: assignedDriverId,
+        name: driver.name,
+        rating: driver.rating,
+        vehicle: {
+          label: String(driver.vehicle || '').trim(),
+          plateNumber: driver.plate || ''
+        }
+      },
       etaMinutes: driverEta,
       events: [
         ...(currentRide?.events || []),
@@ -1709,6 +1773,22 @@ function setupHandlers() {
     }, () => {
       showPopup('Unable to read your current location.');
     }, { enableHighAccuracy: true, timeout: CURRENT_LOCATION_TIMEOUT_MS });
+  });
+  document.getElementById('btn-call-driver')?.addEventListener('click', () => {
+    const driverPhone = sanitizePhoneForUri(currentRide?.driver?.phone || currentRide?.driverPhone || '');
+    if (!driverPhone) {
+      showPopup('Driver phone number is unavailable.');
+      return;
+    }
+    window.location.href = `tel:${driverPhone}`;
+  });
+  document.getElementById('btn-message-driver')?.addEventListener('click', () => {
+    const driverPhone = sanitizePhoneForUri(currentRide?.driver?.phone || currentRide?.driverPhone || '');
+    if (!driverPhone) {
+      showPopup('Driver messaging is unavailable.');
+      return;
+    }
+    window.location.href = `sms:${driverPhone}`;
   });
 
   document.querySelectorAll('[data-ride-type]').forEach(button => {
