@@ -8,7 +8,7 @@
 
 ## Best practices
 - Run `npm audit --audit-level=high` in CI.
-- Run CodeQL and dependency review on pull requests.
+- Run CodeQL on pull requests, and keep repository dependency graph enabled so dependency review can run on pull requests.
 - Rotate secrets periodically and after incidents.
 - Avoid storing sensitive card data in app databases.
 

@@ -12,7 +12,7 @@ The workflows in `.github/workflows/` are set up to validate those applications 
 - `ci.yml`
   - Runs backend install/build/test/audit checks
   - Runs mobile install/typecheck/Jest coverage/export/audit checks
-  - Runs dependency review on pull requests
+  - Runs dependency review on pull requests when the repository dependency graph is enabled
   - Lints and templates the `helm/drive-platform` chart
   - Runs `terraform fmt -check -recursive terraform`, `terraform init -backend=false`, and `terraform validate`
   - Auto-builds optional admin/passenger app workspaces when their `package.json` files exist
@@ -99,5 +99,5 @@ Configure the repository to require these checks before merge:
 
 - `CI / backend`
 - `CI / mobile`
-- `CI / dependency-review`
+- `CI / dependency-review` (skips with a notice if dependency graph is disabled)
 - `CodeQL / analyze`
