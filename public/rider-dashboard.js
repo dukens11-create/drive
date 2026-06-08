@@ -1,5 +1,6 @@
 const API_BASE_URL = '';
 const MAPBOX_TOKEN_STORAGE_KEY = 'drive.mapboxToken';
+const MAPBOX_GEOCODE_CACHE_STORAGE_KEY = 'drive.mapboxGeocodeCache.v1';
 const SHARED_RIDE_STORAGE_KEY = 'drive.sharedRideRequests.v1';
 const SHARED_RIDE_STORAGE_VERSION = 1;
 const RIDE_POLL_INTERVAL_MS = 2500;
@@ -12,6 +13,9 @@ const MAP_MAX_ZOOM_LEVEL = 15;
 const MAP_BOUNDS_ANIMATION_MS = 700;
 const CURRENT_LOCATION_TIMEOUT_MS = 12000;
 const WATCH_LOCATION_TIMEOUT_MS = 10000;
+const GEOCODE_DEBOUNCE_MS = 500;
+const MIN_GEOCODE_QUERY_LENGTH = 3;
+const GEOCODE_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const DEFAULT_SERVICE_FEE_PERCENT = 0.12;
 const MIN_TRIP_MINUTES = 6;
 const MINUTES_PER_KM = 3.4;
@@ -45,6 +49,7 @@ let lastLocationPushAt = 0;
 let latestEstimate = null;
 let fareRequestSequence = 0;
 let clockIntervalId = null;
+const geocodeDebounceTimers = {};
 
 const mapState = {
   map: null,
@@ -95,10 +100,28 @@ function safeSetText(id, value) {
   if (node) node.textContent = value;
 }
 
+function formatCoordinatePair(lat, lng) {
+  return `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
+}
+
 function setButtonLoading(id, isLoading) {
   const button = document.getElementById(id);
   if (!button) return;
   button.classList.toggle('is-loading', Boolean(isLoading));
+  if (isLoading) {
+    button.dataset.wasDisabled = button.disabled ? 'true' : 'false';
+    button.disabled = true;
+  } else {
+    button.disabled = button.dataset.wasDisabled === 'true';
+    delete button.dataset.wasDisabled;
+  }
+}
+
+function setInputLoading(id, isLoading) {
+  const input = document.getElementById(id);
+  if (!input) return;
+  input.setAttribute('aria-busy', Boolean(isLoading) ? 'true' : 'false');
+  input.parentElement?.classList.toggle('is-loading', Boolean(isLoading));
 }
 
 function readSharedRideStore() {
@@ -353,21 +376,114 @@ async function estimateRideFare(pickup, destination) {
 }
 
 function parseCoordinateInput(inputValue) {
-  const matches = String(inputValue || '').match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/);
+  const matches = String(inputValue || '').trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
   if (!matches) return null;
   const lat = Number(matches[1]);
   const lng = Number(matches[2]);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
   return { lat, lng };
 }
 
-function getPickupAndDestination() {
-  const pickup = parseCoordinateInput(document.getElementById('pickup-input')?.value) || DEFAULT_PICKUP;
-  const destination = parseCoordinateInput(document.getElementById('destination-input')?.value) || {
-    lat: pickup.lat + 0.012,
-    lng: pickup.lng + 0.008
+function readGeocodeCache() {
+  const cache = parseJson(localStorage.getItem(MAPBOX_GEOCODE_CACHE_STORAGE_KEY) || '{}', {});
+  return cache && typeof cache === 'object' ? cache : {};
+}
+
+function writeGeocodeCache(cache) {
+  localStorage.setItem(MAPBOX_GEOCODE_CACHE_STORAGE_KEY, JSON.stringify(cache || {}));
+}
+
+async function geocodeAddress(query) {
+  const normalizedQuery = String(query || '').trim().toLowerCase();
+  if (!normalizedQuery) return null;
+
+  const now = Date.now();
+  const cache = readGeocodeCache();
+  const cached = cache[normalizedQuery];
+  if (cached && now - Number(cached.cachedAt || 0) < GEOCODE_CACHE_TTL_MS) {
+    return { lat: Number(cached.lat), lng: Number(cached.lng) };
+  }
+
+  const token = mapState.token || readMapboxToken();
+  if (!token) return null;
+
+  try {
+    const encodedQuery = encodeURIComponent(normalizedQuery);
+    const url = new URL(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedQuery}.json`);
+    url.searchParams.set('access_token', token);
+    url.searchParams.set('limit', '1');
+    const response = await fetch(url.toString());
+    const payload = await response.json().catch(() => null);
+    const feature = payload?.features?.[0];
+    const center = Array.isArray(feature?.center) ? feature.center : null;
+    const lng = Number(center?.[0]);
+    const lat = Number(center?.[1]);
+    if (!response.ok || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+    cache[normalizedQuery] = { lat, lng, cachedAt: now };
+    writeGeocodeCache(cache);
+    return { lat, lng };
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function resolveCoordinateInput(id, options = {}) {
+  const { fitRoute = true, showError = false } = options;
+  const input = document.getElementById(id);
+  const rawValue = String(input?.value || '').trim();
+  if (!input || !rawValue) return parseCoordinateInput(rawValue);
+  const parsedCoordinates = parseCoordinateInput(rawValue);
+  if (parsedCoordinates) return parsedCoordinates;
+
+  const token = mapState.token || readMapboxToken();
+  if (!token) {
+    if (showError) {
+      showPopup('Mapbox token missing. Enter coordinates as "lat, lng" or add a token to geocode places.');
+    }
+    return null;
+  }
+
+  setInputLoading(id, true);
+  try {
+    const coordinates = await geocodeAddress(rawValue);
+    if (!coordinates) {
+      if (showError) showPopup(`Address not found for "${rawValue}".`);
+      return null;
+    }
+    input.value = formatCoordinatePair(coordinates.lat, coordinates.lng);
+    mapState.lastFetchedRouteKey = '';
+    await refreshFareEstimate({ fitRoute });
+    return coordinates;
+  } finally {
+    setInputLoading(id, false);
+  }
+}
+
+function queueGeocodeResolution(id, options = {}) {
+  if (geocodeDebounceTimers[id]) window.clearTimeout(geocodeDebounceTimers[id]);
+  const input = document.getElementById(id);
+  const value = String(input?.value || '').trim();
+  if (!value || parseCoordinateInput(value) || value.length < MIN_GEOCODE_QUERY_LENGTH) return;
+  geocodeDebounceTimers[id] = window.setTimeout(() => {
+    resolveCoordinateInput(id, options).catch(() => {});
+  }, GEOCODE_DEBOUNCE_MS);
+}
+
+function getPickupAndDestination(options = {}) {
+  const { allowFallback = false } = options;
+  const pickup = parseCoordinateInput(document.getElementById('pickup-input')?.value);
+  const destination = parseCoordinateInput(document.getElementById('destination-input')?.value);
+  if (!allowFallback) {
+    return { pickup, destination, hasValidCoordinates: Boolean(pickup && destination) };
+  }
+  const nextPickup = pickup || DEFAULT_PICKUP;
+  const nextDestination = destination || {
+    lat: nextPickup.lat + 0.012,
+    lng: nextPickup.lng + 0.008
   };
-  return { pickup, destination };
+  return { pickup: nextPickup, destination: nextDestination, hasValidCoordinates: Boolean(pickup && destination) };
 }
 
 async function requestRide(pickup, destination) {
@@ -500,7 +616,16 @@ function renderRideState() {
   }
 
   const cancelButton = document.getElementById('cancel-ride-button');
-  if (cancelButton) cancelButton.disabled = !currentRide || !['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status);
+  const requestButton = document.getElementById('request-ride-button');
+  const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status));
+  if (requestButton) {
+    requestButton.disabled = canCancelRide;
+    requestButton.classList.toggle('d-none', canCancelRide);
+  }
+  if (cancelButton) {
+    cancelButton.disabled = !canCancelRide;
+    cancelButton.classList.toggle('d-none', !canCancelRide);
+  }
 
   const previousStatus = mapState.lastRideStatus;
   mapState.lastRideStatus = currentRide?.status || 'idle';
@@ -513,6 +638,13 @@ function showPopup(message) {
   popup.textContent = message;
   popup.classList.remove('d-none');
   window.setTimeout(() => popup.classList.add('d-none'), POPUP_DISPLAY_DURATION_MS);
+}
+
+function setMapFallbackMessage(message) {
+  const fallback = document.getElementById('map-fallback');
+  if (!fallback) return;
+  const detail = fallback.querySelector('p');
+  if (detail) detail.textContent = message;
 }
 
 function updateRideTypePricing(estimate) {
@@ -550,7 +682,11 @@ function renderFareEstimate(estimate) {
 async function refreshFareEstimate(options = {}) {
   const { fitRoute = false } = options;
   const requestId = ++fareRequestSequence;
-  const { pickup, destination } = getPickupAndDestination();
+  const { pickup, destination, hasValidCoordinates } = getPickupAndDestination();
+  if (!hasValidCoordinates || !pickup || !destination) {
+    renderMapState({ fitRoute, allowFallback: true });
+    return;
+  }
   const estimate = await estimateRideFare(pickup, destination);
   if (requestId !== fareRequestSequence) return;
   renderFareEstimate(estimate);
@@ -802,7 +938,7 @@ function syncMapMarkers(pickup, destination) {
 
 async function refreshMapRoute(options = {}) {
   const { fitRoute = false, force = false } = options;
-  const { pickup, destination } = getPickupAndDestination();
+  const { pickup, destination } = getPickupAndDestination({ allowFallback: true });
   const nextRouteKey = [pickup.lat, pickup.lng, destination.lat, destination.lng].map(value => Number(value).toFixed(5)).join(':');
   mapState.lastRouteKey = nextRouteKey;
   if (!force && mapState.lastFetchedRouteKey === nextRouteKey) {
@@ -833,8 +969,8 @@ async function refreshMapRoute(options = {}) {
 }
 
 function renderMapState(options = {}) {
-  const { fitRoute = false } = options;
-  const { pickup, destination } = getPickupAndDestination();
+  const { fitRoute = false, allowFallback = true } = options;
+  const { pickup, destination } = getPickupAndDestination({ allowFallback });
   if (!mapState.mapLoaded) {
     const fallbackDirections = buildFallbackDirections(pickup, destination);
     renderRouteInstructions(fallbackDirections.instructions);
@@ -851,7 +987,13 @@ function renderMapState(options = {}) {
 
 async function initializeMap() {
   mapState.token = readMapboxToken();
-  if (!mapState.token || typeof window.mapboxgl === 'undefined') {
+  if (!mapState.token) {
+    setMapFallbackMessage('Mapbox token missing. Add ?mapbox_token=YOUR_TOKEN or set the mapbox-token meta tag.');
+    document.getElementById('map-fallback')?.classList.remove('d-none');
+    return;
+  }
+  if (typeof window.mapboxgl === 'undefined') {
+    setMapFallbackMessage('Mapbox library failed to load. Check your connection and refresh.');
     document.getElementById('map-fallback')?.classList.remove('d-none');
     return;
   }
@@ -873,13 +1015,17 @@ async function initializeMap() {
       document.getElementById('map-fallback')?.classList.add('d-none');
       ensureRouteLayers();
       renderMapState({ fitRoute: true });
+      mapState.map?.resize();
+      window.setTimeout(() => mapState.map?.resize(), 120);
     });
     mapState.map.on('style.load', () => {
       ensureRouteLayers();
       updateRouteSource();
       renderMapState();
+      mapState.map?.resize();
     });
   } catch (_error) {
+    setMapFallbackMessage('Unable to initialize the map. Verify your Mapbox token and try again.');
     document.getElementById('map-fallback')?.classList.remove('d-none');
   }
 }
@@ -908,7 +1054,15 @@ async function syncRides() {
 }
 
 async function handleRequestRide() {
-  const { pickup, destination } = getPickupAndDestination();
+  await Promise.all([
+    resolveCoordinateInput('pickup-input', { fitRoute: true, showError: true }),
+    resolveCoordinateInput('destination-input', { fitRoute: true, showError: true })
+  ]);
+  const { pickup, destination, hasValidCoordinates } = getPickupAndDestination();
+  if (!hasValidCoordinates || !pickup || !destination) {
+    showPopup('Enter valid pickup and destination coordinates to request a ride.');
+    return;
+  }
   setButtonLoading('request-ride-button', true);
   try {
     const ride = await requestRide(pickup, destination);
@@ -918,6 +1072,7 @@ async function handleRequestRide() {
     showPopup('Ride request sent. Searching for driver...');
   } finally {
     setButtonLoading('request-ride-button', false);
+    renderRideState();
   }
 }
 
@@ -934,6 +1089,7 @@ async function handleCancelRide() {
     }
   } finally {
     setButtonLoading('cancel-ride-button', false);
+    renderRideState();
   }
 }
 
@@ -989,10 +1145,10 @@ function seedDefaultInputs() {
   const pickupInput = document.getElementById('pickup-input');
   const destinationInput = document.getElementById('destination-input');
   if (pickupInput && !pickupInput.value.trim()) {
-    pickupInput.value = `${DEFAULT_PICKUP.lat.toFixed(5)}, ${DEFAULT_PICKUP.lng.toFixed(5)}`;
+    pickupInput.value = formatCoordinatePair(DEFAULT_PICKUP.lat, DEFAULT_PICKUP.lng);
   }
   if (destinationInput && !destinationInput.value.trim()) {
-    destinationInput.value = `${(DEFAULT_PICKUP.lat + 0.012).toFixed(5)}, ${(DEFAULT_PICKUP.lng + 0.008).toFixed(5)}`;
+    destinationInput.value = formatCoordinatePair(DEFAULT_PICKUP.lat + 0.012, DEFAULT_PICKUP.lng + 0.008);
   }
 }
 
@@ -1030,7 +1186,7 @@ function setupHandlers() {
       const lat = Number(position.coords.latitude).toFixed(5);
       const lng = Number(position.coords.longitude).toFixed(5);
       const pickupInput = document.getElementById('pickup-input');
-      if (pickupInput) pickupInput.value = `${lat}, ${lng}`;
+      if (pickupInput) pickupInput.value = formatCoordinatePair(lat, lng);
       refreshFareEstimate({ fitRoute: true }).catch(() => {});
     }, () => {
       showPopup('Unable to read your current location.');
@@ -1048,7 +1204,20 @@ function setupHandlers() {
   ['pickup-input', 'destination-input'].forEach(id => {
     document.getElementById(id)?.addEventListener('input', () => {
       mapState.lastFetchedRouteKey = '';
-      refreshFareEstimate({ fitRoute: true }).catch(() => {});
+      const value = String(document.getElementById(id)?.value || '').trim();
+      if (!value) {
+        refreshFareEstimate({ fitRoute: true }).catch(() => {});
+        return;
+      }
+      if (parseCoordinateInput(value)) {
+        setInputLoading(id, false);
+        refreshFareEstimate({ fitRoute: true }).catch(() => {});
+        return;
+      }
+      queueGeocodeResolution(id, { fitRoute: true, showError: false });
+    });
+    document.getElementById(id)?.addEventListener('blur', () => {
+      resolveCoordinateInput(id, { fitRoute: true, showError: true }).catch(() => {});
     });
   });
 
@@ -1059,6 +1228,7 @@ function setupHandlers() {
   window.addEventListener('beforeunload', () => {
     if (clockIntervalId) window.clearInterval(clockIntervalId);
     if (mapState.routeAnimationTimer) window.clearInterval(mapState.routeAnimationTimer);
+    Object.values(geocodeDebounceTimers).forEach(timer => window.clearTimeout(timer));
   });
 }
 
