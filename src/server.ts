@@ -51,7 +51,7 @@ process.on('unhandledRejection', (reason) => {
 try {
   const { httpServer } = createApp();
   const host = env.host;
-  logger.info('http server creating listener', { host, port: env.port });
+  logger.info(`Starting listen on ${host}:${env.port}`);
   closeServer = httpServer.close.bind(httpServer);
 
   const server = httpServer.listen(env.port, host, () => {
