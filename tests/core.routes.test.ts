@@ -348,6 +348,28 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
   });
 });
 
+test('GET /rider-dashboard.js includes route rendering and cross-tab sync hooks', async () => {
+  await withServer(async baseUrl => {
+    const response = await fetch(`${baseUrl}/rider-dashboard.js`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /javascript/);
+
+    const body = await response.text();
+    [
+      'fetchDirectionsGeoJson',
+      'ROUTE_SOURCE_ID',
+      'window.addEventListener(\'storage\'',
+      'MAPBOX_TOKEN_STORAGE_KEY',
+      'SHARED_RIDE_STORAGE_KEY',
+      'fareEstimateRange',
+      'renderRideTypePrices',
+      'RIDE_POLL_INTERVAL_MS'
+    ].forEach(token => {
+      assert.equal(body.includes(token), true);
+    });
+  });
+});
+
 test('POST /api/auth/signup creates user and returns tokens', async () => {
   await withServer(async baseUrl => {
     const response = await postJson(baseUrl, '/api/auth/signup', {
