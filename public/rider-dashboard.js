@@ -22,12 +22,23 @@ const GEOCODE_DEBOUNCE_MS = 500;
 const MIN_GEOCODE_QUERY_LENGTH = 3;
 const GEOCODE_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const DEFAULT_SERVICE_FEE_PERCENT = 0.12;
-const MIN_TRIP_MINUTES = 6;
-const MINUTES_PER_KM = 3.4;
+const MIN_TRIP_MINUTES = 4;
+const MINUTES_PER_KM = 2.8;
 const FARE_ESTIMATE_LOW_MULTIPLIER = 0.9;
 const FARE_ESTIMATE_HIGH_MULTIPLIER = 1.15;
 const MORNING_END_HOUR = 12;
 const AFTERNOON_END_HOUR = 18;
+const MAX_SURGE_MULTIPLIER = 2.0;
+const SURGE_THRESHOLD_DOLLARS = 50;
+const MAX_DISTANCE_MILES = 1000;
+const MAX_DURATION_MINUTES = 1440;
+const ESTIMATE_RETRY_INTERVAL_MS = 3000;
+const ESTIMATE_MAX_RETRIES = 3;
+const MIN_DRIVER_ETA_MINUTES = 3;
+const MAX_DRIVER_ETA_MINUTES = 8;
+const DRIVER_START_POSITION_OFFSET = 0.04; // ~2–3 miles in lat/lng degrees
+const DRIVER_ASSIGN_DELAY_MIN_MS = 3000;
+const DRIVER_ASSIGN_DELAY_MAX_MS = 5000;
 const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'arrived_at_pickup', 'started'];
 const ROUTE_DASH_FRAMES = [
   [0, 4, 3],
@@ -39,10 +50,18 @@ const ROUTE_DASH_FRAMES = [
 ];
 const DRIVER_MARKER_LERP_MS = 650;
 const VEHICLE_PRICING = {
-  ECONOMY: { baseMultiplier: 1, minFare: 2.5, distanceRate: 1.9, timeRate: 0.25 },
-  COMFORT: { baseMultiplier: 1.15, minFare: 3, distanceRate: 2.19, timeRate: 0.29 },
-  PREMIUM: { baseMultiplier: 1.5, minFare: 5, distanceRate: 2.85, timeRate: 0.38 }
+  ECONOMY: { baseFare: 2.50, perMileFare: 1.25, perMinuteFare: 0.22 },
+  COMFORT: { baseFare: 3.50, perMileFare: 1.69, perMinuteFare: 0.30 },
+  PREMIUM: { baseFare: 5.00, perMileFare: 2.63, perMinuteFare: 0.46 }
 };
+
+const MOCK_DRIVER_POOL = [
+  { name: 'Marcus J.', vehicle: 'Toyota Camry 2023', plate: 'TXR 2841', rating: 4.97, avatarInitial: 'M' },
+  { name: 'Priya S.', vehicle: 'Honda Accord 2022', plate: 'AKX 5502', rating: 4.94, avatarInitial: 'P' },
+  { name: 'Daniel W.', vehicle: 'Hyundai Sonata 2023', plate: 'GLF 1193', rating: 4.89, avatarInitial: 'D' },
+  { name: 'Sofia R.', vehicle: 'Ford Fusion 2022', plate: 'MNT 7730', rating: 4.96, avatarInitial: 'S' },
+  { name: 'Chris A.', vehicle: 'Chevrolet Malibu 2023', plate: 'BVP 4417', rating: 4.92, avatarInitial: 'C' }
+];
 
 let currentUser = null;
 let accessToken = '';
@@ -56,6 +75,11 @@ let latestEstimate = null;
 let fareRequestSequence = 0;
 let clockIntervalId = null;
 let searchingDotsIntervalId = null;
+let etaCountdownIntervalId = null;
+let statusProgressionTimerId = null;
+let assignedDriver = null;
+let estimateRetryCount = 0;
+let estimateRetryTimerId = null;
 const geocodeDebounceTimers = {};
 
 const mapState = {
@@ -88,6 +112,10 @@ function parseJson(value, fallback) {
   } catch (_error) {
     return fallback;
   }
+}
+
+function getRandomDelay(minMs, maxMs) {
+  return minMs + Math.random() * (maxMs - minMs);
 }
 
 function roundToTwo(value) {
@@ -300,15 +328,21 @@ function clampZoom(zoom, minZoom, maxZoom, fallbackZoom) {
 
 function buildEstimateFromRoute(route, rideType = selectedRideType, overrides = {}) {
   const pricing = VEHICLE_PRICING[String(rideType || 'ECONOMY').toUpperCase()] || VEHICLE_PRICING.ECONOMY;
-  const miles = Number(route?.distanceMiles || 0);
-  const minutes = Number(route?.etaMinutes || 0);
-  const surgeMultiplier = Math.max(1, Number(overrides.surgeMultiplier || 1));
+  const miles = Math.max(0, Math.min(MAX_DISTANCE_MILES, Number(route?.distanceMiles || 0)));
+  const minutes = Math.max(0, Math.min(MAX_DURATION_MINUTES, Number(route?.etaMinutes || 0)));
   const taxes = roundToTwo(Number(overrides.taxes || 0));
-  const baseFare = roundToTwo(pricing.minFare);
-  const distanceFare = roundToTwo(miles * pricing.distanceRate);
-  const timeFare = roundToTwo(minutes * pricing.timeRate);
-  const meterFare = roundToTwo(Math.max(baseFare, distanceFare + timeFare));
-  const surgeFare = roundToTwo(meterFare * surgeMultiplier * pricing.baseMultiplier);
+
+  // Realistic pricing: baseFare + (distance * perMileFare) + (duration * perMinuteFare)
+  const baseFare = roundToTwo(pricing.baseFare);
+  const distanceFare = roundToTwo(miles * pricing.perMileFare);
+  const timeFare = roundToTwo(minutes * pricing.perMinuteFare);
+  const meterFare = roundToTwo(baseFare + distanceFare + timeFare);
+
+  // Surge pricing: max 2x, only applied when base fare exceeds surge threshold
+  const rawSurge = Math.max(1, Number(overrides.surgeMultiplier || 1));
+  const surgeMultiplier = meterFare > SURGE_THRESHOLD_DOLLARS ? Math.min(rawSurge, MAX_SURGE_MULTIPLIER) : 1;
+  const surgeFare = roundToTwo(meterFare * surgeMultiplier);
+
   const serviceFee = roundToTwo(surgeFare * DEFAULT_SERVICE_FEE_PERCENT);
   const subtotal = roundToTwo(surgeFare + serviceFee);
   const total = roundToTwo(subtotal + taxes);
@@ -347,12 +381,13 @@ function buildEstimateFromRoute(route, rideType = selectedRideType, overrides = 
 
 function buildLocalEstimate(pickup, destination, rideType = selectedRideType) {
   const distanceKm = calculateDistanceKm(pickup.lat, pickup.lng, destination.lat, destination.lng);
-  const distanceMiles = roundToTwo(distanceKm * 0.621371);
-  const etaMinutes = Math.max(MIN_TRIP_MINUTES, Math.round(distanceKm * MINUTES_PER_KM));
+  const distanceMiles = Math.min(MAX_DISTANCE_MILES, roundToTwo(distanceKm * 0.621371));
+  const etaMinutes = Math.min(MAX_DURATION_MINUTES, Math.max(MIN_TRIP_MINUTES, Math.round(distanceKm * MINUTES_PER_KM)));
   const route = { distanceMiles, etaMinutes };
   return {
     ok: true,
     route,
+    _isFallback: true,
     ...buildEstimateFromRoute(route, rideType)
   };
 }
@@ -405,11 +440,12 @@ async function estimateRideFare(pickup, destination) {
       })
     });
     if (!response.ok || !data?.ok) {
-      return { ...localEstimate, _fallbackReason: 'Estimate service unavailable. Showing local fallback.' };
+      return { ...localEstimate, _isFallback: true, _fallbackReason: 'Live estimate unavailable - retrying' };
     }
-    return { ...normalizeEstimateResponse(data, localEstimate), _fallbackReason: '' };
+    estimateRetryCount = 0;
+    return { ...normalizeEstimateResponse(data, localEstimate), _isFallback: false, _fallbackReason: '' };
   } catch (_error) {
-    return { ...localEstimate, _fallbackReason: 'Network issue while fetching estimate. Showing local fallback.' };
+    return { ...localEstimate, _isFallback: true, _fallbackReason: 'Reconnecting to pricing service...' };
   }
 }
 
@@ -650,11 +686,21 @@ function renderRideState() {
   const showDriverCard = Boolean(currentRide && ['accepted', 'arrived_at_pickup', 'started'].includes(currentRide.status));
   if (assignedCard) assignedCard.classList.toggle('d-none', !showDriverCard);
   if (showDriverCard) {
-    safeSetText('driver-name', currentRide.driverName || currentRide.driverId || '--');
+    safeSetText('driver-name', assignedDriver?.name || currentRide.driverName || currentRide.driverId || '--');
+    safeSetText('driver-vehicle', assignedDriver?.vehicle || '--');
+    safeSetText('driver-plate', assignedDriver?.plate || '--');
+    safeSetText('driver-rating', assignedDriver ? `${Number(assignedDriver.rating || 0).toFixed(2)} ⭐` : '--');
+    if (!etaCountdownIntervalId) {
+      animateNumericText('driver-eta', formatMinutes(currentRide.etaMinutes || currentRide.minutes || 0));
+      animateNumericText('driver-countdown', formatMinutes(currentRide.etaMinutes || currentRide.minutes || 0));
+    }
+    if (assignedDriver?.avatarInitial) {
+      const avatarNode = assignedCard.querySelector('.driver-avatar-initial');
+      if (avatarNode) avatarNode.textContent = assignedDriver.avatarInitial;
+    }
     safeSetText('driver-location', currentRide.driverLocation
       ? `${Number(currentRide.driverLocation.lat).toFixed(5)}, ${Number(currentRide.driverLocation.lng).toFixed(5)}`
       : '--');
-    animateNumericText('driver-eta', formatMinutes(currentRide.etaMinutes || currentRide.minutes || 0));
   }
 
   const cancelButton = document.getElementById('cancel-ride-button');
@@ -698,7 +744,21 @@ function setFareError(message = '') {
   if (!errorNode || !textNode) return;
   const hasMessage = Boolean(String(message || '').trim());
   errorNode.classList.toggle('d-none', !hasMessage);
+  errorNode.classList.toggle('fare-warning', hasMessage);
   if (hasMessage) textNode.textContent = message;
+}
+
+function showSurgeWarning(baseFare, surgeMultiplier) {
+  const node = document.getElementById('surge-warning');
+  if (!node) return;
+  const baseNode = document.getElementById('surge-base-fare');
+  if (baseNode) baseNode.textContent = formatCurrency(baseFare);
+  node.classList.remove('d-none');
+  node.setAttribute('aria-live', 'polite');
+}
+
+function hideSurgeWarning() {
+  document.getElementById('surge-warning')?.classList.add('d-none');
 }
 
 function setPollingIndicator(isLive) {
@@ -768,7 +828,11 @@ function updateRideTypePricing(estimate) {
 
 function renderFareEstimate(estimate) {
   latestEstimate = estimate;
-  setFareError('');
+  const isFallback = Boolean(estimate._isFallback);
+  const prefix = isFallback ? '~' : '';
+  const surgeActive = Number(estimate.fareBreakdown?.surgeMultiplier || 1) > 1;
+
+  setFareError(estimate._fallbackReason || '');
   safeSetText('fare-distance', formatMiles(estimate.route.distanceMiles));
   safeSetText('fare-duration', formatMinutes(estimate.route.etaMinutes));
   safeSetText('fare-base', formatCurrency(estimate.fareBreakdown.baseFare));
@@ -776,14 +840,21 @@ function renderFareEstimate(estimate) {
   safeSetText('fare-time-fare', formatCurrency(estimate.fareBreakdown.timeFare));
   safeSetText('fare-surge', formatCurrency(estimate.fareBreakdown.surgeFare));
   safeSetText('fare-taxes', formatCurrency(estimate.fareBreakdown.taxes));
-  safeSetText('fare-estimate', formatCurrency(estimate.fareEstimate));
-  safeSetText('fare-range', `${formatCurrency(estimate.fareEstimateRange.low)} - ${formatCurrency(estimate.fareEstimateRange.high)}`);
+  safeSetText('fare-estimate', `${prefix}${formatCurrency(estimate.fareEstimate)}`);
+  safeSetText('fare-range', `${prefix}${formatCurrency(estimate.fareEstimateRange.low)} - ${prefix}${formatCurrency(estimate.fareEstimateRange.high)}`);
   safeSetText('map-route-distance', formatMiles(estimate.route.distanceMiles));
   animateNumericText('map-route-duration', formatMinutes(estimate.route.etaMinutes));
   safeSetText('map-route-overview', `${formatMiles(estimate.route.distanceMiles)} • ${formatMinutes(estimate.route.etaMinutes)}`);
   animateNumericText('map-route-arrival', formatArrivalTimeFromMinutes(estimate.route.etaMinutes));
   safeSetText('map-route-traffic', mapState.routeTrafficLabel || 'Clear route');
   document.getElementById('map-route-arrival')?.classList.toggle('is-nearby', Number(estimate.route.etaMinutes || 0) < 2);
+
+  if (surgeActive) {
+    showSurgeWarning(estimate.fareBreakdown.meterFare, estimate.fareBreakdown.surgeMultiplier);
+  } else {
+    hideSurgeWarning();
+  }
+
   updateRideTypePricing(estimate);
 }
 
@@ -793,15 +864,27 @@ async function refreshFareEstimate(options = {}) {
   const { pickup, destination, hasValidCoordinates } = getPickupAndDestination();
   if (!hasValidCoordinates || !pickup || !destination) {
     setFareError('');
+    hideSurgeWarning();
     renderMapState({ fitRoute, allowFallback: true });
     return;
   }
   setFareLoading(true);
+  if (estimateRetryTimerId) {
+    window.clearTimeout(estimateRetryTimerId);
+    estimateRetryTimerId = null;
+  }
   try {
     const estimate = await estimateRideFare(pickup, destination);
     if (requestId !== fareRequestSequence) return;
     renderFareEstimate(estimate);
-    setFareError(estimate._fallbackReason || '');
+    if (estimate._isFallback && estimateRetryCount < ESTIMATE_MAX_RETRIES) {
+      estimateRetryCount++;
+      estimateRetryTimerId = window.setTimeout(() => {
+        refreshFareEstimate({ fitRoute: false }).catch(() => {});
+      }, ESTIMATE_RETRY_INTERVAL_MS);
+    } else if (!estimate._isFallback) {
+      estimateRetryCount = 0;
+    }
     renderMapState({ fitRoute });
   } finally {
     setFareLoading(false);
@@ -967,6 +1050,22 @@ async function fetchDirectionsRoute(pickup, destination) {
     const route = payload?.routes?.[0];
     const coordinates = Array.isArray(route?.geometry?.coordinates) ? route.geometry.coordinates : null;
     if (!response.ok || !coordinates?.length) return buildFallbackDirections(pickup, destination);
+
+    // Extract and validate duration (Mapbox returns seconds) and distance (meters)
+    const durationSeconds = Number(route.duration || 0);
+    const rawEtaMinutes = durationSeconds / 60;
+    const etaMinutes = rawEtaMinutes > 0 && rawEtaMinutes < MAX_DURATION_MINUTES
+      ? Math.round(rawEtaMinutes)
+      : null;
+    const distanceMeters = Number(route.distance || 0);
+    const rawDistanceMiles = distanceMeters * 0.000621371;
+    const distanceMiles = rawDistanceMiles > 0 && rawDistanceMiles < MAX_DISTANCE_MILES
+      ? roundToTwo(rawDistanceMiles)
+      : null;
+    if (process?.env?.NODE_ENV !== 'production') {
+      console.log('[Mapbox] Route data:', { durationSeconds, rawEtaMinutes, etaMinutes, distanceMeters, rawDistanceMiles, distanceMiles });
+    }
+
     const instructions = (Array.isArray(route.legs) ? route.legs : [])
       .flatMap(leg => Array.isArray(leg.steps) ? leg.steps : [])
       .map(step => step?.maneuver?.instruction || step?.name)
@@ -980,7 +1079,9 @@ async function fetchDirectionsRoute(pickup, destination) {
       geometry: coordinates,
       instructions: instructions.length ? instructions : buildFallbackDirections(pickup, destination).instructions,
       sourceLabel: 'Mapbox live route',
-      trafficLabel: hasHeavyTraffic ? 'Heavy traffic' : hasSlowTraffic ? 'Slow traffic' : 'Clear route'
+      trafficLabel: hasHeavyTraffic ? 'Heavy traffic' : hasSlowTraffic ? 'Slow traffic' : 'Clear route',
+      distanceMiles,
+      etaMinutes
     };
   } catch (_error) {
     return buildFallbackDirections(pickup, destination);
@@ -1149,6 +1250,20 @@ async function refreshMapRoute(options = {}) {
   renderRouteInstructions(route.instructions);
   safeSetText('route-source-badge', route.sourceLabel);
   safeSetText('map-route-traffic', mapState.routeTrafficLabel);
+
+  // Use actual Mapbox distance/duration to refresh fare estimate if data is valid
+  if (Number.isFinite(route.distanceMiles) && Number.isFinite(route.etaMinutes) && route.distanceMiles > 0) {
+    const mapboxRoute = { distanceMiles: route.distanceMiles, etaMinutes: route.etaMinutes };
+    const updatedEstimate = {
+      ok: true,
+      route: mapboxRoute,
+      _isFallback: false,
+      _fallbackReason: '',
+      ...buildEstimateFromRoute(mapboxRoute, selectedRideType)
+    };
+    renderFareEstimate(updatedEstimate);
+  }
+
   if (fitRoute || !mapState.hasFittedScene) fitMapToScene(pickup, destination);
 }
 
@@ -1310,6 +1425,11 @@ async function handleRequestRide() {
       }, REQUEST_SUCCESS_ANIMATION_MS);
     }
     showPopup('Ride request sent. Searching for driver...');
+
+    // Simulate driver assignment after 3-5 seconds
+    if (currentRide?.id) {
+      simulateDriverAssignment(currentRide.id, pickup.lat, pickup.lng);
+    }
   } finally {
     setButtonLoading('request-ride-button', false);
     renderRideState();
@@ -1319,6 +1439,9 @@ async function handleRequestRide() {
 async function handleCancelRide() {
   if (!currentRide?.id) return;
   setCancelModalOpen(false);
+  stopStatusProgression();
+  stopEtaCountdown();
+  assignedDriver = null;
   setButtonLoading('cancel-ride-button', true);
   try {
     const canceledRide = await cancelRide(currentRide.id);
@@ -1415,6 +1538,137 @@ function setupSession() {
   return true;
 }
 
+function stopEtaCountdown() {
+  if (etaCountdownIntervalId) {
+    window.clearInterval(etaCountdownIntervalId);
+    etaCountdownIntervalId = null;
+  }
+}
+
+function startEtaCountdown(initialMinutes) {
+  stopEtaCountdown();
+  let secondsRemaining = Math.max(0, Math.round(Number(initialMinutes || 5) * 60));
+  const updateDisplay = () => {
+    const minutes = Math.floor(secondsRemaining / 60);
+    const seconds = secondsRemaining % 60;
+    const formatted = minutes > 0 ? `${minutes} min` : `${seconds}s`;
+    animateNumericText('driver-eta', formatted);
+    animateNumericText('driver-countdown', formatted);
+  };
+  updateDisplay();
+  etaCountdownIntervalId = window.setInterval(() => {
+    if (secondsRemaining > 0) secondsRemaining--;
+    updateDisplay();
+    if (secondsRemaining === 0) stopEtaCountdown();
+  }, 1000);
+}
+
+function stopStatusProgression() {
+  if (statusProgressionTimerId) {
+    window.clearTimeout(statusProgressionTimerId);
+    statusProgressionTimerId = null;
+  }
+}
+
+function applyRideStatusUpdate(rideId, patch) {
+  if (!rideId) return;
+  const updated = updateSharedRide(rideId, patch);
+  if (updated) {
+    currentRide = normalizeRide(updated);
+    rides = mergeRides([currentRide], readSharedRideStore().rides);
+    renderRideState();
+  }
+}
+
+function renderDriverCard(driver, etaMinutes) {
+  if (!driver) return;
+  const card = document.getElementById('driver-assigned-card');
+  if (!card) return;
+
+  // Avatar
+  const avatarNode = card.querySelector('.driver-avatar-initial');
+  if (avatarNode) avatarNode.textContent = driver.avatarInitial || driver.name?.[0] || '?';
+
+  // Info
+  safeSetText('driver-name', driver.name || '--');
+  safeSetText('driver-vehicle', driver.vehicle || '--');
+  safeSetText('driver-plate', driver.plate || '--');
+  safeSetText('driver-rating', `${Number(driver.rating || 0).toFixed(2)} ⭐`);
+  safeSetText('driver-eta', formatMinutes(etaMinutes || 5));
+  safeSetText('driver-countdown', formatMinutes(etaMinutes || 5));
+
+  // Online indicator
+  card.querySelector('.driver-online-dot')?.classList.add('is-online');
+  card.classList.add('slide-up');
+}
+
+function pickRandomDriver() {
+  const index = Math.floor(Math.random() * MOCK_DRIVER_POOL.length);
+  return MOCK_DRIVER_POOL[index];
+}
+
+function simulateDriverMovementOnMap(pickupLat, pickupLng) {
+  if (!mapState.mapLoaded || !mapState.map) return;
+  const startLat = pickupLat + (Math.random() - 0.5) * DRIVER_START_POSITION_OFFSET;
+  const startLng = pickupLng + (Math.random() - 0.5) * DRIVER_START_POSITION_OFFSET;
+
+  // Create driver marker at simulated start position
+  if (!mapState.markers.driver) {
+    mapState.markers.driver = new window.mapboxgl.Marker({ element: createDriverMarkerElement() });
+  }
+  mapState.markers.driver
+    .setLngLat([startLng, startLat])
+    .setPopup(new window.mapboxgl.Popup({ offset: 20 }).setText(assignedDriver?.name || 'Driver'))
+    .addTo(mapState.map);
+  mapState.lastDriverPosition = { lat: startLat, lng: startLng };
+
+  // Animate toward pickup over ~20 seconds
+  const targetPos = { lat: pickupLat, lng: pickupLng };
+  animateDriverMarkerTo(mapState.markers.driver, { lat: startLat, lng: startLng }, targetPos);
+}
+
+function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
+  const delay = getRandomDelay(DRIVER_ASSIGN_DELAY_MIN_MS, DRIVER_ASSIGN_DELAY_MAX_MS);
+  stopStatusProgression();
+
+  statusProgressionTimerId = window.setTimeout(() => {
+    const driver = pickRandomDriver();
+    assignedDriver = driver;
+    const driverEta = MIN_DRIVER_ETA_MINUTES + Math.floor(Math.random() * (MAX_DRIVER_ETA_MINUTES - MIN_DRIVER_ETA_MINUTES));
+
+    applyRideStatusUpdate(rideId, {
+      status: 'accepted',
+      driverId: `driver_${Date.now()}`,
+      driverName: driver.name,
+      etaMinutes: driverEta,
+      events: [
+        ...(currentRide?.events || []),
+        {
+          id: `evt_assigned_${Date.now()}`,
+          type: 'driver_assigned',
+          title: 'Driver assigned',
+          message: `${driver.name} is on the way.`,
+          createdAt: new Date().toISOString()
+        }
+      ]
+    });
+
+    renderDriverCard(driver, driverEta);
+    startEtaCountdown(driverEta);
+    simulateDriverMovementOnMap(pickupLat, pickupLng);
+    showPopup(`${driver.name} is on the way!`);
+
+    // Simulate driver arriving
+    statusProgressionTimerId = window.setTimeout(() => {
+      applyRideStatusUpdate(currentRide?.id, { status: 'arrived_at_pickup', etaMinutes: 0 });
+      stopEtaCountdown();
+      animateNumericText('driver-eta', 'Here now');
+      animateNumericText('driver-countdown', 'Here now');
+      showPopup('Your driver has arrived at pickup!');
+    }, driverEta * 60 * 1000);
+  }, delay);
+}
+
 function setupHandlers() {
   document.getElementById('logout-button')?.addEventListener('click', handleLogout);
   document.getElementById('request-ride-button')?.addEventListener('click', () => {
@@ -1497,6 +1751,9 @@ function setupHandlers() {
   window.addEventListener('beforeunload', () => {
     if (clockIntervalId) window.clearInterval(clockIntervalId);
     if (searchingDotsIntervalId) window.clearInterval(searchingDotsIntervalId);
+    if (etaCountdownIntervalId) window.clearInterval(etaCountdownIntervalId);
+    if (statusProgressionTimerId) window.clearTimeout(statusProgressionTimerId);
+    if (estimateRetryTimerId) window.clearTimeout(estimateRetryTimerId);
     if (mapState.routeAnimationTimer) window.clearInterval(mapState.routeAnimationTimer);
     if (mapState.pendingDriverAnimation) window.cancelAnimationFrame(mapState.pendingDriverAnimation);
     Object.values(geocodeDebounceTimers).forEach(timer => window.clearTimeout(timer));
