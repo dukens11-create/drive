@@ -14,6 +14,7 @@ const MAP_BOUNDS_ANIMATION_MS = 700;
 const CURRENT_LOCATION_TIMEOUT_MS = 12000;
 const WATCH_LOCATION_TIMEOUT_MS = 10000;
 const GEOCODE_DEBOUNCE_MS = 500;
+const MIN_GEOCODE_QUERY_LENGTH = 3;
 const GEOCODE_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const DEFAULT_SERVICE_FEE_PERCENT = 0.12;
 const MIN_TRIP_MINUTES = 6;
@@ -111,11 +112,7 @@ function setButtonLoading(id, isLoading) {
     button.dataset.wasDisabled = button.disabled ? 'true' : 'false';
     button.disabled = true;
   } else {
-    if (button.dataset.wasDisabled === 'true') {
-      button.disabled = true;
-    } else if (!button.classList.contains('d-none')) {
-      button.disabled = false;
-    }
+    button.disabled = button.dataset.wasDisabled === 'true';
     delete button.dataset.wasDisabled;
   }
 }
@@ -411,21 +408,25 @@ async function geocodeAddress(query) {
   const token = mapState.token || readMapboxToken();
   if (!token) return null;
 
-  const encodedQuery = encodeURIComponent(normalizedQuery);
-  const url = new URL(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedQuery}.json`);
-  url.searchParams.set('access_token', token);
-  url.searchParams.set('limit', '1');
-  const response = await fetch(url.toString());
-  const payload = await response.json().catch(() => null);
-  const feature = payload?.features?.[0];
-  const center = Array.isArray(feature?.center) ? feature.center : null;
-  const lng = Number(center?.[0]);
-  const lat = Number(center?.[1]);
-  if (!response.ok || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  try {
+    const encodedQuery = encodeURIComponent(normalizedQuery);
+    const url = new URL(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedQuery}.json`);
+    url.searchParams.set('access_token', token);
+    url.searchParams.set('limit', '1');
+    const response = await fetch(url.toString());
+    const payload = await response.json().catch(() => null);
+    const feature = payload?.features?.[0];
+    const center = Array.isArray(feature?.center) ? feature.center : null;
+    const lng = Number(center?.[0]);
+    const lat = Number(center?.[1]);
+    if (!response.ok || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
-  cache[normalizedQuery] = { lat, lng, cachedAt: now };
-  writeGeocodeCache(cache);
-  return { lat, lng };
+    cache[normalizedQuery] = { lat, lng, cachedAt: now };
+    writeGeocodeCache(cache);
+    return { lat, lng };
+  } catch (_error) {
+    return null;
+  }
 }
 
 async function resolveCoordinateInput(id, options = {}) {
@@ -464,7 +465,7 @@ function queueGeocodeResolution(id, options = {}) {
   if (geocodeDebounceTimers[id]) window.clearTimeout(geocodeDebounceTimers[id]);
   const input = document.getElementById(id);
   const value = String(input?.value || '').trim();
-  if (!value || parseCoordinateInput(value) || value.length < 3) return;
+  if (!value || parseCoordinateInput(value) || value.length < MIN_GEOCODE_QUERY_LENGTH) return;
   geocodeDebounceTimers[id] = window.setTimeout(() => {
     resolveCoordinateInput(id, options).catch(() => {});
   }, GEOCODE_DEBOUNCE_MS);
@@ -1071,6 +1072,7 @@ async function handleRequestRide() {
     showPopup('Ride request sent. Searching for driver...');
   } finally {
     setButtonLoading('request-ride-button', false);
+    renderRideState();
   }
 }
 
@@ -1087,6 +1089,7 @@ async function handleCancelRide() {
     }
   } finally {
     setButtonLoading('cancel-ride-button', false);
+    renderRideState();
   }
 }
 
