@@ -17,6 +17,117 @@ Drive is now a TypeScript codebase with:
 - Driver mobile README: **[mobile/README.md](./mobile/README.md)**
 - Passenger mobile README: **[mobile-passenger/README.md](./mobile-passenger/README.md)**
 
+## 🚀 Backend Quick Start
+
+### Setup
+
+```bash
+npm install
+npm run build
+npm run db:seed    # Seed test users (admin, rider, driver)
+npm start
+```
+
+The backend is configured for **local file-based persistence** by default:
+- Environment: `.env` with `DATA_STORE_MODE=file`
+- Data: `.data/store.json` (auto-created, survives restarts)
+- Auth users persist across server restarts ✅
+
+### 📝 Default Test Credentials
+
+**Admin Portal** (`http://localhost:8080/index.html`)
+```
+Email:    admin@drive.com
+Password: FlupflapHaiti2025@
+```
+
+**Rider Portal** (`http://localhost:8080/users.html`)
+```
+Email:    rider@example.com
+Password: Test123!@#$
+```
+
+**Driver Portal** (`http://localhost:8080/drivers.html`)
+```
+Email:    driver@example.com
+Password: Driver123!@#$
+```
+
+### Seed Database
+
+Create or reset all test accounts:
+
+```bash
+npm run db:seed
+```
+
+Output shows which users were seeded and the data store path:
+```
+✅ Database seeded successfully!
+
+{
+  "ok": true,
+  "seeded": [
+    "admin@drive.com (admin)",
+    "rider@example.com (rider)",
+    "rider@test.com (rider)",
+    "driver@example.com (driver)",
+    "driver@test.com (driver)"
+  ],
+  "dataStoreMode": "file",
+  "dataStoreFile": ".data/store.json"
+}
+```
+
+### Development Mode
+
+Run with hot reload:
+
+```bash
+npm run dev
+```
+
+### Data Persistence
+
+- **File Mode** (default): Data saved to `.data/store.json` and persists on restart ✅
+  - Set: `DATA_STORE_MODE=file` in `.env`
+  - Use for: Local development, testing
+  - Data location: `.data/store.json`
+
+- **Memory Mode**: Data only in RAM, lost on restart
+  - Set: `DATA_STORE_MODE=memory` in `.env`
+  - Use for: Testing, CI/CD pipelines
+
+### Configuration
+
+Key `.env` variables:
+
+```bash
+# Server
+NODE_ENV=development
+PORT=8080
+LOG_LEVEL=info
+
+# Auth
+JWT_SECRET=dev-local-secret
+ADMIN_SEED_PASSWORD=FlupflapHaiti2025@
+TEST_RIDER_SEED_PASSWORD=Test123!@#$
+TEST_DRIVER_SEED_PASSWORD=Driver123!@#$
+
+# Data Storage
+DATA_STORE_MODE=file           # file or memory
+DATA_STORE_FILE=.data/store.json
+
+# CORS
+CORS_ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
+```
+
+### Testing
+
+```bash
+npm test
+```
+
 ## Mobile app: Drive Home
 
 The `mobile/` app includes a production-style Uber-inspired driver home experience:
@@ -104,38 +215,6 @@ The backend now also exposes Firebase-style dispatch compatibility payloads via:
 
 Ride requests persist broadcast history, acceptance responses, 30-second expiry metadata, ordered realtime dispatch events, and driver location history for live dispatch synchronization.
 
-## Backend quick start
-
-```bash
-npm install
-npm run build
-npm start
-```
-
-Development uses the checked-in `.env` with file persistence (`DATA_STORE_MODE=file`, `DATA_STORE_FILE=.data/store.json`) so auth users and refresh sessions survive restarts.
-
-Seeded development login accounts:
-
-- Admin: `admin@drive.com` / `ADMIN_SEED_PASSWORD` from `.env`
-- Rider: `rider@test.com` / `TEST_RIDER_SEED_PASSWORD` from `.env`
-- Driver: `driver@test.com` / `TEST_DRIVER_SEED_PASSWORD` from `.env`
-
-Backend source is organized under `src/`:
-
-- `src/controllers` – request handlers
-- `src/services` – domain logic
-- `src/routes` – Express route registration
-- `src/schemas` – Zod request schemas
-- `src/middleware`, `src/utils`, `src/config` – shared runtime helpers
-- `src/database`, `src/queues`, `src/websocket`, `src/constants` – infrastructure modules
-- `tests/` – backend route and service integration tests
-
-Run backend tests:
-
-```bash
-npm test
-```
-
 ## Admin dashboard
 
 ```bash
@@ -178,7 +257,7 @@ The restaurant admin app includes:
 
 ## Android builds (APK / AAB)
 
-See **[PRODUCTION_BUILD.md](./PRODUCTION_BUILD.md)** for a full step-by-step guide on generating APK and AAB files for testing and Play Store submission using Expo EAS (recommended) or React Native CLI.
+See **[PRODUCTION_BUILD.md](./PRODUCTION_BUILD.md)** for a full step-by-step guide on generating APK and AAB files for testing and Play Store submission using Expo EAS (recommended) or React Nati[...]
 
 ### Codemagic + Expo token requirement
 
@@ -205,11 +284,11 @@ Codemagic Android builds use EAS non-interactive auth and require a secure `EXPO
 
 ## CI
 
-- GitHub Actions (`.github/workflows/ci.yml`) runs backend build/test/audit checks, admin lint/build validation, mobile typecheck/Jest coverage/Expo export checks, web typecheck/build checks, dependency review on PRs, and auto-builds optional passenger/restaurant app workspaces when they are added to the repository.
+- GitHub Actions (`.github/workflows/ci.yml`) runs backend build/test/audit checks, admin lint/build validation, mobile typecheck/Jest coverage/Expo export checks, web typecheck/build checks, dep[...]
 - GitHub Actions (`.github/workflows/ci.yml`) also lints/templates the Helm chart and runs `terraform fmt` + `terraform validate` for infrastructure changes.
 - GitHub Actions (`.github/workflows/codeql.yml`) runs scheduled and PR CodeQL analysis for repository security scanning.
 - GitHub Actions (`.github/workflows/release.yml`) uses Release Please for semantic versioning and changelog generation.
-- GitHub Actions (`.github/workflows/deploy.yml`) publishes smoke-tested backend container images to GHCR and renders environment-specific Helm manifests for development, staging, and production promotion via GitHub Environments.
+- GitHub Actions (`.github/workflows/deploy.yml`) publishes smoke-tested backend container images to GHCR and renders environment-specific Helm manifests for development, staging, and production [...]
 - Codemagic (`codemagic.yaml`) runs Expo mobile install/typecheck and EAS local Android APK build from `mobile/` (requires secure `EXPO_TOKEN`).
 
 See **[CI_CD.md](./CI_CD.md)** for the full CI/CD, deployment, environment, and rollback workflow.
