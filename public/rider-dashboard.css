@@ -1016,9 +1016,7 @@ input {
   gap: 8px;
 }
 
-.route-instructions li::before {
-  content: '\F138';
-  font-family: bootstrap-icons;
+.route-instruction-icon {
   color: var(--primary-dark);
   font-size: 0.84rem;
   margin-top: 2px;
@@ -1118,11 +1116,9 @@ input {
   font-weight: 700;
 }
 
-.searching-dots::after {
-  content: '.';
+.searching-dots {
   display: inline-block;
   width: 1.2em;
-  animation: dots 1s steps(3, end) infinite;
 }
 
 .driver-card {
@@ -1443,12 +1439,6 @@ input {
   50% { opacity: 0.65; transform: scale(1.08); }
 }
 
-@keyframes dots {
-  0% { content: '.'; }
-  33% { content: '..'; }
-  66%, 100% { content: '...'; }
-}
-
 @keyframes pollingPulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }
@@ -1476,7 +1466,7 @@ input {
   inset: 0;
   display: grid;
   place-items: center;
-  background: rgba(2, 6, 23, 0.55);
+  background: rgba(2, 6, 23, 0.6);
   z-index: 1400;
 }
 
@@ -1583,6 +1573,7 @@ input {
     background: rgba(255, 255, 255, 0.88);
     backdrop-filter: blur(10px);
     box-shadow: 0 -8px 20px rgba(15, 23, 42, 0.12);
+    padding-bottom: 10px;
     padding-bottom: calc(10px + env(safe-area-inset-bottom));
   }
 

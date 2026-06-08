@@ -5,6 +5,7 @@ const SHARED_RIDE_STORAGE_KEY = 'drive.sharedRideRequests.v1';
 const SHARED_RIDE_STORAGE_VERSION = 1;
 const RIDE_POLL_INTERVAL_MS = 2500;
 const MIN_LOCATION_PUSH_INTERVAL_MS = 8000;
+const REQUEST_SUCCESS_ANIMATION_MS = 1200;
 const DEFAULT_PICKUP = { lat: 37.7749, lng: -122.4194 };
 const DEFAULT_DROPOFF_OFFSET_DEGREES = 0.01;
 const POPUP_DISPLAY_DURATION_MS = 2600;
@@ -12,6 +13,9 @@ const MAP_BOUNDS_PADDING_PX = 80;
 const MAP_MAX_ZOOM_LEVEL = 15;
 const MAP_BOUNDS_ANIMATION_MS = 700;
 const MAP_FLY_ANIMATION_MS = 800;
+const MAP_FLY_MIN_ZOOM = 12;
+const MAP_FLY_TARGET_ZOOM = 13;
+const MAP_FLY_MAX_ZOOM = 14;
 const CURRENT_LOCATION_TIMEOUT_MS = 12000;
 const WATCH_LOCATION_TIMEOUT_MS = 10000;
 const GEOCODE_DEBOUNCE_MS = 500;
@@ -51,6 +55,7 @@ let lastLocationPushAt = 0;
 let latestEstimate = null;
 let fareRequestSequence = 0;
 let clockIntervalId = null;
+let searchingDotsIntervalId = null;
 const geocodeDebounceTimers = {};
 
 const mapState = {
@@ -282,6 +287,15 @@ function calculateHeading(lat1, lng1, lat2, lng2) {
 
 function normalizeHeading(degrees) {
   return ((Number(degrees) % 360) + 360) % 360;
+}
+
+function easeInOutQuadratic(progress) {
+  return progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+}
+
+function clampZoom(zoom, minZoom, maxZoom, fallbackZoom) {
+  const numericZoom = Number.isFinite(Number(zoom)) ? Number(zoom) : fallbackZoom;
+  return Math.max(minZoom, Math.min(maxZoom, numericZoom));
 }
 
 function buildEstimateFromRoute(route, rideType = selectedRideType, overrides = {}) {
@@ -647,18 +661,17 @@ function renderRideState() {
   const requestButton = document.getElementById('request-ride-button');
   const buttonGroup = document.querySelector('.button-group');
   const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status));
-  const showRequestButton = true;
   const showCancelButton = canCancelRide;
   if (requestButton) {
     requestButton.disabled = canCancelRide;
-    requestButton.classList.toggle('d-none', !showRequestButton);
+    requestButton.classList.remove('d-none');
   }
   if (cancelButton) {
     cancelButton.disabled = !canCancelRide;
     cancelButton.classList.toggle('d-none', !showCancelButton);
   }
   if (buttonGroup) {
-    const visibleButtons = Number(showRequestButton) + Number(showCancelButton);
+    const visibleButtons = 1 + Number(showCancelButton);
     buttonGroup.classList.toggle('single-action', visibleButtons <= 1);
   }
 
@@ -699,6 +712,17 @@ function setCancelModalOpen(isOpen) {
   const modal = document.getElementById('cancel-modal');
   if (!modal) return;
   modal.classList.toggle('d-none', !isOpen);
+}
+
+function startSearchingDotsAnimation() {
+  const dots = document.querySelector('#searching-status .searching-dots');
+  if (!dots) return;
+  let count = 0;
+  if (searchingDotsIntervalId) window.clearInterval(searchingDotsIntervalId);
+  searchingDotsIntervalId = window.setInterval(() => {
+    count = (count % 3) + 1;
+    dots.textContent = '.'.repeat(count);
+  }, 330);
 }
 
 function setMapFallbackMessage(message) {
@@ -844,7 +868,7 @@ function animateDriverMarkerTo(marker, from, to) {
   const startAt = performance.now();
   const tick = now => {
     const progress = Math.min(1, (now - startAt) / DRIVER_MARKER_LERP_MS);
-    const eased = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+    const eased = easeInOutQuadratic(progress);
     const lat = from.lat + (to.lat - from.lat) * eased;
     const lng = from.lng + (to.lng - from.lng) * eased;
     marker.setLngLat([lng, lat]);
@@ -931,7 +955,7 @@ function buildFallbackDirections(pickup, destination) {
 async function fetchDirectionsRoute(pickup, destination) {
   if (!mapState.token) return buildFallbackDirections(pickup, destination);
   try {
-    const url = new URL(`https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${pickup.lng},${pickup.lat};${destination.lng},${destination.lat}`);
+    const url = new URL(`https://api.mapbox.com/directions/v5/mapbox/driving/${pickup.lng},${pickup.lat};${destination.lng},${destination.lat}`);
     url.searchParams.set('access_token', mapState.token);
     url.searchParams.set('alternatives', 'false');
     url.searchParams.set('geometries', 'geojson');
@@ -969,7 +993,12 @@ function renderRouteInstructions(instructions) {
   list.innerHTML = '';
   (instructions?.length ? instructions : ['Set pickup and destination to preview your trip.']).forEach((item, index) => {
     const li = document.createElement('li');
-    li.textContent = item;
+    const icon = document.createElement('span');
+    icon.className = 'route-instruction-icon bi bi-arrow-right-circle';
+    icon.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('span');
+    label.textContent = item;
+    li.append(icon, label);
     li.classList.toggle('is-current', index === 0);
     list.appendChild(li);
   });
@@ -1013,7 +1042,7 @@ function flyToPrimaryLocation(pickup, destination) {
   const centerLat = (pickup.lat + destination.lat) / 2;
   mapState.map.flyTo({
     center: [centerLng, centerLat],
-    zoom: Math.max(12, Math.min(14, mapState.map.getZoom?.() || 13)),
+    zoom: clampZoom(mapState.map.getZoom?.(), MAP_FLY_MIN_ZOOM, MAP_FLY_MAX_ZOOM, MAP_FLY_TARGET_ZOOM),
     duration: MAP_FLY_ANIMATION_MS,
     essential: true,
     curve: 1.35,
@@ -1021,7 +1050,8 @@ function flyToPrimaryLocation(pickup, destination) {
     pitch: 40
   });
   window.setTimeout(() => {
-    mapState.map?.easeTo({ pitch: 46, duration: 260 });
+    if (!mapState.map || mapState.lastFlyKey !== flyKey) return;
+    mapState.map.easeTo({ pitch: 46, duration: 260 });
   }, MAP_FLY_ANIMATION_MS);
 }
 
@@ -1142,8 +1172,10 @@ function renderMapState(options = {}) {
   });
 }
 
-async function initializeMap() {
-  if (mapState.map) {
+async function initializeMap(options = {}) {
+  const { force = false } = options;
+  if (mapState.map && mapState.mapLoaded && !force) return;
+  if (mapState.map && force) {
     mapState.map.remove();
     mapState.map = null;
     mapState.mapLoaded = false;
@@ -1240,7 +1272,7 @@ async function syncRides() {
   } catch (_error) {
     backendRides = [];
   } finally {
-    window.setTimeout(() => setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(currentRide.status))), 250);
+    setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(currentRide.status)));
   }
   rides = mergeRides(backendRides, readSharedRideStore().rides);
   writeSharedRideStore({ rides });
@@ -1275,7 +1307,7 @@ async function handleRequestRide() {
         if (icon) icon.className = 'bi bi-lightning-charge-fill btn-icon';
         requestLabel.textContent = 'Request Ride';
         requestButton.classList.remove('is-success');
-      }, 1200);
+      }, REQUEST_SUCCESS_ANIMATION_MS);
     }
     showPopup('Ride request sent. Searching for driver...');
   } finally {
@@ -1401,7 +1433,7 @@ function setupHandlers() {
     if (event.target === event.currentTarget) setCancelModalOpen(false);
   });
   document.getElementById('retry-map-button')?.addEventListener('click', () => {
-    initializeMap().catch(() => {});
+    initializeMap({ force: true }).catch(() => {});
   });
   document.getElementById('retry-estimate-button')?.addEventListener('click', () => {
     refreshFareEstimate({ fitRoute: true }).catch(() => {});
@@ -1464,6 +1496,7 @@ function setupHandlers() {
 
   window.addEventListener('beforeunload', () => {
     if (clockIntervalId) window.clearInterval(clockIntervalId);
+    if (searchingDotsIntervalId) window.clearInterval(searchingDotsIntervalId);
     if (mapState.routeAnimationTimer) window.clearInterval(mapState.routeAnimationTimer);
     if (mapState.pendingDriverAnimation) window.cancelAnimationFrame(mapState.pendingDriverAnimation);
     Object.values(geocodeDebounceTimers).forEach(timer => window.clearTimeout(timer));
@@ -1474,6 +1507,7 @@ window.addEventListener('load', async () => {
   if (!setupSession()) return;
   seedDefaultInputs();
   setupHandlers();
+  startSearchingDotsAnimation();
   clockIntervalId = window.setInterval(updateHeaderClock, 60000);
   await initializeMap();
   resizeMapNow();
