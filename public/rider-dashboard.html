@@ -192,10 +192,15 @@
                   <strong id="fare-duration">0 min</strong>
                 </div>
               </div>
-              <div id="fare-error" class="fare-error d-none" role="status" aria-live="polite">
-                <i class="bi bi-wifi-off" aria-hidden="true"></i>
-                <span id="fare-error-text">Estimate service is unavailable. Showing local fallback.</span>
+              <div id="fare-error" class="fare-error fare-warning d-none" role="status" aria-live="polite">
+                <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+                <span id="fare-error-text">Using estimated pricing</span>
                 <button id="retry-estimate-button" type="button" class="btn btn-secondary btn-sm">Retry</button>
+              </div>
+
+              <div id="surge-warning" class="surge-warning d-none" role="status" aria-live="polite">
+                <i class="bi bi-lightning-charge-fill" aria-hidden="true"></i>
+                <span>High demand pricing active · Base fare <strong id="surge-base-fare">--</strong></span>
               </div>
 
               <div class="fare-breakdown">
@@ -327,24 +332,41 @@
                 <p id="status-message" class="status-message">Enter pickup and destination to request a ride.</p>
                 <p id="searching-status" class="searching-status d-none" aria-live="polite">Searching for nearby drivers<span class="searching-dots" aria-hidden="true"></span></p>
 
-                <div id="driver-assigned-card" class="driver-card d-none">
-                  <div class="driver-header">
-                    <i class="bi bi-person-check"></i>
-                    <span>Driver assigned</span>
+                <div id="driver-assigned-card" class="driver-card d-none" aria-live="polite">
+                  <div class="driver-card-header">
+                    <div class="driver-avatar-wrap">
+                      <div class="driver-avatar-circle">
+                        <span class="driver-avatar-initial">?</span>
+                      </div>
+                      <span class="driver-online-dot" aria-label="Driver online"></span>
+                    </div>
+                    <div class="driver-info-col">
+                      <div class="driver-info-name" id="driver-name">--</div>
+                      <div class="driver-info-vehicle" id="driver-vehicle">--</div>
+                      <div class="driver-info-plate">
+                        <i class="bi bi-credit-card-2-front" aria-hidden="true"></i>
+                        <span id="driver-plate">--</span>
+                      </div>
+                    </div>
+                    <div class="driver-eta-col">
+                      <div class="driver-countdown" id="driver-countdown">--</div>
+                      <div class="driver-eta-label">away</div>
+                    </div>
                   </div>
-                  <div class="driver-details">
-                    <div class="detail-row">
-                      <span class="detail-label">Driver</span>
-                      <span class="detail-value" id="driver-name">--</span>
-                    </div>
-                    <div class="detail-row">
-                      <span class="detail-label">Location</span>
-                      <span class="detail-value" id="driver-location">--</span>
-                    </div>
-                    <div class="detail-row">
-                      <span class="detail-label">ETA</span>
-                      <span class="detail-value" id="driver-eta">--</span>
-                    </div>
+                  <div class="driver-meta-row">
+                    <span class="driver-rating-badge">
+                      <span id="driver-rating">-- ⭐</span>
+                    </span>
+                    <span class="driver-location-text" id="driver-location">--</span>
+                  </div>
+                  <div class="driver-actions-row">
+                    <button type="button" class="driver-action-btn" aria-label="Call driver" title="Call driver">
+                      <i class="bi bi-telephone-fill"></i>
+                    </button>
+                    <button type="button" class="driver-action-btn" aria-label="Message driver" title="Message driver">
+                      <i class="bi bi-chat-dots-fill"></i>
+                    </button>
+                    <span class="driver-eta-chip">ETA: <span id="driver-eta">--</span></span>
                   </div>
                 </div>
 

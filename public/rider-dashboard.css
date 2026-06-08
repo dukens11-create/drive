@@ -729,6 +729,30 @@ input {
   color: #b91c1c;
 }
 
+.fare-error.fare-warning {
+  border-color: rgba(255, 184, 77, 0.45);
+  background: rgba(255, 184, 77, 0.10);
+  color: #92400e;
+}
+
+.surge-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 184, 77, 0.45);
+  background: rgba(255, 184, 77, 0.12);
+  color: #92400e;
+  font-size: 0.87rem;
+  font-weight: 600;
+}
+
+.surge-warning i {
+  color: var(--warning);
+}
+
 .fare-error .btn {
   margin-left: auto;
 }
@@ -1126,9 +1150,181 @@ input {
   padding: 18px;
   border-radius: 22px;
   background: linear-gradient(135deg, rgba(38, 208, 124, 0.12), rgba(27, 128, 255, 0.08));
-  border: 1px solid rgba(38, 208, 124, 0.16);
+  border: 1px solid rgba(38, 208, 124, 0.22);
+  animation: slideUp 0.35s ease-out;
 }
 
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.driver-card.slide-up {
+  animation: slideUp 0.35s ease-out;
+}
+
+.driver-card-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.driver-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.driver-avatar-circle {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #26d07c, #1b80ff);
+  display: grid;
+  place-items: center;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #fff;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 4px 14px rgba(38, 208, 124, 0.28);
+}
+
+.driver-online-dot {
+  position: absolute;
+  bottom: 1px;
+  right: 1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  border: 2px solid #fff;
+  transition: background 0.3s ease;
+}
+
+.driver-online-dot.is-online {
+  background: #16a34a;
+}
+
+.driver-info-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.driver-info-name {
+  font-weight: 800;
+  font-size: 1rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.driver-info-vehicle {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.driver-info-plate {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(15, 20, 25, 0.07);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.driver-eta-col {
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.driver-countdown {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--primary-dark);
+  line-height: 1;
+  transition: opacity 0.2s ease;
+}
+
+.driver-eta-label {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 2px;
+}
+
+.driver-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.driver-rating-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(38, 208, 124, 0.14);
+  border: 1px solid rgba(38, 208, 124, 0.28);
+  font-weight: 700;
+  font-size: 0.78rem;
+  color: #15803d;
+}
+
+.driver-location-text {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.driver-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.driver-action-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid rgba(27, 128, 255, 0.25);
+  background: rgba(27, 128, 255, 0.08);
+  color: var(--primary-dark);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.driver-action-btn:hover {
+  background: rgba(27, 128, 255, 0.18);
+  transform: scale(1.08);
+  box-shadow: 0 4px 14px rgba(27, 128, 255, 0.18);
+}
+
+.driver-eta-chip {
+  margin-left: auto;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(27, 128, 255, 0.10);
+  border: 1px solid rgba(27, 128, 255, 0.22);
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--primary-dark);
+}
+
+/* Legacy driver-card sub-elements (kept for fallback compatibility) */
 .driver-header {
   display: inline-flex;
   align-items: center;
@@ -1597,7 +1793,7 @@ input {
   }
 
   .map-container {
-    height: 300px;
+    height: 240px;
   }
 
   .trip-timeline {
