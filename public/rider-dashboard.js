@@ -9,7 +9,7 @@ const AUTH_STORAGE_KEYS = {
 };
 const RIDE_POLL_INTERVAL_MS = 2500;
 const MIN_LOCATION_PUSH_INTERVAL_MS = 8000;
-const DEFAULT_PICKUP = { lat: 37.7749, lng: -122.4194, label: '37.77490, -122.41940' };
+const DEFAULT_PICKUP = { lat: 37.77490, lng: -122.41940 };
 const DEFAULT_DROPOFF_OFFSET_DEGREES = 0.01;
 const RIDE_TYPE_MULTIPLIER = { ECONOMY: 1, COMFORT: 1.25, PREMIUM: 1.6 };
 const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'arrived_at_pickup', 'started'];
@@ -18,7 +18,12 @@ const MINUTES_PER_KM = 3.4;
 const BASE_FARE_USD = 2.5;
 const RATE_PER_MILE_USD = 1.9;
 const RATE_PER_MINUTE_USD = 0.25;
+const TIME_FARE_MULTIPLIER_ADJUSTMENT = 0.9;
 const DEFAULT_TAX_RATE = 0.085;
+const FARE_RANGE_LOW_MULTIPLIER = 0.92;
+const FARE_RANGE_HIGH_MULTIPLIER = 1.12;
+const DEFAULT_DESTINATION_LAT_OFFSET = 0.012;
+const DEFAULT_DESTINATION_LNG_OFFSET = 0.008;
 const POPUP_DISPLAY_DURATION_MS = 2600;
 const MAP_BOUNDS_PADDING_PX = 80;
 const MAP_MAX_ZOOM_LEVEL = 15;
@@ -28,6 +33,7 @@ const WATCH_LOCATION_TIMEOUT_MS = 10000;
 const ROUTE_SOURCE_ID = 'rider-live-route';
 const ROUTE_LAYER_CASING_ID = 'rider-live-route-casing';
 const ROUTE_LAYER_ID = 'rider-live-route-line';
+const MAPBOX_DIRECTIONS_PROFILE_URL = 'https://api.mapbox.com/directions/v5/mapbox/driving/';
 
 let currentUser = null;
 let accessToken = '';
@@ -74,6 +80,14 @@ function formatCurrency(value) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value || 0));
 }
 
+function formatCoordinateLabel(lat, lng) {
+  return `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
+}
+
+function formatCoordinateKey(lat, lng) {
+  return `${Number(lng).toFixed(5)},${Number(lat).toFixed(5)}`;
+}
+
 function roundToTwo(value) {
   return Math.round(Number(value || 0) * 100) / 100;
 }
@@ -82,7 +96,7 @@ function buildLocalFareBreakdown(miles, minutes, rideType) {
   const multiplier = RIDE_TYPE_MULTIPLIER[rideType] || 1;
   const baseFare = roundToTwo(BASE_FARE_USD);
   const distanceFare = roundToTwo(miles * RATE_PER_MILE_USD * multiplier);
-  const timeFare = roundToTwo(minutes * RATE_PER_MINUTE_USD * Math.max(1, 0.9 * multiplier));
+  const timeFare = roundToTwo(minutes * RATE_PER_MINUTE_USD * (TIME_FARE_MULTIPLIER_ADJUSTMENT * multiplier));
   const meterFare = roundToTwo(Math.max(baseFare, distanceFare + timeFare));
   const surgeMultiplier = 1;
   const surgeFare = roundToTwo(meterFare * surgeMultiplier);
@@ -109,8 +123,8 @@ function buildLocalFareBreakdown(miles, minutes, rideType) {
     total,
     fareEstimate: total,
     fareEstimateRange: {
-      low: roundToTwo(Math.max(baseFare, total * 0.92)),
-      high: roundToTwo(total * 1.12)
+      low: roundToTwo(Math.max(baseFare, total * FARE_RANGE_LOW_MULTIPLIER)),
+      high: roundToTwo(total * FARE_RANGE_HIGH_MULTIPLIER)
     }
   };
 }
@@ -212,8 +226,8 @@ function normalizeRide(ride = {}, index = 0) {
     pickupLng: fallbackPickupLng,
     dropoffLat: fallbackDropoff,
     dropoffLng: fallbackDropoffLng,
-    pickupLabel: ride.pickupLabel || `${fallbackPickup.toFixed(5)}, ${fallbackPickupLng.toFixed(5)}`,
-    destinationLabel: ride.destinationLabel || `${fallbackDropoff.toFixed(5)}, ${fallbackDropoffLng.toFixed(5)}`,
+    pickupLabel: ride.pickupLabel || formatCoordinateLabel(fallbackPickup, fallbackPickupLng),
+    destinationLabel: ride.destinationLabel || formatCoordinateLabel(fallbackDropoff, fallbackDropoffLng),
     rideType: String(ride.rideType || 'ECONOMY').toUpperCase(),
     miles,
     minutes,
@@ -312,7 +326,7 @@ function parseCoordinateInput(inputValue) {
   const lat = Number(matches[1]);
   const lng = Number(matches[2]);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  return { lat, lng, label: `${lat.toFixed(5)}, ${lng.toFixed(5)}` };
+  return { lat, lng, label: formatCoordinateLabel(lat, lng) };
 }
 
 function getPickupAndDestination(options = {}) {
@@ -329,9 +343,9 @@ function getPickupAndDestination(options = {}) {
   if (requireExplicit && (!pickup || !destination)) return null;
   const safePickup = pickup || DEFAULT_PICKUP;
   const safeDestination = destination || {
-    lat: safePickup.lat + 0.012,
-    lng: safePickup.lng + 0.008,
-    label: `${(safePickup.lat + 0.012).toFixed(5)}, ${(safePickup.lng + 0.008).toFixed(5)}`
+    lat: safePickup.lat + DEFAULT_DESTINATION_LAT_OFFSET,
+    lng: safePickup.lng + DEFAULT_DESTINATION_LNG_OFFSET,
+    label: formatCoordinateLabel(safePickup.lat + DEFAULT_DESTINATION_LAT_OFFSET, safePickup.lng + DEFAULT_DESTINATION_LNG_OFFSET)
   };
   return { pickup: safePickup, destination: safeDestination };
 }
@@ -506,7 +520,7 @@ function setMarker(name, lng, lat) {
 }
 
 async function fetchDirectionsGeoJson(coordinates) {
-  const requestUrl = new URL(`https://api.mapbox.com/directions/v5/mapbox/driving/${coordinates.map(point => `${point.lng},${point.lat}`).join(';')}`);
+  const requestUrl = new URL(`${MAPBOX_DIRECTIONS_PROFILE_URL}${coordinates.map(point => `${point.lng},${point.lat}`).join(';')}`);
   requestUrl.searchParams.set('access_token', mapState.token);
   requestUrl.searchParams.set('alternatives', 'false');
   requestUrl.searchParams.set('geometries', 'geojson');
@@ -536,12 +550,15 @@ function updateRouteSource(data) {
 async function updateRouteGeometry(pickup, destination, driverLocation) {
   if (!mapState.map || !ensureRouteLayers()) return;
   const routeCoordinates = [];
-  if (driverLocation && ['accepted', 'arrived_at_pickup', 'started'].includes(String(currentRide?.status || ''))) {
+  const rideStatus = String(currentRide?.status || '');
+  if (driverLocation && ['accepted', 'arrived_at_pickup', 'started'].includes(rideStatus)) {
     routeCoordinates.push({ lng: Number(driverLocation.lng), lat: Number(driverLocation.lat) });
   }
-  routeCoordinates.push({ lng: Number(pickup.lng), lat: Number(pickup.lat) });
+  if (rideStatus !== 'started') {
+    routeCoordinates.push({ lng: Number(pickup.lng), lat: Number(pickup.lat) });
+  }
   routeCoordinates.push({ lng: Number(destination.lng), lat: Number(destination.lat) });
-  const routeKey = routeCoordinates.map(point => `${point.lng.toFixed(5)},${point.lat.toFixed(5)}`).join('|');
+  const routeKey = routeCoordinates.map(point => formatCoordinateKey(point.lat, point.lng)).join('|');
   const requestId = ++mapState.routeRequestId;
 
   if (mapState.routeKey === routeKey) return;
@@ -657,9 +674,10 @@ function showPopup(message) {
   popup.textContent = message;
   popup.classList.remove('d-none');
   if (toastTimer) window.clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => {
+  const nextToastTimer = window.setTimeout(() => {
     popup.classList.add('d-none');
   }, POPUP_DISPLAY_DURATION_MS);
+  toastTimer = nextToastTimer;
 }
 
 function syncActionButtons() {
@@ -671,6 +689,21 @@ function syncActionButtons() {
   cancelButton.disabled = !canCancel;
 }
 
+function syncTripInputLockState() {
+  const isLocked = !!currentRide && ACTIVE_RIDE_STATUSES.includes(currentRide.status);
+  ['pickup-input', 'destination-input'].forEach(id => {
+    const input = document.getElementById(id);
+    if (!input) return;
+    input.readOnly = isLocked;
+    input.setAttribute('aria-readonly', String(isLocked));
+    if (isLocked) {
+      input.setAttribute('title', 'Trip coordinates are locked while an active ride is in progress.');
+    } else {
+      input.removeAttribute('title');
+    }
+  });
+}
+
 function renderRideState() {
   const state = getStatusViewModel(currentRide);
   setText('ride-status-pill', state.pill);
@@ -680,6 +713,7 @@ function renderRideState() {
   setText('breadcrumb-status', currentRide ? `${state.pill} ride in progress` : 'Active rider session');
   updateTimeline(state.step);
   syncActionButtons();
+  syncTripInputLockState();
 
   const canShowDriverCard = currentRide && ['accepted', 'arrived_at_pickup', 'started'].includes(currentRide.status);
   setElementVisible('driver-assigned-card', canShowDriverCard);
@@ -974,6 +1008,9 @@ function setupHandlers() {
 }
 
 window.addEventListener('load', async () => {
+  document.querySelectorAll('.premium-card').forEach((card, index) => {
+    card.style.transitionDelay = `${index * 0.06}s`;
+  });
   document.body.classList.add('is-ready');
   if (!setupSession()) return;
   setupHandlers();
