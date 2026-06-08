@@ -120,7 +120,7 @@ async function runSeeds() {
   store.users.set(adminId, {
     id: adminId,
     email: 'admin@drive.com',
-    password: hashPassword('password123'),
+    password: hashPassword(env.adminSeedPassword),
     role: 'admin',
     createdAt: timestamp()
   });
@@ -131,7 +131,7 @@ async function runSeeds() {
   store.users.set(riderId1, {
     id: riderId1,
     email: 'rider@test.com',
-    password: hashPassword('password123'),
+    password: hashPassword(env.testRiderSeedPassword),
     role: 'rider',
     createdAt: timestamp()
   });
@@ -148,7 +148,7 @@ async function runSeeds() {
   store.users.set(riderId2, {
     id: riderId2,
     email: 'rider@example.com',
-    password: hashPassword('password123'),
+    password: hashPassword(env.testRiderSeedPassword),
     role: 'rider',
     createdAt: timestamp()
   });
@@ -165,7 +165,7 @@ async function runSeeds() {
   store.users.set(driverId1, {
     id: driverId1,
     email: 'driver@test.com',
-    password: hashPassword('password123'),
+    password: hashPassword(env.testDriverSeedPassword),
     role: 'driver',
     createdAt: timestamp()
   });
@@ -196,7 +196,7 @@ async function runSeeds() {
   store.users.set(driverId2, {
     id: driverId2,
     email: 'driver@example.com',
-    password: hashPassword('password123'),
+    password: hashPassword(env.testDriverSeedPassword),
     role: 'driver',
     createdAt: timestamp()
   });
@@ -242,13 +242,13 @@ if (require.main === module) {
       console.log('\n📝 Test Credentials:\n');
       console.log('Admin:');
       console.log('  Email: admin@drive.com');
-      console.log('  Password: password123');
+      console.log('  Password: configured by ADMIN_SEED_PASSWORD');
       console.log('\nRider:');
       console.log('  Email: rider@example.com or rider@test.com');
-      console.log('  Password: password123');
+      console.log('  Password: configured by TEST_RIDER_SEED_PASSWORD');
       console.log('\nDriver:');
       console.log('  Email: driver@example.com or driver@test.com');
-      console.log('  Password: password123');
+      console.log('  Password: configured by TEST_DRIVER_SEED_PASSWORD');
       console.log('\n');
       process.exit(0);
     })

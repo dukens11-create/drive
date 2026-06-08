@@ -18,7 +18,7 @@ function shutdownServer(exit: ExitFn, close?: (callback: (error?: Error | null) 
   });
 }
 
-console.log('🔍 [START] Creating app...');
+logger.info('server startup initiated');
 
 let isListening = false;
 let closeServer: ((callback: (error?: Error | null) => void) => void) | undefined;
@@ -50,13 +50,12 @@ process.on('unhandledRejection', (reason) => {
 
 try {
   const { httpServer } = createApp();
-  const host = 'localhost';
-  console.log(`🔍 [APP CREATED] Starting listen on ${host}:${env.port}`);
+  const host = env.host;
+  logger.info(`Starting listen on ${host}:${env.port}`);
   closeServer = httpServer.close.bind(httpServer);
 
   const server = httpServer.listen(env.port, host, () => {
     isListening = true;
-    console.log('🔍 [CALLBACK] Listen callback fired');
     startJobRunner();
     logger.info('http server started', {
       host,
@@ -72,7 +71,6 @@ try {
   server.on('listening', () => {
     isListening = true;
     const addr = server.address();
-    console.log('🔍 [LISTENING EVENT] Server is listening:', addr);
     const addressDetails = typeof addr === 'string'
       ? { address: addr }
       : { address: addr?.address, family: addr?.family, port: addr?.port };
@@ -92,7 +90,6 @@ try {
       host,
       port: env.port
     });
-    console.error('🔍 [ERROR EVENT]', error);
     shutdownServer(exitProcess, closeServer);
   });
 
@@ -105,7 +102,7 @@ try {
     }
   });
 
-  console.log('🔍 [READY] Server initialization complete');
+  logger.info('server startup completed');
 } catch (err) {
   logger.error('server startup failed', {
     ...getErrorDetails(err),
@@ -113,6 +110,5 @@ try {
     nodeEnv: env.nodeEnv,
     loadedEnvFilePath: env.loadedEnvFilePath ?? null
   });
-  console.error('🔍 [FATAL ERROR] During startup:', err);
   exitProcess(1);
 }
