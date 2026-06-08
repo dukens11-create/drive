@@ -620,16 +620,18 @@ function renderRideState() {
   const requestButton = document.getElementById('request-ride-button');
   const buttonGroup = document.querySelector('.button-group');
   const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status));
+  const showRequestButton = !canCancelRide;
+  const showCancelButton = canCancelRide;
   if (requestButton) {
     requestButton.disabled = canCancelRide;
-    requestButton.classList.toggle('d-none', canCancelRide);
+    requestButton.classList.toggle('d-none', !showRequestButton);
   }
   if (cancelButton) {
     cancelButton.disabled = !canCancelRide;
-    cancelButton.classList.toggle('d-none', !canCancelRide);
+    cancelButton.classList.toggle('d-none', !showCancelButton);
   }
   if (buttonGroup) {
-    const visibleButtons = [requestButton, cancelButton].filter(button => button && !button.classList.contains('d-none')).length;
+    const visibleButtons = Number(showRequestButton) + Number(showCancelButton);
     buttonGroup.classList.toggle('single-action', visibleButtons <= 1);
   }
 
@@ -1062,6 +1064,7 @@ async function initializeMap() {
       setMapLoading(false);
       ensureRouteLayers();
       renderMapState({ fitRoute: true });
+      // Run immediate + delayed resize so canvas settles after async style/layout paint.
       resizeMapNow();
       resizeMapNow(120);
     });

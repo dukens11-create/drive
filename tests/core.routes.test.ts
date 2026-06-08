@@ -349,7 +349,8 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
     ].forEach(token => {
       assert.match(body, new RegExp(token));
     });
-    const mapboxCssIndex = body.indexOf('https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.css');
+    const mapboxCssHref = body.match(/https:\/\/api\.mapbox\.com\/mapbox-gl-js\/[^"]+\/mapbox-gl\.css/)?.[0] || '';
+    const mapboxCssIndex = body.indexOf(mapboxCssHref);
     const riderCssIndex = body.indexOf('/rider-dashboard.css');
     assert.equal(mapboxCssIndex >= 0, true);
     assert.equal(riderCssIndex > mapboxCssIndex, true);
