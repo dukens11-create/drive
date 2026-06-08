@@ -196,6 +196,17 @@ export type DriverVerificationReview = {
   checklist?: string[];
 };
 
+export type DriverVehicleProfile = {
+  make: string;
+  model: string;
+  year: number;
+  color: string;
+  plateNumber: string;
+  type: string;
+  photoUrl?: string;
+  lastUpdated: string;
+};
+
 export type DriverProfile = {
   userId: string;
   primaryVehicleId?: string;
@@ -216,6 +227,8 @@ export type DriverProfile = {
   verificationDocuments?: DriverVerificationDocument[];
   selfieVerification?: DriverSelfieVerification;
   verificationReview?: DriverVerificationReview;
+  profilePhotoUrl?: string;
+  vehicle?: DriverVehicleProfile;
 };
 
 export type KycSessionStatus = 'pending' | 'completed' | 'approved' | 'rejected' | 'expired' | 'pending_review';

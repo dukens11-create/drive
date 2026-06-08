@@ -16,5 +16,8 @@ export async function createVehicle(req:any,res:any){res.json(await service.crea
 export async function listVehicles(req:any,res:any){res.json(await service.listVehicles({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function deleteVehicle(req:any,res:any){res.json(await service.deleteVehicle({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function setActiveVehicle(req:any,res:any){res.json(await service.setActiveVehicle({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function saveVehicleProfile(req:any,res:any){res.json(await service.saveVehicleProfile({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function getVehicleProfile(req:any,res:any){res.json(await service.getVehicleProfile({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function uploadVehiclePhoto(req:any,res:any){res.json(await service.uploadVehiclePhoto({ ...req.body, actor: req.user, file: req.file }, req.params, req.query));}
 export async function create_kyc_session(req:any,res:any){res.json(await kycService.create_session({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function kyc_status(req:any,res:any){res.json(await kycService.status({ ...req.body, actor: req.user }, req.params, req.query));}

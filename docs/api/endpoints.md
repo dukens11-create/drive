@@ -63,6 +63,9 @@
 | GET | `/api/drivers/health` | authenticated |
 | POST | `/api/drivers/location` | authenticated |
 | GET | `/api/drivers/me` | authenticated |
+| GET | `/api/drivers/vehicle` | authenticated |
+| POST | `/api/drivers/vehicle` | authenticated |
+| POST | `/api/drivers/vehicle/photo` | authenticated |
 | GET | `/api/fraud/alerts` | admin |
 | POST | `/api/fraud/alerts/:id/review` | admin |
 | POST | `/api/fraud/check` | admin |
@@ -100,6 +103,7 @@
 | POST | `/api/payments/refund` | authenticated |
 | POST | `/api/payments/stripe-webhook` | authenticated |
 | GET | `/api/rides/:rideId` | authenticated |
+| GET | `/api/rides/:rideId/driver` | authenticated |
 | POST | `/api/rides/accept` | driver |
 | POST | `/api/rides/cancel` | rider |
 | POST | `/api/rides/complete` | driver |

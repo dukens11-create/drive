@@ -359,6 +359,7 @@
                   <div class="driver-card-header">
                     <div class="driver-avatar-wrap">
                       <div class="driver-avatar-circle">
+                        <img id="driver-avatar" class="driver-avatar-image d-none" alt="Driver profile photo">
                         <span class="driver-avatar-initial">?</span>
                       </div>
                       <span class="driver-online-dot" aria-label="Driver online"></span>
@@ -376,6 +377,15 @@
                       <div class="driver-eta-label">away</div>
                     </div>
                   </div>
+                  <div class="driver-vehicle-row">
+                    <div class="driver-vehicle-photo-wrap">
+                      <img id="driver-vehicle-photo" class="driver-vehicle-photo d-none" alt="Driver vehicle">
+                      <span id="driver-vehicle-icon" class="driver-vehicle-icon">🚗</span>
+                    </div>
+                    <div class="driver-vehicle-details">
+                      <div class="driver-vehicle-specs" id="driver-vehicle-specs"></div>
+                    </div>
+                  </div>
                   <div class="driver-meta-row">
                     <span class="driver-rating-badge">
                       <span id="driver-rating">-- ⭐</span>
@@ -383,10 +393,10 @@
                     <span class="driver-location-text" id="driver-location">--</span>
                   </div>
                   <div class="driver-actions-row">
-                    <button type="button" class="driver-action-btn" aria-label="Call driver" title="Call driver">
+                    <button id="btn-call-driver" type="button" class="driver-action-btn" aria-label="Call driver" title="Call driver">
                       <i class="bi bi-telephone-fill"></i>
                     </button>
-                    <button type="button" class="driver-action-btn" aria-label="Message driver" title="Message driver">
+                    <button id="btn-message-driver" type="button" class="driver-action-btn" aria-label="Message driver" title="Message driver">
                       <i class="bi bi-chat-dots-fill"></i>
                     </button>
                     <span class="driver-eta-chip">ETA: <span id="driver-eta">--</span></span>

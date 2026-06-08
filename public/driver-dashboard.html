@@ -1462,6 +1462,28 @@
             overflow-y: auto;
         }
 
+        .vehicle-form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+        }
+
+        .vehicle-photo-upload {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .vehicle-photo-preview {
+            width: 110px;
+            height: 84px;
+            border-radius: 12px;
+            object-fit: cover;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: rgba(255, 255, 255, 0.06);
+        }
+
         .bottom-nav {
             display: grid;
             grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -2067,6 +2089,74 @@
                                     </div>
                                 </form>
                                 <div id="document-list"></div>
+                            </div>
+
+                            <div class="panel-section">
+                                <div class="section-header">
+                                    <div>
+                                        <h2>Your Vehicle Information</h2>
+                                        <span>Share accurate vehicle details riders can quickly identify.</span>
+                                    </div>
+                                </div>
+                                <form id="vehicle-form" class="row g-2">
+                                    <div class="vehicle-form-grid col-12">
+                                        <div>
+                                            <label class="form-label" for="vehicle-make">Vehicle Make</label>
+                                            <input id="vehicle-make" class="form-control" placeholder="Toyota" required>
+                                        </div>
+                                        <div>
+                                            <label class="form-label" for="vehicle-model">Vehicle Model</label>
+                                            <input id="vehicle-model" class="form-control" placeholder="Camry" required>
+                                        </div>
+                                        <div>
+                                            <label class="form-label" for="vehicle-year">Vehicle Year</label>
+                                            <input id="vehicle-year" type="number" min="1990" max="2099" class="form-control" placeholder="2022" required>
+                                        </div>
+                                        <div>
+                                            <label class="form-label" for="vehicle-color">Vehicle Color</label>
+                                            <select id="vehicle-color" class="form-select" required>
+                                                <option value="">Select color</option>
+                                                <option value="Black">Black</option>
+                                                <option value="White">White</option>
+                                                <option value="Silver">Silver</option>
+                                                <option value="Gray">Gray</option>
+                                                <option value="Blue">Blue</option>
+                                                <option value="Red">Red</option>
+                                                <option value="Green">Green</option>
+                                                <option value="Brown">Brown</option>
+                                                <option value="Gold">Gold</option>
+                                                <option value="Beige">Beige</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label" for="vehicle-plate">License Plate</label>
+                                            <input id="vehicle-plate" maxlength="10" class="form-control" placeholder="ABC123" required>
+                                        </div>
+                                        <div>
+                                            <label class="form-label" for="vehicle-type">Vehicle Type</label>
+                                            <select id="vehicle-type" class="form-select" required>
+                                                <option value="">Select type</option>
+                                                <option value="sedan">Sedan</option>
+                                                <option value="suv">SUV</option>
+                                                <option value="minivan">Minivan</option>
+                                                <option value="truck">Truck</option>
+                                                <option value="hybrid">Hybrid</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label">Vehicle Photo</label>
+                                        <div class="vehicle-photo-upload">
+                                            <img id="vehicle-photo-preview" class="vehicle-photo-preview d-none" alt="Vehicle photo preview">
+                                            <input id="vehicle-photo-input" type="file" class="d-none" accept="image/*">
+                                            <button id="btn-upload-vehicle-photo" class="secondary-action" type="button"><i class="bi bi-upload"></i> Upload Vehicle Photo</button>
+                                            <button id="btn-remove-vehicle-photo" class="secondary-action d-none" type="button"><i class="bi bi-x-circle"></i> Remove</button>
+                                        </div>
+                                    </div>
+                                    <div class="col-12 d-grid d-sm-block">
+                                        <button class="primary-action" type="submit"><i class="bi bi-check2-circle"></i> Save Vehicle Information</button>
+                                    </div>
+                                </form>
                             </div>
 
                             <div class="panel-section">

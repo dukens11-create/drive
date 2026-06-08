@@ -1296,6 +1296,16 @@ input {
   color: #fff;
   border: 2px solid rgba(255, 255, 255, 0.8);
   box-shadow: 0 4px 14px rgba(38, 208, 124, 0.28);
+  position: relative;
+  overflow: hidden;
+}
+
+.driver-avatar-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .driver-online-dot {
@@ -1367,6 +1377,48 @@ input {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin-top: 2px;
+}
+
+.driver-vehicle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.driver-vehicle-photo-wrap {
+  width: 82px;
+  height: 60px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  background: rgba(255, 255, 255, 0.6);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.driver-vehicle-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.driver-vehicle-icon {
+  font-size: 1.6rem;
+}
+
+.driver-vehicle-details {
+  min-width: 0;
+  flex: 1;
+}
+
+.driver-vehicle-specs {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }
 
 .driver-meta-row {

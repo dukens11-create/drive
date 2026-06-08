@@ -130,6 +130,8 @@ let realtimePollers = [];
 let realtimeSocket = null;
 let alertTimeoutId = null;
 let pendingRideActionHandler = null;
+let vehiclePhotoFile = null;
+let vehiclePhotoUrl = '';
 
 let mapState = {
   zoom: 15,
@@ -4265,6 +4267,148 @@ function setupFloatingActions() {
     }
   });
 }
+// ─── Vehicle Profile ──────────────────────────────────────────────────────────
+function setVehiclePhotoPreview(photoUrl, { resetSelectedFile = false } = {}) {
+  const preview = document.getElementById('vehicle-photo-preview');
+  const removeButton = document.getElementById('btn-remove-vehicle-photo');
+  if (!preview) return;
+  const nextPhotoUrl = String(photoUrl || '').trim();
+  if (nextPhotoUrl) {
+    preview.src = nextPhotoUrl;
+    preview.classList.remove('d-none');
+    removeButton?.classList.remove('d-none');
+    vehiclePhotoUrl = nextPhotoUrl;
+  } else {
+    preview.src = '';
+    preview.classList.add('d-none');
+    removeButton?.classList.add('d-none');
+    vehiclePhotoUrl = '';
+  }
+  if (resetSelectedFile) {
+    vehiclePhotoFile = null;
+    const fileInput = document.getElementById('vehicle-photo-input');
+    if (fileInput) fileInput.value = '';
+  }
+}
+
+function populateVehicleForm(vehicle) {
+  if (!vehicle || typeof vehicle !== 'object') return;
+  const makeInput = document.getElementById('vehicle-make');
+  const modelInput = document.getElementById('vehicle-model');
+  const yearInput = document.getElementById('vehicle-year');
+  const colorInput = document.getElementById('vehicle-color');
+  const plateInput = document.getElementById('vehicle-plate');
+  const typeInput = document.getElementById('vehicle-type');
+  if (makeInput) makeInput.value = vehicle.make || '';
+  if (modelInput) modelInput.value = vehicle.model || '';
+  if (yearInput) yearInput.value = vehicle.year || '';
+  if (colorInput) colorInput.value = vehicle.color || '';
+  if (plateInput) plateInput.value = vehicle.plateNumber || '';
+  if (typeInput) typeInput.value = vehicle.type || '';
+  setVehiclePhotoPreview(vehicle.photoUrl, { resetSelectedFile: true });
+}
+
+async function loadVehicleProfile() {
+  if (!accessToken) return;
+  try {
+    const { response, data } = await fetchJson(`${API_BASE_URL}/api/drivers/vehicle`, {
+      headers: { Authorization: 'Bearer ' + accessToken }
+    });
+    if (!response.ok || !data?.ok || !data?.vehicle) return;
+    populateVehicleForm(data.vehicle);
+    if (currentProfile) currentProfile.vehicle = data.vehicle;
+  } catch (_error) {
+    // Keep dashboard functional if vehicle profile has not been set yet.
+  }
+}
+
+async function uploadVehiclePhoto(file) {
+  const formData = new FormData();
+  formData.append('photo', file);
+  const response = await fetch(`${API_BASE_URL}/api/drivers/vehicle/photo`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + accessToken },
+    body: formData
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.ok || !payload?.photoUrl) {
+    throw new Error(payload?.error || 'Vehicle photo upload failed');
+  }
+  return payload.photoUrl;
+}
+
+async function handleVehicleSubmit(event) {
+  event.preventDefault();
+  const make = String(document.getElementById('vehicle-make')?.value || '').trim();
+  const model = String(document.getElementById('vehicle-model')?.value || '').trim();
+  const year = Number(document.getElementById('vehicle-year')?.value);
+  const color = String(document.getElementById('vehicle-color')?.value || '').trim();
+  const plateNumber = String(document.getElementById('vehicle-plate')?.value || '').trim().toUpperCase();
+  const type = String(document.getElementById('vehicle-type')?.value || '').trim().toLowerCase();
+  if (!make || !model || !Number.isInteger(year) || year < 1990 || year > 2099 || !color || !plateNumber || !type) {
+    showAlert('warning', 'Please complete all vehicle fields with valid values.');
+    return;
+  }
+
+  try {
+    let photoUrl = vehiclePhotoUrl;
+    if (vehiclePhotoFile) {
+      photoUrl = await uploadVehiclePhoto(vehiclePhotoFile);
+    }
+
+    const { response, data } = await fetchJson(`${API_BASE_URL}/api/drivers/vehicle`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + accessToken
+      },
+      body: JSON.stringify({
+        make,
+        model,
+        year,
+        color,
+        plateNumber,
+        type,
+        photoUrl: photoUrl || undefined
+      })
+    });
+    if (!response.ok || !data?.ok) {
+      showAlert('danger', data?.error || 'Failed to save vehicle information.');
+      return;
+    }
+    populateVehicleForm(data.vehicle || { make, model, year, color, plateNumber, type, photoUrl });
+    if (currentProfile) currentProfile.vehicle = data.vehicle;
+    showAlert('success', 'Vehicle information saved successfully.');
+  } catch (error) {
+    showAlert('danger', String(error?.message || 'Failed to save vehicle information.'));
+  }
+}
+
+function handleVehiclePhotoInputChange(event) {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  if (!String(file.type || '').startsWith('image/')) {
+    showAlert('warning', 'Please choose an image file.');
+    event.target.value = '';
+    return;
+  }
+  if (Number(file.size || 0) > 5 * 1024 * 1024) {
+    showAlert('warning', 'Vehicle photo must be 5MB or smaller.');
+    event.target.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = loadEvent => {
+    setVehiclePhotoPreview(loadEvent.target?.result, { resetSelectedFile: false });
+    vehiclePhotoFile = file;
+  };
+  reader.readAsDataURL(file);
+}
+
+function handleVehiclePhotoRemove() {
+  setVehiclePhotoPreview('', { resetSelectedFile: true });
+}
+
 // ─── Documents ────────────────────────────────────────────────────────────────
 function getDocumentStatus(expiryDate) {
   const now = new Date();
@@ -4642,6 +4786,12 @@ window.addEventListener('load', async () => {
   document.getElementById('reject-ride-button').addEventListener('click', handleRejectRide);
   document.getElementById('toggle-availability-button').addEventListener('click', toggleAvailability);
   document.getElementById('document-form').addEventListener('submit', handleDocumentSubmit);
+  document.getElementById('vehicle-form').addEventListener('submit', handleVehicleSubmit);
+  document.getElementById('btn-upload-vehicle-photo')?.addEventListener('click', () => {
+    document.getElementById('vehicle-photo-input')?.click();
+  });
+  document.getElementById('vehicle-photo-input')?.addEventListener('change', handleVehiclePhotoInputChange);
+  document.getElementById('btn-remove-vehicle-photo')?.addEventListener('click', handleVehiclePhotoRemove);
   document.getElementById('support-form').addEventListener('submit', handleSupportSubmit);
   document.getElementById('close-ride-details').addEventListener('click', closeRideDetailsModal);
   document.getElementById('ride-details-modal').addEventListener('click', event => {
@@ -4704,7 +4854,7 @@ window.addEventListener('load', async () => {
   });
 
   // Load data
-  await Promise.all([loadDriverProfile(), loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
+  await Promise.all([loadDriverProfile(), loadVehicleProfile(), loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
   await initializeMapbox();
   await ensureDriverLocation();
   await requestWakeLock();

@@ -24,6 +24,7 @@ router.use(requireAuth);
 router.post('/estimate', validateBody(rideEstimateSchema), controller.estimate);
 router.get('/history', controller.history);
 router.get('/:rideId', controller.detail);
+router.get('/:rideId/driver', controller.assignedDriver);
 router.post('/request', requireRole('rider'), validateBody(rideRequestSchema), controller.request);
 router.post('/:rideId/accept', requireRole('driver'), validateBody(rideAcceptPathSchema), controller.accept);
 router.put('/:rideId/status', requireRole('driver', 'rider', 'admin'), validateBody(rideStatusUpdateSchema), controller.updateStatus);

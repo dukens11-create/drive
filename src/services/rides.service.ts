@@ -133,6 +133,46 @@ function getDriverVehicle(driverId?: string) {
   return Array.from(store.vehicles.values()).find(vehicle => vehicle.driverId === driverId) || null;
 }
 
+function getDriverDisplayName(userId?: string) {
+  if (!userId) return 'Driver';
+  const user = store.users.get(userId);
+  if (!user) return 'Driver';
+  return user.email?.split('@')[0] || user.phone || 'Driver';
+}
+
+function buildAssignedDriverDetails(ride: Ride) {
+  if (!ride.driverId) return null;
+  const driverId = ride.driverId;
+  const user = store.users.get(driverId);
+  const profile: any = store.drivers.get(driverId);
+  const vehicle = profile?.vehicle || getDriverVehicle(driverId);
+  const make = vehicle?.make;
+  const model = vehicle?.model;
+  const year = Number(vehicle?.year);
+  const color = vehicle?.color;
+  const plateNumber = vehicle?.plateNumber || vehicle?.licensePlate;
+  const type = vehicle?.type || vehicle?.vehicleType;
+  const photoUrl = vehicle?.photoUrl;
+
+  return {
+    id: driverId,
+    name: getDriverDisplayName(driverId),
+    phone: user?.phone,
+    rating: Number(profile?.rating || 5),
+    profilePhotoUrl: profile?.profilePhotoUrl,
+    eta: Math.max(1, Math.round(Number(ride.minutes || 0))),
+    vehicle: {
+      make,
+      model,
+      year: Number.isInteger(year) ? year : undefined,
+      color,
+      plateNumber,
+      type,
+      photoUrl
+    }
+  };
+}
+
 function getRideRequestByRideId(rideId: string) {
   return Array.from(store.rideRequests.values()).find(request => request.rideId === rideId) || null;
 }
@@ -318,10 +358,13 @@ function toRiderRideSummary(ride: Ride) {
   const events = getRideEvents(ride);
   const riderPhone = store.users.get(ride.riderId)?.phone;
   const driverPhone = ride.driverId ? store.users.get(ride.driverId)?.phone : undefined;
+  const driver = buildAssignedDriverDetails(ride);
   return {
     ...ride,
     riderPhone,
     driverPhone,
+    driver,
+    driverName: ride.driverId ? getDriverDisplayName(ride.driverId) : undefined,
     events,
     lifecycleState: getRideLifecycleState(ride),
     latestEvent: events[events.length - 1] || null,
@@ -668,6 +711,18 @@ export async function detail(body: any, params?: any, _query?: any) {
     receipt: getRideReceipt(ride),
     notifications: getRideEvents(ride)
   };
+}
+
+export async function assignedDriver(body: any, params?: any, _query?: any) {
+  const rideId = params?.rideId || body?.rideId;
+  const ride = getRide(rideId);
+  if (!ride) return { module: 'rides', action: 'assigned-driver', error: 'ride not found' };
+  if (!canAccessRide(body?.actor, ride)) return { module: 'rides', action: 'assigned-driver', error: 'forbidden' };
+  if (!ride.driverId) return { module: 'rides', action: 'assigned-driver', error: 'driver not assigned' };
+
+  const driver = buildAssignedDriverDetails(ride);
+  if (!driver) return { module: 'rides', action: 'assigned-driver', error: 'driver not found' };
+  return { module: 'rides', action: 'assigned-driver', ok: true, driver };
 }
 
 export async function receipt(body: any, _params?: any, _query?: any) {
