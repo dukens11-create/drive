@@ -2084,14 +2084,18 @@ function setupHandlers() {
       return;
     }
     navigator.geolocation.getCurrentPosition(async position => {
-      const lat = Number(position.coords.latitude).toFixed(5);
-      const lng = Number(position.coords.longitude).toFixed(5);
-      const pickupInput = document.getElementById('pickup-input');
-      if (pickupInput) pickupInput.value = formatCoordinatePair(lat, lng);
-      const resolved = await reverseGeocodeCoordinates({ lat, lng });
-      setResolvedLocation('pickup-input', resolved || { coordinates: { lat: Number(lat), lng: Number(lng) }, label: formatCoordinatePair(lat, lng) }, pickupInput?.value || '');
-      setInputFeedback('pickup-input', 'success', 'Using current location.');
-      refreshFareEstimate({ fitRoute: true }).catch(() => {});
+      try {
+        const lat = Number(position.coords.latitude).toFixed(5);
+        const lng = Number(position.coords.longitude).toFixed(5);
+        const pickupInput = document.getElementById('pickup-input');
+        if (pickupInput) pickupInput.value = formatCoordinatePair(lat, lng);
+        const resolved = await reverseGeocodeCoordinates({ lat, lng });
+        setResolvedLocation('pickup-input', resolved || { coordinates: { lat: Number(lat), lng: Number(lng) }, label: formatCoordinatePair(lat, lng) }, pickupInput?.value || '');
+        setInputFeedback('pickup-input', 'success', 'Using current location.');
+        refreshFareEstimate({ fitRoute: true }).catch(() => {});
+      } catch (_error) {
+        showPopup('Unable to apply your current location.');
+      }
     }, () => {
       showPopup('Unable to read your current location.');
     }, { enableHighAccuracy: true, timeout: CURRENT_LOCATION_TIMEOUT_MS });
