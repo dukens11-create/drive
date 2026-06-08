@@ -77,7 +77,7 @@ export default function LoginPage() {
           <div className="mt-8 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--muted)]">
             <p className="font-semibold text-[var(--foreground)]">Default local admin</p>
             <p className="mt-2">Email: admin@drive.com</p>
-            <p>Password: change_me_admin_password</p>
+            <p>Password: Test123!Drive</p>
           </div>
         </section>
       </div>

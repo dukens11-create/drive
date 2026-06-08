@@ -234,21 +234,37 @@ async function runSeeds() {
   };
 }
 
+function getSeedCredentials() {
+  return {
+    adminPassword: env.adminSeedPassword,
+    riderPassword: env.testRiderSeedPassword,
+    driverPassword: env.testDriverSeedPassword
+  };
+}
+
 if (require.main === module) {
   runSeeds()
     .then(result => {
+      const shouldRevealPasswords = env.nodeEnv !== 'production';
+      const credentials = getSeedCredentials();
       console.log('\n✅ Database seeded successfully!\n');
       console.log(JSON.stringify(result, null, 2));
       console.log('\n📝 Test Credentials:\n');
       console.log('Admin:');
       console.log('  Email: admin@drive.com');
-      console.log('  Password: configured by ADMIN_SEED_PASSWORD');
+      console.log(
+        `  Password: ${shouldRevealPasswords ? credentials.adminPassword : 'configured by ADMIN_SEED_PASSWORD'}`
+      );
       console.log('\nRider:');
       console.log('  Email: rider@example.com or rider@test.com');
-      console.log('  Password: configured by TEST_RIDER_SEED_PASSWORD');
+      console.log(
+        `  Password: ${shouldRevealPasswords ? credentials.riderPassword : 'configured by TEST_RIDER_SEED_PASSWORD'}`
+      );
       console.log('\nDriver:');
       console.log('  Email: driver@example.com or driver@test.com');
-      console.log('  Password: configured by TEST_DRIVER_SEED_PASSWORD');
+      console.log(
+        `  Password: ${shouldRevealPasswords ? credentials.driverPassword : 'configured by TEST_DRIVER_SEED_PASSWORD'}`
+      );
       console.log('\n');
       process.exit(0);
     })
@@ -258,4 +274,4 @@ if (require.main === module) {
     });
 }
 
-export { runSeeds };
+export { runSeeds, getSeedCredentials };
