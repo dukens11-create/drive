@@ -34,6 +34,9 @@ const MAX_DISTANCE_MILES = 1000;
 const MAX_DURATION_MINUTES = 1440;
 const ESTIMATE_RETRY_INTERVAL_MS = 3000;
 const ESTIMATE_MAX_RETRIES = 3;
+const MIN_DRIVER_ETA_MINUTES = 3;
+const MAX_DRIVER_ETA_MINUTES = 8;
+const DRIVER_START_POSITION_OFFSET = 0.04; // ~2–3 miles in lat/lng degrees
 const DRIVER_ASSIGN_DELAY_MIN_MS = 3000;
 const DRIVER_ASSIGN_DELAY_MAX_MS = 5000;
 const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'arrived_at_pickup', 'started'];
@@ -109,6 +112,10 @@ function parseJson(value, fallback) {
   } catch (_error) {
     return fallback;
   }
+}
+
+function getRandomDelay(minMs, maxMs) {
+  return minMs + Math.random() * (maxMs - minMs);
 }
 
 function roundToTwo(value) {
@@ -1055,7 +1062,9 @@ async function fetchDirectionsRoute(pickup, destination) {
     const distanceMiles = rawDistanceMiles > 0 && rawDistanceMiles < MAX_DISTANCE_MILES
       ? roundToTwo(rawDistanceMiles)
       : null;
-    console.log('[Mapbox] Route data:', { durationSeconds, rawEtaMinutes, etaMinutes, distanceMeters, rawDistanceMiles, distanceMiles });
+    if (process?.env?.NODE_ENV !== 'production') {
+      console.log('[Mapbox] Route data:', { durationSeconds, rawEtaMinutes, etaMinutes, distanceMeters, rawDistanceMiles, distanceMiles });
+    }
 
     const instructions = (Array.isArray(route.legs) ? route.legs : [])
       .flatMap(leg => Array.isArray(leg.steps) ? leg.steps : [])
@@ -1600,8 +1609,8 @@ function pickRandomDriver() {
 
 function simulateDriverMovementOnMap(pickupLat, pickupLng) {
   if (!mapState.mapLoaded || !mapState.map) return;
-  const startLat = pickupLat + (Math.random() - 0.5) * 0.04;
-  const startLng = pickupLng + (Math.random() - 0.5) * 0.04;
+  const startLat = pickupLat + (Math.random() - 0.5) * DRIVER_START_POSITION_OFFSET;
+  const startLng = pickupLng + (Math.random() - 0.5) * DRIVER_START_POSITION_OFFSET;
 
   // Create driver marker at simulated start position
   if (!mapState.markers.driver) {
@@ -1619,13 +1628,13 @@ function simulateDriverMovementOnMap(pickupLat, pickupLng) {
 }
 
 function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
-  const delay = DRIVER_ASSIGN_DELAY_MIN_MS + Math.random() * (DRIVER_ASSIGN_DELAY_MAX_MS - DRIVER_ASSIGN_DELAY_MIN_MS);
+  const delay = getRandomDelay(DRIVER_ASSIGN_DELAY_MIN_MS, DRIVER_ASSIGN_DELAY_MAX_MS);
   stopStatusProgression();
 
   statusProgressionTimerId = window.setTimeout(() => {
     const driver = pickRandomDriver();
     assignedDriver = driver;
-    const driverEta = 3 + Math.floor(Math.random() * 5); // 3-7 minutes
+    const driverEta = MIN_DRIVER_ETA_MINUTES + Math.floor(Math.random() * (MAX_DRIVER_ETA_MINUTES - MIN_DRIVER_ETA_MINUTES));
 
     applyRideStatusUpdate(rideId, {
       status: 'accepted',
