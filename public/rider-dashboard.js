@@ -1025,12 +1025,13 @@ async function initializeMap() {
     return;
   }
   if (!mapState.token) {
-    console.error('Mapbox token missing.');
+    console.error('Mapbox token is missing. Add token to meta[name="mapbox-token"] or set mapbox_token query param');
     setMapFallbackMessage('Mapbox token missing. Add ?mapbox_token=YOUR_TOKEN or set the mapbox-token meta tag.');
     document.getElementById('map-fallback')?.classList.remove('d-none');
     setMapLoading(false);
     return;
   }
+  console.log('Mapbox token loaded successfully');
   if (typeof window.mapboxgl === 'undefined') {
     console.error('Mapbox library failed to load.');
     setMapFallbackMessage('Mapbox library failed to load. Check your connection and refresh.');
@@ -1052,13 +1053,14 @@ async function initializeMap() {
     });
     console.log('Map instance:', mapState.map ? '✓' : '✗ FAILED');
     mapState.map.addControl(new window.mapboxgl.NavigationControl({ showCompass: true }), 'top-right');
-    mapState.map.on('error', event => {
-      console.error('Mapbox runtime error:', event?.error || event);
+    mapState.map.on('error', error => {
+      console.error('Mapbox error:', error);
       setMapFallbackMessage('Map failed to render. Check your Mapbox token/network and retry.');
       document.getElementById('map-fallback')?.classList.remove('d-none');
       setMapLoading(false);
     });
     mapState.map.on('load', () => {
+      console.log('Mapbox map loaded successfully');
       mapState.mapLoaded = true;
       document.getElementById('map-fallback')?.classList.add('d-none');
       setMapLoading(false);
