@@ -3,12 +3,11 @@
  * Seed database with test users for local development.
  * Run: npm run db:seed
  * 
- * This works with both memory and file-based data stores.
- * For file mode, data is persisted to .data/store.json
+ * This ALWAYS creates fresh test users and persists them to .data/store.json
  */
 
 import { env } from '../../config/env';
-import { store, makeId, timestamp, markStoreDirty } from '../data.store';
+import { store, makeId, timestamp } from '../data.store';
 import { randomBytes, scryptSync } from 'crypto';
 import { mkdirSync, writeFileSync } from 'fs';
 import path from 'path';
@@ -85,157 +84,153 @@ function toSerializableStore() {
 }
 
 /**
- * Persist store to file (copy from data.store.ts logic)
+ * Persist store to file synchronously
  */
 function persistStore() {
-  if (env.dataStoreMode !== 'file') return;
+  if (env.dataStoreMode !== 'file') {
+    console.log('⚠️  DataStore mode is not "file", skipping persistence');
+    return;
+  }
+  
   const payload = JSON.stringify(toSerializableStore(), null, 2);
   const resolvedPath = path.resolve(env.dataStoreFile);
-  mkdirSync(path.dirname(resolvedPath), { recursive: true });
-  writeFileSync(resolvedPath, payload, 'utf8');
-  console.log(`💾 Persisted data to ${resolvedPath}`);
+  
+  try {
+    mkdirSync(path.dirname(resolvedPath), { recursive: true });
+    writeFileSync(resolvedPath, payload, 'utf8');
+    console.log(`✅ Persisted ${Array.from(store.users.values()).length} users to ${resolvedPath}`);
+  } catch (error) {
+    console.error(`❌ Failed to persist store:`, error);
+    throw error;
+  }
 }
 
 async function runSeeds() {
+  console.log(`📝 Seeding with DATA_STORE_MODE=${env.dataStoreMode}`);
+  
   const seeded: string[] = [];
-
-  // Helper to check if user exists
-  const userExists = (email: string) => {
-    return Array.from(store.users.values()).some(u => u.email === email);
-  };
+  
+  // Clear existing users from memory (fresh seed)
+  store.users.clear();
+  store.riders.clear();
+  store.drivers.clear();
 
   // Seed Admin User
-  if (!userExists('admin@drive.com')) {
-    const adminId = makeId('user');
-    store.users.set(adminId, {
-      id: adminId,
-      email: 'admin@drive.com',
-      password: hashPassword(env.adminSeedPassword),
-      role: 'admin',
-      createdAt: timestamp()
-    });
-    seeded.push('admin@drive.com (admin)');
-  }
+  const adminId = makeId('user');
+  store.users.set(adminId, {
+    id: adminId,
+    email: 'admin@drive.com',
+    password: hashPassword(env.adminSeedPassword),
+    role: 'admin',
+    createdAt: timestamp()
+  });
+  seeded.push('admin@drive.com (admin)');
 
-  // Seed Test Rider User
-  if (!userExists('rider@test.com')) {
-    const riderId = makeId('user');
-    store.users.set(riderId, {
-      id: riderId,
-      email: 'rider@test.com',
-      password: hashPassword(env.testRiderSeedPassword || 'Test123!@#$'),
-      role: 'rider',
-      createdAt: timestamp()
-    });
-    // Create default rider profile
-    store.riders.set(riderId, {
-      userId: riderId,
-      favoriteLocations: [],
-      rating: 5,
-      reviewCount: 0
-    });
-    seeded.push('rider@test.com (rider)');
-  }
+  // Seed Test Rider User (rider@test.com)
+  const riderId1 = makeId('user');
+  store.users.set(riderId1, {
+    id: riderId1,
+    email: 'rider@test.com',
+    password: hashPassword(env.testRiderSeedPassword || 'Test123!@#$'),
+    role: 'rider',
+    createdAt: timestamp()
+  });
+  store.riders.set(riderId1, {
+    userId: riderId1,
+    favoriteLocations: [],
+    rating: 5,
+    reviewCount: 0
+  });
+  seeded.push('rider@test.com (rider)');
 
-  // Seed Test Rider User (rider@example.com for backward compatibility)
-  if (!userExists('rider@example.com')) {
-    const riderId = makeId('user');
-    store.users.set(riderId, {
-      id: riderId,
-      email: 'rider@example.com',
-      password: hashPassword(env.testRiderSeedPassword || 'Test123!@#$'),
-      role: 'rider',
-      createdAt: timestamp()
-    });
-    // Create default rider profile
-    store.riders.set(riderId, {
-      userId: riderId,
-      favoriteLocations: [],
-      rating: 5,
-      reviewCount: 0
-    });
-    seeded.push('rider@example.com (rider)');
-  }
+  // Seed Test Rider User (rider@example.com) - THE IMPORTANT ONE!
+  const riderId2 = makeId('user');
+  store.users.set(riderId2, {
+    id: riderId2,
+    email: 'rider@example.com',
+    password: hashPassword(env.testRiderSeedPassword || 'Test123!@#$'),
+    role: 'rider',
+    createdAt: timestamp()
+  });
+  store.riders.set(riderId2, {
+    userId: riderId2,
+    favoriteLocations: [],
+    rating: 5,
+    reviewCount: 0
+  });
+  seeded.push('rider@example.com (rider)');
 
-  // Seed Test Driver User
-  if (!userExists('driver@test.com')) {
-    const driverId = makeId('user');
-    store.users.set(driverId, {
-      id: driverId,
-      email: 'driver@test.com',
-      password: hashPassword(env.testDriverSeedPassword || 'Driver123!@#$'),
-      role: 'driver',
-      createdAt: timestamp()
-    });
-    // Create default driver profile
-    store.drivers.set(driverId, {
-      userId: driverId,
-      status: 'approved',
-      verificationState: 'verified',
-      availabilityStatus: 'offline',
-      available: false,
-      rating: 5,
-      acceptanceRate: 1,
-      cancellationRate: 0,
-      earningsCents: 0,
-      documents: [],
-      verificationDocuments: [],
-      selfieVerification: {
-        status: 'missing',
-        score: 0
-      },
-      verificationReview: {
-        status: 'approved'
-      }
-    });
-    seeded.push('driver@test.com (driver)');
-  }
+  // Seed Test Driver User (driver@test.com)
+  const driverId1 = makeId('user');
+  store.users.set(driverId1, {
+    id: driverId1,
+    email: 'driver@test.com',
+    password: hashPassword(env.testDriverSeedPassword || 'Driver123!@#$'),
+    role: 'driver',
+    createdAt: timestamp()
+  });
+  store.drivers.set(driverId1, {
+    userId: driverId1,
+    status: 'approved',
+    verificationState: 'verified',
+    availabilityStatus: 'offline',
+    available: false,
+    rating: 5,
+    acceptanceRate: 1,
+    cancellationRate: 0,
+    earningsCents: 0,
+    documents: [],
+    verificationDocuments: [],
+    selfieVerification: {
+      status: 'missing',
+      score: 0
+    },
+    verificationReview: {
+      status: 'approved'
+    }
+  });
+  seeded.push('driver@test.com (driver)');
 
-  // Seed Test Driver User (driver@example.com for backward compatibility)
-  if (!userExists('driver@example.com')) {
-    const driverId = makeId('user');
-    store.users.set(driverId, {
-      id: driverId,
-      email: 'driver@example.com',
-      password: hashPassword(env.testDriverSeedPassword || 'Driver123!@#$'),
-      role: 'driver',
-      createdAt: timestamp()
-    });
-    // Create default driver profile
-    store.drivers.set(driverId, {
-      userId: driverId,
-      status: 'approved',
-      verificationState: 'verified',
-      availabilityStatus: 'offline',
-      available: false,
-      rating: 5,
-      acceptanceRate: 1,
-      cancellationRate: 0,
-      earningsCents: 0,
-      documents: [],
-      verificationDocuments: [],
-      selfieVerification: {
-        status: 'missing',
-        score: 0
-      },
-      verificationReview: {
-        status: 'approved'
-      }
-    });
-    seeded.push('driver@example.com (driver)');
-  }
+  // Seed Test Driver User (driver@example.com)
+  const driverId2 = makeId('user');
+  store.users.set(driverId2, {
+    id: driverId2,
+    email: 'driver@example.com',
+    password: hashPassword(env.testDriverSeedPassword || 'Driver123!@#$'),
+    role: 'driver',
+    createdAt: timestamp()
+  });
+  store.drivers.set(driverId2, {
+    userId: driverId2,
+    status: 'approved',
+    verificationState: 'verified',
+    availabilityStatus: 'offline',
+    available: false,
+    rating: 5,
+    acceptanceRate: 1,
+    cancellationRate: 0,
+    earningsCents: 0,
+    documents: [],
+    verificationDocuments: [],
+    selfieVerification: {
+      status: 'missing',
+      score: 0
+    },
+    verificationReview: {
+      status: 'approved'
+    }
+  });
+  seeded.push('driver@example.com (driver)');
 
   // CRITICAL: Persist to disk if in file mode!
-  if (env.dataStoreMode === 'file') {
-    persistStore();
-  }
+  persistStore();
 
   return {
     ok: true,
     seeded,
     dataStoreMode: env.dataStoreMode,
     dataStoreFile: env.dataStoreMode === 'file' ? env.dataStoreFile : null,
-    message: `Seeded ${seeded.length} user(s) to ${env.dataStoreMode} store`
+    message: `✅ Seeded ${seeded.length} user(s) to ${env.dataStoreMode} store`
   };
 }
 
