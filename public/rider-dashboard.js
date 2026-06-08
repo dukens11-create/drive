@@ -22,6 +22,7 @@ const GEOCODE_DEBOUNCE_MS = 300;
 const MIN_GEOCODE_QUERY_LENGTH = 2;
 const MAX_GEOCODE_SUGGESTIONS = 5;
 const GEOCODE_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const SUGGESTION_HIDE_DELAY_MS = 200;
 const DEFAULT_SERVICE_FEE_PERCENT = 0.12;
 const MIN_TRIP_MINUTES = 4;
 const MINUTES_PER_KM = 2.8;
@@ -187,6 +188,10 @@ function getLocationElements(id) {
     coordinatesField: document.getElementById(config.coordinatesFieldId),
     addressField: document.getElementById(config.addressFieldId)
   };
+}
+
+function buildGeocodeCacheKey(query, limit) {
+  return JSON.stringify([String(query || '').trim().toLowerCase(), Number(limit) || 1]);
 }
 
 function setButtonLoading(id, isLoading) {
@@ -586,7 +591,8 @@ async function geocodeAddress(query, options = {}) {
 
   const now = Date.now();
   const cache = readGeocodeCache();
-  const cacheKey = `${normalizedQuery}::${Math.max(1, Math.min(MAX_GEOCODE_SUGGESTIONS, Number(limit) || 1))}`;
+  const requestLimit = Math.max(1, Math.min(MAX_GEOCODE_SUGGESTIONS, Number(limit) || 1));
+  const cacheKey = buildGeocodeCacheKey(normalizedQuery, requestLimit);
   const cached = cache[cacheKey] || cache[normalizedQuery];
   if (cached && now - Number(cached.cachedAt || 0) < GEOCODE_CACHE_TTL_MS) {
     if (Array.isArray(cached.features)) return cached.features;
@@ -600,7 +606,6 @@ async function geocodeAddress(query, options = {}) {
 
   try {
     const encodedQuery = encodeURIComponent(rawQuery);
-    const requestLimit = Math.max(1, Math.min(MAX_GEOCODE_SUGGESTIONS, Number(limit) || 1));
     const url = new URL(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedQuery}.json`);
     url.searchParams.set('access_token', token);
     url.searchParams.set('autocomplete', 'true');
@@ -636,7 +641,7 @@ async function reverseGeocodeCoordinates(lat, lng) {
   if (!Number.isFinite(numericLat) || !Number.isFinite(numericLng)) return formatCoordinatePair(lat, lng);
 
   const cache = readGeocodeCache();
-  const cacheKey = `reverse::${numericLat.toFixed(5)},${numericLng.toFixed(5)}`;
+  const cacheKey = buildGeocodeCacheKey(`reverse:${numericLat.toFixed(5)},${numericLng.toFixed(5)}`, 1);
   const cached = cache[cacheKey];
   if (cached && Date.now() - Number(cached.cachedAt || 0) < GEOCODE_CACHE_TTL_MS && cached.placeName) {
     return cached.placeName;
@@ -1965,7 +1970,7 @@ function setupHandlers() {
       showPopup('Geolocation unavailable in this browser.');
       return;
     }
-    navigator.geolocation.getCurrentPosition(async position => {
+    navigator.geolocation.getCurrentPosition(position => {
       const lat = Number(position.coords.latitude);
       const lng = Number(position.coords.longitude);
       latestKnownRiderPosition = { lat, lng };
@@ -1974,7 +1979,9 @@ function setupHandlers() {
         pickupInput.value = formatCoordinatePair(lat, lng);
         delete pickupInput.dataset.committedValue;
       }
-      await resolveCoordinateInput('pickup-input', { fitRoute: true, showError: true }).catch(() => {});
+      resolveCoordinateInput('pickup-input', { fitRoute: true, showError: true }).catch(() => {
+        setLocationError('Unable to resolve your current location');
+      });
     }, () => {
       showPopup('Unable to read your current location.');
     }, { enableHighAccuracy: true, timeout: CURRENT_LOCATION_TIMEOUT_MS });
@@ -2016,7 +2023,7 @@ function setupHandlers() {
     document.getElementById(id)?.addEventListener('blur', () => {
       window.setTimeout(() => {
         hideSuggestions(id);
-      }, 200);
+      }, SUGGESTION_HIDE_DELAY_MS);
       const { input, coordinatesField } = getLocationElements(id);
       const value = String(input?.value || '').trim();
       if (!value) {
