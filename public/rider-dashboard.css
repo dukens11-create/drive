@@ -769,7 +769,9 @@ input {
 
 .map-container {
   position: relative;
-  min-height: 420px;
+  height: 420px;
+  display: flex;
+  flex-direction: column;
   border-radius: 28px;
   overflow: hidden;
   background: linear-gradient(180deg, rgba(15, 20, 25, 0.84), rgba(15, 20, 25, 0.98));
