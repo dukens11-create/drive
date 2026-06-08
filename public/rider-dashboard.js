@@ -828,8 +828,13 @@ async function refreshMapRoute(options = {}) {
 
 function renderMapState(options = {}) {
   const { fitRoute = false } = options;
-  if (!mapState.mapLoaded) return;
   const { pickup, destination } = getPickupAndDestination();
+  if (!mapState.mapLoaded) {
+    const fallbackDirections = buildFallbackDirections(pickup, destination);
+    renderRouteInstructions(fallbackDirections.instructions);
+    safeSetText('route-source-badge', fallbackDirections.sourceLabel);
+    return;
+  }
   syncMapMarkers(pickup, destination);
   refreshMapRoute({ fitRoute }).catch(() => {
     renderRouteInstructions(buildFallbackDirections(pickup, destination).instructions);
