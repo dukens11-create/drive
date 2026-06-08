@@ -7,8 +7,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test test/**/*.test.ts",
-    "test:ci": "node --import tsx --test --experimental-test-coverage test/**/*.test.ts"
+    "test": "node --import tsx --test test/*.test.ts",
+    "test:ci": "node --import tsx --test --experimental-test-coverage test/*.test.ts"
   },
   "dependencies": {
     "framer-motion": "^12.40.0",
