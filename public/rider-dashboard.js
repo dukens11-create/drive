@@ -55,6 +55,7 @@ const mapState = {
   map: null,
   token: '',
   mapLoaded: false,
+  resizeHandlerBound: false,
   markers: { pickup: null, destination: null, driver: null, rider: null },
   routeSourceId: 'rider-route',
   routeLineLayerId: 'rider-route-line',
@@ -617,14 +618,21 @@ function renderRideState() {
 
   const cancelButton = document.getElementById('cancel-ride-button');
   const requestButton = document.getElementById('request-ride-button');
+  const buttonGroup = document.querySelector('.button-group');
   const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status));
+  const showRequestButton = !canCancelRide;
+  const showCancelButton = canCancelRide;
   if (requestButton) {
     requestButton.disabled = canCancelRide;
-    requestButton.classList.toggle('d-none', canCancelRide);
+    requestButton.classList.toggle('d-none', !showRequestButton);
   }
   if (cancelButton) {
     cancelButton.disabled = !canCancelRide;
-    cancelButton.classList.toggle('d-none', !canCancelRide);
+    cancelButton.classList.toggle('d-none', !showCancelButton);
+  }
+  if (buttonGroup) {
+    const visibleButtons = Number(showRequestButton) + Number(showCancelButton);
+    buttonGroup.classList.toggle('single-action', visibleButtons <= 1);
   }
 
   const previousStatus = mapState.lastRideStatus;
@@ -643,8 +651,26 @@ function showPopup(message) {
 function setMapFallbackMessage(message) {
   const fallback = document.getElementById('map-fallback');
   if (!fallback) return;
-  const detail = fallback.querySelector('p');
+  const detail = fallback.querySelector('#map-fallback-detail') || fallback.querySelector('p');
   if (detail) detail.textContent = message;
+}
+
+function setMapLoading(isLoading) {
+  const loading = document.getElementById('map-loading');
+  if (!loading) return;
+  loading.classList.toggle('is-hidden', !isLoading);
+}
+
+function resizeMapNow(delay = 0) {
+  const run = () => {
+    if (!mapState.map) return;
+    mapState.map.resize();
+  };
+  if (delay > 0) {
+    window.setTimeout(run, delay);
+    return;
+  }
+  run();
 }
 
 function updateRideTypePricing(estimate) {
@@ -987,14 +1013,29 @@ function renderMapState(options = {}) {
 
 async function initializeMap() {
   mapState.token = readMapboxToken();
+  const mapContainer = document.getElementById('mapbox');
+  setMapLoading(true);
+  console.log('Mapbox token:', mapState.token ? '✓' : '✗ MISSING');
+  console.log('Map container:', mapContainer ? '✓' : '✗ NOT FOUND');
+  if (!mapContainer) {
+    console.error('Map container #mapbox not found.');
+    setMapFallbackMessage('Map container missing. Refresh the page and try again.');
+    document.getElementById('map-fallback')?.classList.remove('d-none');
+    setMapLoading(false);
+    return;
+  }
   if (!mapState.token) {
+    console.error('Mapbox token missing.');
     setMapFallbackMessage('Mapbox token missing. Add ?mapbox_token=YOUR_TOKEN or set the mapbox-token meta tag.');
     document.getElementById('map-fallback')?.classList.remove('d-none');
+    setMapLoading(false);
     return;
   }
   if (typeof window.mapboxgl === 'undefined') {
+    console.error('Mapbox library failed to load.');
     setMapFallbackMessage('Mapbox library failed to load. Check your connection and refresh.');
     document.getElementById('map-fallback')?.classList.remove('d-none');
+    setMapLoading(false);
     return;
   }
 
@@ -1009,24 +1050,37 @@ async function initializeMap() {
       bearing: -14,
       antialias: true
     });
+    console.log('Map instance:', mapState.map ? '✓' : '✗ FAILED');
     mapState.map.addControl(new window.mapboxgl.NavigationControl({ showCompass: true }), 'top-right');
+    mapState.map.on('error', event => {
+      console.error('Mapbox runtime error:', event?.error || event);
+      setMapFallbackMessage('Map failed to render. Check your Mapbox token/network and retry.');
+      document.getElementById('map-fallback')?.classList.remove('d-none');
+      setMapLoading(false);
+    });
     mapState.map.on('load', () => {
       mapState.mapLoaded = true;
       document.getElementById('map-fallback')?.classList.add('d-none');
+      setMapLoading(false);
       ensureRouteLayers();
       renderMapState({ fitRoute: true });
-      mapState.map?.resize();
-      window.setTimeout(() => mapState.map?.resize(), 120);
+      // Run immediate + delayed resize so canvas settles after async style/layout paint.
+      resizeMapNow();
+      resizeMapNow(120);
     });
     mapState.map.on('style.load', () => {
       ensureRouteLayers();
       updateRouteSource();
       renderMapState();
-      mapState.map?.resize();
+      resizeMapNow();
     });
+    resizeMapNow();
+    resizeMapNow(50);
   } catch (_error) {
+    console.error('Unable to initialize Mapbox map.', _error);
     setMapFallbackMessage('Unable to initialize the map. Verify your Mapbox token and try again.');
     document.getElementById('map-fallback')?.classList.remove('d-none');
+    setMapLoading(false);
   }
 }
 
@@ -1225,6 +1279,11 @@ function setupHandlers() {
     if (event.key === SHARED_RIDE_STORAGE_KEY) syncRides().catch(() => {});
   });
 
+  if (!mapState.resizeHandlerBound) {
+    mapState.resizeHandlerBound = true;
+    window.addEventListener('resize', () => resizeMapNow(50));
+  }
+
   window.addEventListener('beforeunload', () => {
     if (clockIntervalId) window.clearInterval(clockIntervalId);
     if (mapState.routeAnimationTimer) window.clearInterval(mapState.routeAnimationTimer);
@@ -1238,6 +1297,8 @@ window.addEventListener('load', async () => {
   setupHandlers();
   clockIntervalId = window.setInterval(updateHeaderClock, 60000);
   await initializeMap();
+  resizeMapNow();
+  resizeMapNow(120);
   await refreshFareEstimate({ fitRoute: true });
   await syncRides();
   startRiderLocationSync();

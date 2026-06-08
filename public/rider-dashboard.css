@@ -232,16 +232,16 @@ input {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 22px;
-  padding: 22px;
+  gap: 16px;
+  padding: 18px;
 }
 
 .top-bar {
   border-radius: var(--radius-lg);
-  padding: 26px 28px;
+  padding: 18px 22px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 20px;
+  gap: 16px;
 }
 
 .eyebrow,
@@ -258,7 +258,7 @@ input {
 }
 
 .page-title {
-  font-size: clamp(2rem, 3vw, 2.7rem);
+  font-size: clamp(1.8rem, 2.5vw, 2.35rem);
   line-height: 1.05;
   letter-spacing: -0.05em;
   font-weight: 800;
@@ -275,7 +275,7 @@ input {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  margin-top: 18px;
+  margin-top: 14px;
 }
 
 .metric-chip {
@@ -384,8 +384,8 @@ input {
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(360px, 410px) minmax(0, 1fr);
-  gap: 22px;
+  grid-template-columns: minmax(340px, 390px) minmax(0, 1fr);
+  gap: 18px;
   height: 100%;
 }
 
@@ -397,13 +397,13 @@ input {
 .left-panel {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
 }
 
 .right-panel {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
 }
 
 .card {
@@ -411,7 +411,7 @@ input {
   border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: 24px;
   box-shadow: var(--shadow-soft);
-  padding: 22px;
+  padding: 18px;
 }
 
 .card-heading {
@@ -545,13 +545,13 @@ input {
 }
 
 .btn-danger {
-  background: linear-gradient(135deg, rgba(255, 95, 109, 0.14), rgba(255, 95, 109, 0.08));
+  background: rgba(255, 95, 109, 0.05);
   color: #c81e35;
-  border: 1px solid rgba(255, 95, 109, 0.22);
+  border: 1px solid rgba(255, 95, 109, 0.42);
 }
 
 .btn-danger:hover:not(:disabled) {
-  box-shadow: 0 18px 32px rgba(255, 95, 109, 0.18);
+  box-shadow: 0 0 0 1px rgba(255, 95, 109, 0.5), 0 14px 24px rgba(255, 95, 109, 0.2);
 }
 
 .btn-spinner {
@@ -573,10 +573,13 @@ input {
 }
 
 .button-group {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  margin-top: auto;
+}
+
+.button-group.single-action {
+  grid-template-columns: 1fr;
 }
 
 .ride-types {
@@ -766,7 +769,7 @@ input {
 
 .map-container {
   position: relative;
-  min-height: 500px;
+  min-height: 420px;
   border-radius: 28px;
   overflow: hidden;
   background: linear-gradient(180deg, rgba(15, 20, 25, 0.84), rgba(15, 20, 25, 0.98));
@@ -777,6 +780,35 @@ input {
 .mapbox {
   width: 100%;
   height: 100%;
+}
+
+.map-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(7, 16, 24, 0.68);
+  color: rgba(248, 250, 252, 0.95);
+  z-index: 3;
+  transition: opacity var(--transition-base), visibility var(--transition-base);
+}
+
+.map-loading.is-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.map-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid rgba(248, 250, 252, 0.72);
+  border-right-color: transparent;
+  animation: spin 0.85s linear infinite;
 }
 
 .map-overlay-panel {
@@ -844,6 +876,15 @@ input {
   color: rgba(248, 250, 252, 0.72);
 }
 
+.map-fallback-tips {
+  margin-top: 10px;
+  padding-left: 18px;
+  text-align: left;
+  color: rgba(248, 250, 252, 0.78);
+  display: grid;
+  gap: 4px;
+}
+
 .route-instructions-card {
   margin-top: 16px;
   padding: 16px 18px;
@@ -905,6 +946,7 @@ input {
 .status-message {
   margin-top: 10px;
   color: var(--text-secondary);
+  transition: color var(--transition-base), opacity var(--transition-base);
 }
 
 .driver-card {
@@ -1014,6 +1056,11 @@ input {
   background: rgba(27, 128, 255, 0.14);
   color: var(--primary-dark);
   animation: pulse 1.8s ease-in-out infinite;
+}
+
+#ride-status-pill,
+.driver-card {
+  transition: all var(--transition-base);
 }
 
 .toast {
@@ -1143,7 +1190,7 @@ input {
 
 @media (max-width: 1280px) {
   .content-grid {
-    grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+    grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
   }
 
   .top-bar {
@@ -1201,6 +1248,10 @@ input {
   .profile-card {
     padding: 18px;
     border-radius: 22px;
+  }
+
+  .button-group {
+    grid-template-columns: 1fr;
   }
 
   .dashboard-grid,

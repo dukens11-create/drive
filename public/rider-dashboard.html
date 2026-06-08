@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
   <meta name="mapbox-token" content="pk.eyJ1IjoiZmx1cGZsYXAiLCJhIjoiY21wMjI3M3dpMDN5eTJycHMyeG8yaDZ3OCJ9.VUXlzIoU5Gxfj6-BVjnxag" />
   <title>Drive Rider Dashboard</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" />
   <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" />
   <link rel="stylesheet" href="/rider-dashboard.css" />
 </head>
 <body>
@@ -257,6 +257,10 @@
 
               <div class="map-container">
                 <div id="mapbox" class="mapbox" role="presentation"></div>
+                <div id="map-loading" class="map-loading" aria-live="polite">
+                  <span class="map-loading-spinner" aria-hidden="true"></span>
+                  <span>Loading map…</span>
+                </div>
                 <div class="map-overlay-panel">
                   <span class="overlay-pill"><span class="legend-swatch legend-swatch--pickup" aria-label="Green pickup marker"></span>Pickup</span>
                   <span class="overlay-pill"><span class="legend-swatch legend-swatch--destination" aria-label="Blue destination marker"></span>Destination</span>
@@ -266,7 +270,12 @@
                   <i class="bi bi-exclamation-triangle"></i>
                   <div>
                     <strong>Map unavailable.</strong>
-                    <p>Add a valid Mapbox token to load the live route.</p>
+                    <p id="map-fallback-detail">Add a valid Mapbox token to load the live route.</p>
+                    <ul class="map-fallback-tips">
+                      <li>Confirm Mapbox token is present and valid.</li>
+                      <li>Check browser console for Mapbox errors.</li>
+                      <li>Refresh after restoring network access.</li>
+                    </ul>
                   </div>
                 </div>
               </div>

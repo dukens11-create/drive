@@ -8,8 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "rm -rf .next && tsc --noEmit",
-    "test": "node --import tsx --test test/**/*.test.ts",
-    "test:ci": "node --import tsx --test --experimental-test-coverage test/**/*.test.ts"
+    "test": "node --import tsx --test test/*.test.ts",
+    "test:ci": "node --import tsx --test --experimental-test-coverage test/*.test.ts"
   },
   "dependencies": {
     "next": "16.2.6",
