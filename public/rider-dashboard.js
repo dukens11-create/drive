@@ -13,6 +13,12 @@ const MAP_BOUNDS_ANIMATION_MS = 700;
 const CURRENT_LOCATION_TIMEOUT_MS = 12000;
 const WATCH_LOCATION_TIMEOUT_MS = 10000;
 const DEFAULT_SERVICE_FEE_PERCENT = 0.12;
+const MIN_TRIP_MINUTES = 6;
+const MINUTES_PER_KM = 3.4;
+const FARE_ESTIMATE_LOW_MULTIPLIER = 0.9;
+const FARE_ESTIMATE_HIGH_MULTIPLIER = 1.15;
+const MORNING_END_HOUR = 12;
+const AFTERNOON_END_HOUR = 18;
 const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'arrived_at_pickup', 'started'];
 const ROUTE_DASH_FRAMES = [
   [0, 4, 3],
@@ -251,8 +257,8 @@ function buildEstimateFromRoute(route, rideType = selectedRideType, overrides = 
     currency: 'USD',
     fareEstimate: total,
     fareEstimateRange: {
-      low: roundToTwo(Math.max(baseFare, total * 0.9)),
-      high: roundToTwo(total * 1.15)
+      low: roundToTwo(Math.max(baseFare, total * FARE_ESTIMATE_LOW_MULTIPLIER)),
+      high: roundToTwo(total * FARE_ESTIMATE_HIGH_MULTIPLIER)
     },
     fareBreakdown: {
       currency: 'USD',
@@ -273,8 +279,8 @@ function buildEstimateFromRoute(route, rideType = selectedRideType, overrides = 
       driverEarnings: roundToTwo(Math.max(0, surgeFare - serviceFee)),
       fareEstimate: total,
       fareEstimateRange: {
-        low: roundToTwo(Math.max(baseFare, total * 0.9)),
-        high: roundToTwo(total * 1.15)
+        low: roundToTwo(Math.max(baseFare, total * FARE_ESTIMATE_LOW_MULTIPLIER)),
+        high: roundToTwo(total * FARE_ESTIMATE_HIGH_MULTIPLIER)
       }
     }
   };
@@ -283,7 +289,7 @@ function buildEstimateFromRoute(route, rideType = selectedRideType, overrides = 
 function buildLocalEstimate(pickup, destination, rideType = selectedRideType) {
   const distanceKm = calculateDistanceKm(pickup.lat, pickup.lng, destination.lat, destination.lng);
   const distanceMiles = roundToTwo(distanceKm * 0.621371);
-  const etaMinutes = Math.max(6, Math.round(distanceKm * 3.4));
+  const etaMinutes = Math.max(MIN_TRIP_MINUTES, Math.round(distanceKm * MINUTES_PER_KM));
   const route = { distanceMiles, etaMinutes };
   return {
     ok: true,
@@ -963,7 +969,7 @@ function startRiderLocationSync() {
 function updateHeaderClock() {
   const now = new Date();
   const hours = now.getHours();
-  const period = hours < 12 ? 'morning' : hours < 18 ? 'afternoon' : 'evening';
+  const period = hours < MORNING_END_HOUR ? 'morning' : hours < AFTERNOON_END_HOUR ? 'afternoon' : 'evening';
   safeSetText('greeting-period', period);
   safeSetText('header-current-time', now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
 }

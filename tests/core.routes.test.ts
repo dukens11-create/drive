@@ -352,7 +352,7 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
   });
 });
 
-test('GET /rider-dashboard.js includes route rendering and fare breakdown hooks', async () => {
+test('GET /rider-dashboard.js includes Mapbox route rendering and fare breakdown hooks', async () => {
   await withServer(async baseUrl => {
     const response = await fetch(`${baseUrl}/rider-dashboard.js`);
     assert.equal(response.status, 200);
