@@ -1,14 +1,15 @@
 import { Worker } from 'bullmq';
 import { connection } from './queues';
+import { logger } from '../utils';
 
 new Worker('dispatch', async job => {
-  console.log('Dispatch job', job.data);
+  logger.info('dispatch job received', { jobData: job.data });
 }, { connection });
 
 new Worker('payouts', async job => {
-  console.log('Payout job', job.data);
+  logger.info('payout job received', { jobData: job.data });
 }, { connection });
 
 new Worker('notifications', async job => {
-  console.log('Notification job', job.data);
+  logger.info('notification job received', { jobData: job.data });
 }, { connection });

@@ -86,6 +86,7 @@ const stripe = getStripeConfig();
 
 export const env = {
   nodeEnv: getString('NODE_ENV', 'development'),
+  host: getString('HOST', '0.0.0.0'),
   port: getPort(),
   logLevel: getLogLevel(),
   jwtSecret: getRequiredInProduction('JWT_SECRET', 'dev-local-secret'),

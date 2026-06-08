@@ -87,7 +87,7 @@ export function createApp() {
 
     // Serve static files BEFORE routes
     const publicPath = path.join(process.cwd(), 'public');
-    console.log('🔍 [STATIC] Serving static files from:', publicPath);
+    logger.debug('serving static files', { publicPath });
     app.use(express.static(publicPath));
 
     app.get('/health', (_, res) => res.json({ ok: true, service: 'flupflap-ride-v7' }));
