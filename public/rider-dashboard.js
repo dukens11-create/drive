@@ -269,7 +269,7 @@ function categorizeRoute(distanceMiles, durationMinutes) {
   if (distanceMiles <= 10) return { label: 'Local', badge: 'Local Route', icon: '📍', theme: 'local' };
   if (distanceMiles <= 80) return { label: 'Regional', badge: 'Regional Route', icon: '🛣️', theme: 'regional' };
   return {
-    label: durationMinutes > LONG_DISTANCE_WARNING_MINUTES ? 'Long-distance' : 'Long-distance',
+    label: 'Long-distance',
     badge: 'Long-distance Route',
     icon: '✈️',
     theme: 'long-distance'
@@ -1203,7 +1203,7 @@ function updateRideTypePricing(estimate) {
 function renderFareEstimate(estimate) {
   latestEstimate = estimate;
   const isFallback = Boolean(estimate._isFallback);
-  const prefix = isFallback ? '~' : '';
+  const fallbackPrefix = isFallback ? '~' : '';
   const surgeActive = Number(estimate.fareBreakdown?.surgeMultiplier || 1) > 1;
   const routeCategory = categorizeRoute(estimate.route.distanceMiles, estimate.route.etaMinutes);
 
@@ -1215,8 +1215,8 @@ function renderFareEstimate(estimate) {
   safeSetText('fare-time-fare', formatCurrency(estimate.fareBreakdown.timeFare));
   safeSetText('fare-surge', formatCurrency(estimate.fareBreakdown.surgeFare));
   safeSetText('fare-taxes', formatCurrency(estimate.fareBreakdown.taxes));
-  safeSetText('fare-estimate', `${prefix}${formatCurrency(estimate.fareEstimate)}`);
-  safeSetText('fare-range', `${prefix}${formatCurrency(estimate.fareEstimateRange.low)} - ${prefix}${formatCurrency(estimate.fareEstimateRange.high)}`);
+  safeSetText('fare-estimate', `${fallbackPrefix}${formatCurrency(estimate.fareEstimate)}`);
+  safeSetText('fare-range', `${fallbackPrefix}${formatCurrency(estimate.fareEstimateRange.low)} - ${fallbackPrefix}${formatCurrency(estimate.fareEstimateRange.high)}`);
   safeSetText('map-route-distance', formatMiles(estimate.route.distanceMiles));
   animateNumericText('map-route-duration', formatMinutes(estimate.route.etaMinutes));
   safeSetText('map-route-overview', `Fastest route • ${formatMiles(estimate.route.distanceMiles)} • ${formatMinutes(estimate.route.etaMinutes)} • ${routeCategory.label}`);
