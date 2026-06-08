@@ -38,19 +38,19 @@ The backend is configured for **local file-based persistence** by default:
 **Admin Portal** (`http://localhost:8080/index.html`)
 ```
 Email:    admin@drive.com
-Password: FlupflapHaiti2025@
+Password: Test123!Drive
 ```
 
 **Rider Portal** (`http://localhost:8080/users.html`)
 ```
 Email:    rider@example.com
-Password: Test123!@#$
+Password: Test123!Drive
 ```
 
 **Driver Portal** (`http://localhost:8080/drivers.html`)
 ```
 Email:    driver@example.com
-Password: Driver123!@#$
+Password: Test123!Drive
 ```
 
 ### Seed Database
@@ -110,9 +110,9 @@ LOG_LEVEL=info
 
 # Auth
 JWT_SECRET=dev-local-secret
-ADMIN_SEED_PASSWORD=FlupflapHaiti2025@
-TEST_RIDER_SEED_PASSWORD=Test123!@#$
-TEST_DRIVER_SEED_PASSWORD=Driver123!@#$
+ADMIN_SEED_PASSWORD=Test123!Drive
+TEST_RIDER_SEED_PASSWORD=Test123!Drive
+TEST_DRIVER_SEED_PASSWORD=Test123!Drive
 
 # Data Storage
 DATA_STORE_MODE=file           # file or memory
