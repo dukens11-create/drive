@@ -9,83 +9,105 @@
   <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.css" />
   <link rel="stylesheet" href="/rider-dashboard.css" />
 </head>
-<body>
-  <header class="top-bar">
-    <div class="brand"><i class="bi bi-car-front-fill"></i><span>Drive Rider</span></div>
-    <nav class="portal-links" aria-label="Portal navigation">
-      <a href="/driver-dashboard.html">Driver</a>
-      <a class="active" href="/rider-dashboard.html">Rider</a>
-      <a href="/index.html">Admin</a>
-    </nav>
-    <button id="logout-button" type="button" class="logout-button"><i class="bi bi-box-arrow-right"></i> Logout</button>
-  </header>
-
-  <main class="map-stage" aria-label="Rider live map">
-    <div id="mapbox" class="mapbox" role="presentation"></div>
-    <div id="map-fallback" class="map-fallback d-none">Map unavailable. Add a Mapbox token to continue.</div>
-  </main>
-
-  <section class="bottom-sheet" aria-label="Rider booking controls">
-    <div class="sheet-handle" aria-hidden="true"></div>
-    <div class="sheet-header">
-      <div>
-        <p class="sheet-kicker">Rider dashboard</p>
-        <h1>Book and track your ride</h1>
+<body class="rider-dashboard-shell">
+  <div class="layout">
+    <aside class="sidebar" aria-label="Rider navigation">
+      <div class="sidebar-brand">
+        <i class="bi bi-car-front-fill"></i>
+        <div>
+          <p class="sidebar-kicker">Drive</p>
+          <h1>Rider</h1>
+        </div>
       </div>
-      <span id="rider-role" class="role-pill">Role: RIDER</span>
-    </div>
 
-    <article class="profile-card" id="profile-card">
-      <div class="profile-name" id="profile-name">Rider</div>
-      <div class="profile-meta" id="profile-meta">Signed in</div>
-    </article>
+      <nav class="sidebar-nav" aria-label="Portal navigation">
+        <a class="active" href="/rider-dashboard.html"><i class="bi bi-person-heart"></i> Rider</a>
+        <a href="/driver-dashboard.html"><i class="bi bi-truck"></i> Driver</a>
+        <a href="/index.html"><i class="bi bi-speedometer2"></i> Admin</a>
+      </nav>
 
-    <section class="location-card" aria-label="Ride route">
-      <label for="pickup-input">Pickup</label>
-      <input id="pickup-input" type="text" placeholder="Pickup coordinates or place" />
-      <label for="destination-input">Destination</label>
-      <input id="destination-input" type="text" placeholder="Destination coordinates or place" />
-      <div class="location-actions">
-        <button id="current-location-button" type="button" class="secondary-button"><i class="bi bi-crosshair2"></i> Use current location</button>
-      </div>
-    </section>
+      <button id="logout-button" type="button" class="logout-button">
+        <i class="bi bi-box-arrow-right"></i>
+        Logout
+      </button>
+    </aside>
 
-    <section class="ride-type-card" aria-label="Ride type">
-      <h2>Select ride type</h2>
-      <div class="ride-types" id="ride-types">
-        <button type="button" class="ride-type is-active" data-ride-type="ECONOMY">Economy</button>
-        <button type="button" class="ride-type" data-ride-type="COMFORT">Comfort</button>
-        <button type="button" class="ride-type" data-ride-type="PREMIUM">Premium</button>
-      </div>
-      <div class="fare-estimate" id="fare-estimate">Fare estimate: --</div>
-    </section>
+    <main class="dashboard-main">
+      <header class="dashboard-top">
+        <div>
+          <p class="page-kicker">Rider dashboard</p>
+          <h2>Book and track your ride</h2>
+        </div>
+        <article class="profile-card" id="profile-card">
+          <div class="profile-name" id="profile-name">Rider</div>
+          <div class="profile-meta" id="profile-meta">Signed in</div>
+          <span id="rider-role" class="role-pill">Role: RIDER</span>
+        </article>
+      </header>
 
-    <section class="status-card" aria-live="polite">
-      <div class="status-header">
-        <h2>Live ride status</h2>
-        <span id="ride-status-pill" class="status-pill">Idle</span>
-      </div>
-      <p id="status-message">Enter pickup and destination to request a ride.</p>
-      <div id="driver-assigned-card" class="driver-assigned d-none">
-        <h3>Driver assigned</h3>
-        <div id="driver-name">Driver: --</div>
-        <div id="driver-location">Location: --</div>
-        <div id="driver-eta">ETA: --</div>
-      </div>
-      <ol id="trip-timeline" class="trip-timeline" aria-label="Trip progress timeline">
-        <li data-step="searching">Searching for driver</li>
-        <li data-step="assigned">Driver assigned</li>
-        <li data-step="arriving">Driver arriving</li>
-        <li data-step="started">Ride started</li>
-        <li data-step="completed">Ride completed</li>
-      </ol>
-    </section>
+      <section class="dashboard-grid">
+        <div class="booking-column">
+          <article class="card booking-card" aria-label="Ride route">
+            <h3>Booking details</h3>
+            <label for="pickup-input">Pickup</label>
+            <input id="pickup-input" type="text" placeholder="Pickup coordinates or place" />
+            <label for="destination-input">Destination</label>
+            <input id="destination-input" type="text" placeholder="Destination coordinates or place" />
+            <div class="location-actions">
+              <button id="current-location-button" type="button" class="secondary-button"><i class="bi bi-crosshair2"></i> Use current location</button>
+            </div>
+          </article>
 
-    <div class="ride-actions">
-      <button id="request-ride-button" type="button" class="primary-button"><i class="bi bi-send"></i> Request ride</button>
-      <button id="cancel-ride-button" type="button" class="danger-button" disabled><i class="bi bi-x-circle"></i> Cancel ride</button>
-    </div>
-  </section>
+          <article class="card ride-type-card" aria-label="Ride type">
+            <h3>Select ride type</h3>
+            <div class="ride-types" id="ride-types">
+              <button type="button" class="ride-type is-active" data-ride-type="ECONOMY"><i class="bi bi-car-front"></i> Economy</button>
+              <button type="button" class="ride-type" data-ride-type="COMFORT"><i class="bi bi-stars"></i> Comfort</button>
+              <button type="button" class="ride-type" data-ride-type="PREMIUM"><i class="bi bi-gem"></i> Premium</button>
+            </div>
+          </article>
+
+          <article class="card fare-card">
+            <h3>Fare estimate</h3>
+            <div class="fare-estimate" id="fare-estimate">Fare estimate: --</div>
+          </article>
+
+          <div class="ride-actions">
+            <button id="request-ride-button" type="button" class="primary-button"><i class="bi bi-send"></i> Request ride</button>
+            <button id="cancel-ride-button" type="button" class="danger-button" disabled><i class="bi bi-x-circle"></i> Cancel ride</button>
+          </div>
+        </div>
+
+        <div class="map-column">
+          <article class="card map-card" aria-label="Rider live map">
+            <div id="mapbox" class="mapbox" role="presentation"></div>
+            <div id="map-fallback" class="map-fallback d-none">Map unavailable. Add a Mapbox token to continue.</div>
+          </article>
+
+          <section class="card status-card" aria-live="polite">
+            <div class="status-header">
+              <h3>Live ride status</h3>
+              <span id="ride-status-pill" class="status-pill">Idle</span>
+            </div>
+            <p id="status-message">Enter pickup and destination to request a ride.</p>
+            <div id="driver-assigned-card" class="driver-assigned d-none">
+              <h4>Driver assigned</h4>
+              <div id="driver-name">Driver: --</div>
+              <div id="driver-location">Location: --</div>
+              <div id="driver-eta">ETA: --</div>
+            </div>
+            <ol id="trip-timeline" class="trip-timeline" aria-label="Trip progress timeline">
+              <li data-step="searching">Searching for driver</li>
+              <li data-step="assigned">Driver assigned</li>
+              <li data-step="arriving">Driver arriving</li>
+              <li data-step="started">Ride started</li>
+              <li data-step="completed">Ride completed</li>
+            </ol>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
 
   <div id="ride-popup" class="ride-popup d-none" role="status" aria-live="polite"></div>
 
