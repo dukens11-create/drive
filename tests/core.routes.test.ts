@@ -333,30 +333,23 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
       'class="dashboard-grid"',
       'id="profile-card"',
       'id="pickup-input"',
-<<<<<<< HEAD
       'id="pickup-coordinates"',
       'id="pickup-address"',
       'id="pickup-suggestions"',
+      'id="pickup-input-message"',
       'id="destination-input"',
       'id="destination-coordinates"',
       'id="destination-address"',
       'id="destination-suggestions"',
-=======
-      'id="pickup-input-message"',
-      'id="destination-input"',
       'id="destination-input-message"',
->>>>>>> origin/main
       'id="request-ride-button"',
       'id="cancel-ride-button"',
       'id="fare-base"',
       'id="fare-surge"',
-<<<<<<< HEAD
       'id="location-error"',
-=======
       'id="route-category-badge"',
       'id="long-distance-banner"',
       'id="ride-validation-message"',
->>>>>>> origin/main
       'id="route-instructions"',
       'id="header-current-time"',
       'id="map-loading"',
