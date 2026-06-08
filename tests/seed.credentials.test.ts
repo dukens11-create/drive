@@ -1,17 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { env } from '../src/config/env';
+import { signupSchema } from '../src/schemas/auth.schemas';
 import { getSeedCredentials } from '../src/database/seeds';
-
-function isCompliantPassword(password: string) {
-  return (
-    password.length >= 12 &&
-    /[A-Z]/.test(password) &&
-    /[a-z]/.test(password) &&
-    /\d/.test(password) &&
-    /[^A-Za-z0-9]/.test(password)
-  );
-}
 
 test('seed credentials output reflects active env passwords', () => {
   const credentials = getSeedCredentials();
@@ -24,8 +15,11 @@ test('seed credentials output reflects active env passwords', () => {
 test('seed credentials are consistent and password-policy compliant', () => {
   const credentials = getSeedCredentials();
 
-  assert.equal(credentials.adminPassword, 'Test123!Drive');
-  assert.equal(credentials.riderPassword, 'Test123!Drive');
-  assert.equal(credentials.driverPassword, 'Test123!Drive');
-  assert.equal(isCompliantPassword(credentials.adminPassword), true);
+  assert.equal(credentials.adminPassword, credentials.riderPassword);
+  assert.equal(credentials.riderPassword, credentials.driverPassword);
+
+  for (const password of [credentials.adminPassword, credentials.riderPassword, credentials.driverPassword]) {
+    const parsed = signupSchema.safeParse({ email: 'seed@example.com', password });
+    assert.equal(parsed.success, true);
+  }
 });
