@@ -54,8 +54,8 @@
     <main class="main-content">
       <header class="top-bar glass-panel">
         <div class="top-bar-copy">
-          <p class="eyebrow">Drive Rider Dashboard</p>
-          <h1 class="page-title">Good <span id="greeting-period">day</span>, <span id="header-user-name">Rider</span></h1>
+          <p class="eyebrow">Rider Dashboard</p>
+          <h1 class="page-title">Book and track your ride</h1>
           <p class="page-subtitle">Book, track, and manage every trip with live route visibility and premium ride options.</p>
           <div class="header-metrics">
             <div class="metric-chip">
@@ -110,7 +110,7 @@
                 <label for="pickup-input" class="form-label">Pickup location</label>
                 <div class="input-wrapper">
                   <i class="input-icon bi bi-geo-alt-fill"></i>
-                  <input id="pickup-input" type="text" class="form-input" placeholder="Enter pickup coordinates (lat, lng)" />
+                  <input id="pickup-input" type="text" class="form-input" placeholder="Enter pickup (lat, lng or address)" />
                 </div>
               </div>
 
@@ -118,7 +118,7 @@
                 <label for="destination-input" class="form-label">Destination</label>
                 <div class="input-wrapper">
                   <i class="input-icon bi bi-flag-fill"></i>
-                  <input id="destination-input" type="text" class="form-input" placeholder="Enter destination coordinates (lat, lng)" />
+                  <input id="destination-input" type="text" class="form-input" placeholder="Enter destination (lat, lng or address)" />
                 </div>
               </div>
 
@@ -228,7 +228,7 @@
                 <i class="bi bi-lightning-charge-fill btn-icon"></i>
                 <span class="btn-label">Request Ride</span>
               </button>
-              <button id="cancel-ride-button" type="button" class="btn btn-danger btn-block btn-lg" disabled>
+              <button id="cancel-ride-button" type="button" class="btn btn-danger btn-block btn-lg d-none" disabled>
                 <span class="btn-spinner" aria-hidden="true"></span>
                 <i class="bi bi-x-circle btn-icon"></i>
                 <span class="btn-label">Cancel Ride</span>
