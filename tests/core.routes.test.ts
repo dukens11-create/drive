@@ -336,6 +336,10 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
       'id="destination-input"',
       'id="request-ride-button"',
       'id="cancel-ride-button"',
+      'id="fare-base"',
+      'id="fare-surge"',
+      'id="route-instructions"',
+      'id="header-current-time"',
       'trip-timeline',
       'Driver',
       'Rider',
@@ -345,6 +349,28 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
     });
     assert.doesNotMatch(body, /\s(onclick|onsubmit)=/);
     assert.doesNotMatch(body, /<script>([\s\S]*?)<\/script>/i);
+  });
+});
+
+test('GET /rider-dashboard.js includes route rendering and fare breakdown hooks', async () => {
+  await withServer(async baseUrl => {
+    const response = await fetch(`${baseUrl}/rider-dashboard.js`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /javascript/);
+
+    const body = await response.text();
+    [
+      'https://api.mapbox.com/directions/v5/mapbox/driving',
+      'rider-route-line',
+      'route-instructions',
+      'fare-base',
+      'fare-distance-fare',
+      'fare-time-fare',
+      'fare-surge',
+      'fare-taxes'
+    ].forEach(token => {
+      assert.equal(body.includes(token), true, `Expected rider-dashboard.js to include ${token}`);
+    });
   });
 });
 
