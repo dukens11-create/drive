@@ -16,8 +16,6 @@ function loadEnvFile() {
     return { path: exampleEnvPath, source: 'example' };
   }
 
-  // Load with the explicit `.env` path even when it is absent so dotenv keeps
-  // the runtime behavior predictable and any real values still come from process.env.
   dotenv.config({ path: envPath });
   return { path: undefined, source: 'none' };
 }
@@ -104,6 +102,7 @@ export const env = {
   kycProviderBaseUrl: getString('KYC_PROVIDER_BASE_URL', 'https://verify.drive.local'),
   dataStoreMode,
   dataStoreFile: getString('DATA_STORE_FILE', '.data/store.json'),
+  corsAllowedOrigins: getString('CORS_ALLOWED_ORIGINS', 'http://localhost:8080,http://127.0.0.1:8080'),
   // Twilio (SMS)
   twilioAccountSid: getString('TWILIO_ACCOUNT_SID'),
   twilioAuthToken: getString('TWILIO_AUTH_TOKEN'),
