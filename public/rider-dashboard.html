@@ -192,6 +192,11 @@
                   <strong id="fare-duration">0 min</strong>
                 </div>
               </div>
+              <div id="fare-error" class="fare-error d-none" role="status" aria-live="polite">
+                <i class="bi bi-wifi-off" aria-hidden="true"></i>
+                <span id="fare-error-text">Estimate service is unavailable. Showing local fallback.</span>
+                <button id="retry-estimate-button" type="button" class="btn btn-secondary btn-sm">Retry</button>
+              </div>
 
               <div class="fare-breakdown">
                 <div class="fare-row">
@@ -245,12 +250,24 @@
                 </div>
                 <div class="map-summary">
                   <div class="map-summary-chip">
+                    <span><i class="bi bi-signpost-split"></i> Trip</span>
+                    <strong id="map-route-overview">0.0 mi • 0 min</strong>
+                  </div>
+                  <div class="map-summary-chip">
                     <span>Distance</span>
                     <strong id="map-route-distance">0 mi</strong>
                   </div>
                   <div class="map-summary-chip">
                     <span>ETA</span>
                     <strong id="map-route-duration">0 min</strong>
+                  </div>
+                  <div class="map-summary-chip">
+                    <span>Arrival</span>
+                    <strong id="map-route-arrival">--:--</strong>
+                  </div>
+                  <div class="map-summary-chip">
+                    <span>Traffic</span>
+                    <strong id="map-route-traffic">Clear route</strong>
                   </div>
                 </div>
               </div>
@@ -276,6 +293,7 @@
                       <li>Check browser console for Mapbox errors.</li>
                       <li>Refresh after restoring network access.</li>
                     </ul>
+                    <button id="retry-map-button" type="button" class="btn btn-secondary btn-sm">Retry map</button>
                   </div>
                 </div>
               </div>
@@ -298,9 +316,16 @@
                     <p class="card-eyebrow">Trip progress</p>
                     <h2 class="card-title">Live Status</h2>
                   </div>
-                  <span id="ride-status-pill" class="status-badge">Idle</span>
+                  <div class="status-badge-group">
+                    <span id="polling-indicator" class="polling-indicator is-idle" title="Updating in real-time">
+                      <span class="polling-dot" aria-hidden="true"></span>
+                      <span>Live</span>
+                    </span>
+                    <span id="ride-status-pill" class="status-badge">Idle</span>
+                  </div>
                 </div>
                 <p id="status-message" class="status-message">Enter pickup and destination to request a ride.</p>
+                <p id="searching-status" class="searching-status d-none" aria-live="polite">Searching for nearby drivers<span class="searching-dots" aria-hidden="true"></span></p>
 
                 <div id="driver-assigned-card" class="driver-card d-none">
                   <div class="driver-header">
@@ -325,26 +350,33 @@
 
                 <ol id="trip-timeline" class="trip-timeline" aria-label="Trip progress timeline">
                   <li data-step="searching" class="timeline-step">
-                    <span class="timeline-icon"><i class="bi bi-clock-history"></i></span>
+                    <span class="timeline-icon"><i class="bi bi-clock-history"></i><span class="timeline-check" aria-hidden="true"><i class="bi bi-check2"></i></span></span>
                     <span class="timeline-label">Searching</span>
                   </li>
                   <li data-step="assigned" class="timeline-step">
-                    <span class="timeline-icon"><i class="bi bi-car-front-fill"></i></span>
+                    <span class="timeline-icon"><i class="bi bi-car-front-fill"></i><span class="timeline-check" aria-hidden="true"><i class="bi bi-check2"></i></span></span>
                     <span class="timeline-label">Assigned</span>
                   </li>
                   <li data-step="arriving" class="timeline-step">
-                    <span class="timeline-icon"><i class="bi bi-sign-turn-right-fill"></i></span>
+                    <span class="timeline-icon"><i class="bi bi-sign-turn-right-fill"></i><span class="timeline-check" aria-hidden="true"><i class="bi bi-check2"></i></span></span>
                     <span class="timeline-label">Arriving</span>
                   </li>
                   <li data-step="started" class="timeline-step">
-                    <span class="timeline-icon"><i class="bi bi-speedometer2"></i></span>
+                    <span class="timeline-icon"><i class="bi bi-speedometer2"></i><span class="timeline-check" aria-hidden="true"><i class="bi bi-check2"></i></span></span>
                     <span class="timeline-label">In Trip</span>
                   </li>
                   <li data-step="completed" class="timeline-step">
-                    <span class="timeline-icon"><i class="bi bi-check-circle-fill"></i></span>
+                    <span class="timeline-icon"><i class="bi bi-check-circle-fill"></i><span class="timeline-check" aria-hidden="true"><i class="bi bi-check2"></i></span></span>
                     <span class="timeline-label">Completed</span>
                   </li>
                 </ol>
+                <div id="ride-empty-state" class="ride-empty-state d-none">
+                  <p>No rides yet. Book your first ride!</p>
+                  <button id="empty-state-request-button" type="button" class="btn btn-primary btn-sm">
+                    <i class="bi bi-lightning-charge-fill"></i>
+                    <span>Book a ride</span>
+                  </button>
+                </div>
               </div>
             </div>
           </section>
@@ -354,6 +386,16 @@
   </div>
 
   <div id="ride-popup" class="toast d-none" role="status" aria-live="polite"></div>
+  <div id="cancel-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="cancel-modal-title" aria-describedby="cancel-modal-description">
+    <div class="modal-card">
+      <h3 id="cancel-modal-title">Cancel this ride?</h3>
+      <p id="cancel-modal-description">Your driver may already be heading to pickup.</p>
+      <div class="modal-actions">
+        <button id="cancel-modal-confirm" type="button" class="btn btn-danger btn-sm">Cancel Ride</button>
+        <button id="cancel-modal-keep" type="button" class="btn btn-secondary btn-sm">Keep Ride</button>
+      </div>
+    </div>
+  </div>
 
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.js"></script>
   <script src="/rider-dashboard.js"></script>

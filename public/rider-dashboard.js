@@ -5,12 +5,17 @@ const SHARED_RIDE_STORAGE_KEY = 'drive.sharedRideRequests.v1';
 const SHARED_RIDE_STORAGE_VERSION = 1;
 const RIDE_POLL_INTERVAL_MS = 2500;
 const MIN_LOCATION_PUSH_INTERVAL_MS = 8000;
+const REQUEST_SUCCESS_ANIMATION_MS = 1200;
 const DEFAULT_PICKUP = { lat: 37.7749, lng: -122.4194 };
 const DEFAULT_DROPOFF_OFFSET_DEGREES = 0.01;
 const POPUP_DISPLAY_DURATION_MS = 2600;
 const MAP_BOUNDS_PADDING_PX = 80;
 const MAP_MAX_ZOOM_LEVEL = 15;
 const MAP_BOUNDS_ANIMATION_MS = 700;
+const MAP_FLY_ANIMATION_MS = 800;
+const MAP_FLY_MIN_ZOOM = 12;
+const MAP_FLY_TARGET_ZOOM = 13;
+const MAP_FLY_MAX_ZOOM = 14;
 const CURRENT_LOCATION_TIMEOUT_MS = 12000;
 const WATCH_LOCATION_TIMEOUT_MS = 10000;
 const GEOCODE_DEBOUNCE_MS = 500;
@@ -32,6 +37,7 @@ const ROUTE_DASH_FRAMES = [
   [2.4, 4, 0.6],
   [3, 4, 0]
 ];
+const DRIVER_MARKER_LERP_MS = 650;
 const VEHICLE_PRICING = {
   ECONOMY: { baseMultiplier: 1, minFare: 2.5, distanceRate: 1.9, timeRate: 0.25 },
   COMFORT: { baseMultiplier: 1.15, minFare: 3, distanceRate: 2.19, timeRate: 0.29 },
@@ -49,6 +55,7 @@ let lastLocationPushAt = 0;
 let latestEstimate = null;
 let fareRequestSequence = 0;
 let clockIntervalId = null;
+let searchingDotsIntervalId = null;
 const geocodeDebounceTimers = {};
 
 const mapState = {
@@ -66,10 +73,13 @@ const mapState = {
   lastFetchedRouteKey: '',
   routeInstructions: [],
   routeSourceLabel: 'Estimated route',
+  routeTrafficLabel: 'Clear route',
   lastDriverPosition: null,
   driverHeading: 0,
   lastRideStatus: 'idle',
-  hasFittedScene: false
+  hasFittedScene: false,
+  lastFlyKey: '',
+  pendingDriverAnimation: null
 };
 
 function parseJson(value, fallback) {
@@ -94,6 +104,22 @@ function formatMiles(value) {
 
 function formatMinutes(value) {
   return `${Math.max(0, Math.round(Number(value || 0)))} min`;
+}
+
+function formatArrivalTimeFromMinutes(minutes) {
+  const etaDate = new Date(Date.now() + Math.max(0, Number(minutes || 0)) * 60 * 1000);
+  return etaDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function animateNumericText(id, nextText) {
+  const node = document.getElementById(id);
+  if (!node) return;
+  if (node.textContent === nextText) return;
+  node.classList.add('is-updating');
+  window.setTimeout(() => {
+    node.textContent = nextText;
+    node.classList.remove('is-updating');
+  }, 160);
 }
 
 function safeSetText(id, value) {
@@ -263,6 +289,15 @@ function normalizeHeading(degrees) {
   return ((Number(degrees) % 360) + 360) % 360;
 }
 
+function easeInOutQuadratic(progress) {
+  return progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+}
+
+function clampZoom(zoom, minZoom, maxZoom, fallbackZoom) {
+  const numericZoom = Number.isFinite(Number(zoom)) ? Number(zoom) : fallbackZoom;
+  return Math.max(minZoom, Math.min(maxZoom, numericZoom));
+}
+
 function buildEstimateFromRoute(route, rideType = selectedRideType, overrides = {}) {
   const pricing = VEHICLE_PRICING[String(rideType || 'ECONOMY').toUpperCase()] || VEHICLE_PRICING.ECONOMY;
   const miles = Number(route?.distanceMiles || 0);
@@ -369,10 +404,12 @@ async function estimateRideFare(pickup, destination) {
         rideType: selectedRideType
       })
     });
-    if (!response.ok || !data?.ok) return localEstimate;
-    return normalizeEstimateResponse(data, localEstimate);
+    if (!response.ok || !data?.ok) {
+      return { ...localEstimate, _fallbackReason: 'Estimate service unavailable. Showing local fallback.' };
+    }
+    return { ...normalizeEstimateResponse(data, localEstimate), _fallbackReason: '' };
   } catch (_error) {
-    return localEstimate;
+    return { ...localEstimate, _fallbackReason: 'Network issue while fetching estimate. Showing local fallback.' };
   }
 }
 
@@ -601,9 +638,13 @@ function updateTimeline(step) {
 function renderRideState() {
   const state = getStatusViewModel(currentRide);
   safeSetText('ride-status-pill', state.pill);
-  safeSetText('status-message', state.message);
+  animateNumericText('status-message', state.message);
   safeSetText('header-status-text', state.headerStatus);
   updateTimeline(state.step);
+  document.querySelector('.status-card')?.setAttribute('class', `card status-card status-${state.step || (currentRide?.status || 'idle')}`);
+  document.getElementById('searching-status')?.classList.toggle('d-none', state.step !== 'searching');
+  setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(currentRide.status)));
+  document.getElementById('ride-empty-state')?.classList.toggle('d-none', rides.some(ride => ride.riderId === currentUser?.id));
 
   const assignedCard = document.getElementById('driver-assigned-card');
   const showDriverCard = Boolean(currentRide && ['accepted', 'arrived_at_pickup', 'started'].includes(currentRide.status));
@@ -613,25 +654,24 @@ function renderRideState() {
     safeSetText('driver-location', currentRide.driverLocation
       ? `${Number(currentRide.driverLocation.lat).toFixed(5)}, ${Number(currentRide.driverLocation.lng).toFixed(5)}`
       : '--');
-    safeSetText('driver-eta', formatMinutes(currentRide.etaMinutes || currentRide.minutes || 0));
+    animateNumericText('driver-eta', formatMinutes(currentRide.etaMinutes || currentRide.minutes || 0));
   }
 
   const cancelButton = document.getElementById('cancel-ride-button');
   const requestButton = document.getElementById('request-ride-button');
   const buttonGroup = document.querySelector('.button-group');
   const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status));
-  const showRequestButton = !canCancelRide;
   const showCancelButton = canCancelRide;
   if (requestButton) {
     requestButton.disabled = canCancelRide;
-    requestButton.classList.toggle('d-none', !showRequestButton);
+    requestButton.classList.remove('d-none');
   }
   if (cancelButton) {
     cancelButton.disabled = !canCancelRide;
     cancelButton.classList.toggle('d-none', !showCancelButton);
   }
   if (buttonGroup) {
-    const visibleButtons = Number(showRequestButton) + Number(showCancelButton);
+    const visibleButtons = 1 + Number(showCancelButton);
     buttonGroup.classList.toggle('single-action', visibleButtons <= 1);
   }
 
@@ -646,6 +686,43 @@ function showPopup(message) {
   popup.textContent = message;
   popup.classList.remove('d-none');
   window.setTimeout(() => popup.classList.add('d-none'), POPUP_DISPLAY_DURATION_MS);
+}
+
+function setFareLoading(isLoading) {
+  document.querySelector('.fare-card')?.classList.toggle('is-loading', Boolean(isLoading));
+}
+
+function setFareError(message = '') {
+  const errorNode = document.getElementById('fare-error');
+  const textNode = document.getElementById('fare-error-text');
+  if (!errorNode || !textNode) return;
+  const hasMessage = Boolean(String(message || '').trim());
+  errorNode.classList.toggle('d-none', !hasMessage);
+  if (hasMessage) textNode.textContent = message;
+}
+
+function setPollingIndicator(isLive) {
+  const indicator = document.getElementById('polling-indicator');
+  if (!indicator) return;
+  indicator.classList.toggle('is-live', Boolean(isLive));
+  indicator.classList.toggle('is-idle', !isLive);
+}
+
+function setCancelModalOpen(isOpen) {
+  const modal = document.getElementById('cancel-modal');
+  if (!modal) return;
+  modal.classList.toggle('d-none', !isOpen);
+}
+
+function startSearchingDotsAnimation() {
+  const dots = document.querySelector('#searching-status .searching-dots');
+  if (!dots) return;
+  let count = 0;
+  if (searchingDotsIntervalId) window.clearInterval(searchingDotsIntervalId);
+  searchingDotsIntervalId = window.setInterval(() => {
+    count = (count % 3) + 1;
+    dots.textContent = '.'.repeat(count);
+  }, 330);
 }
 
 function setMapFallbackMessage(message) {
@@ -691,6 +768,7 @@ function updateRideTypePricing(estimate) {
 
 function renderFareEstimate(estimate) {
   latestEstimate = estimate;
+  setFareError('');
   safeSetText('fare-distance', formatMiles(estimate.route.distanceMiles));
   safeSetText('fare-duration', formatMinutes(estimate.route.etaMinutes));
   safeSetText('fare-base', formatCurrency(estimate.fareBreakdown.baseFare));
@@ -701,7 +779,11 @@ function renderFareEstimate(estimate) {
   safeSetText('fare-estimate', formatCurrency(estimate.fareEstimate));
   safeSetText('fare-range', `${formatCurrency(estimate.fareEstimateRange.low)} - ${formatCurrency(estimate.fareEstimateRange.high)}`);
   safeSetText('map-route-distance', formatMiles(estimate.route.distanceMiles));
-  safeSetText('map-route-duration', formatMinutes(estimate.route.etaMinutes));
+  animateNumericText('map-route-duration', formatMinutes(estimate.route.etaMinutes));
+  safeSetText('map-route-overview', `${formatMiles(estimate.route.distanceMiles)} • ${formatMinutes(estimate.route.etaMinutes)}`);
+  animateNumericText('map-route-arrival', formatArrivalTimeFromMinutes(estimate.route.etaMinutes));
+  safeSetText('map-route-traffic', mapState.routeTrafficLabel || 'Clear route');
+  document.getElementById('map-route-arrival')?.classList.toggle('is-nearby', Number(estimate.route.etaMinutes || 0) < 2);
   updateRideTypePricing(estimate);
 }
 
@@ -710,13 +792,20 @@ async function refreshFareEstimate(options = {}) {
   const requestId = ++fareRequestSequence;
   const { pickup, destination, hasValidCoordinates } = getPickupAndDestination();
   if (!hasValidCoordinates || !pickup || !destination) {
+    setFareError('');
     renderMapState({ fitRoute, allowFallback: true });
     return;
   }
-  const estimate = await estimateRideFare(pickup, destination);
-  if (requestId !== fareRequestSequence) return;
-  renderFareEstimate(estimate);
-  renderMapState({ fitRoute });
+  setFareLoading(true);
+  try {
+    const estimate = await estimateRideFare(pickup, destination);
+    if (requestId !== fareRequestSequence) return;
+    renderFareEstimate(estimate);
+    setFareError(estimate._fallbackReason || '');
+    renderMapState({ fitRoute });
+  } finally {
+    setFareLoading(false);
+  }
 }
 
 function readMapboxToken() {
@@ -773,12 +862,35 @@ function updateDriverMarkerVisuals(position) {
   }
 }
 
+function animateDriverMarkerTo(marker, from, to) {
+  if (!marker || !from || !to) return;
+  if (mapState.pendingDriverAnimation) window.cancelAnimationFrame(mapState.pendingDriverAnimation);
+  const startAt = performance.now();
+  const tick = now => {
+    const progress = Math.min(1, (now - startAt) / DRIVER_MARKER_LERP_MS);
+    const eased = easeInOutQuadratic(progress);
+    const lat = from.lat + (to.lat - from.lat) * eased;
+    const lng = from.lng + (to.lng - from.lng) * eased;
+    marker.setLngLat([lng, lat]);
+    if (progress < 1) {
+      mapState.pendingDriverAnimation = window.requestAnimationFrame(tick);
+    }
+  };
+  mapState.pendingDriverAnimation = window.requestAnimationFrame(tick);
+}
+
 function startRouteDashAnimation() {
   if (mapState.routeAnimationTimer || !mapState.map) return;
   let frameIndex = 0;
   mapState.routeAnimationTimer = window.setInterval(() => {
     if (!mapState.map?.getLayer(mapState.routeLineLayerId)) return;
+    const isSearching = (currentRide?.status || '') === 'requested';
+    const glowOpacity = isSearching ? 1 : 0.86;
+    const hueShift = isSearching ? frameIndex * 7 : frameIndex * 3;
     mapState.map.setPaintProperty(mapState.routeLineLayerId, 'line-dasharray', ROUTE_DASH_FRAMES[frameIndex]);
+    mapState.map.setPaintProperty(mapState.routeLineLayerId, 'line-color', `hsl(${210 + (hueShift % 24)}, 86%, 58%)`);
+    mapState.map.setPaintProperty(mapState.routeLineLayerId, 'line-opacity', glowOpacity);
+    mapState.map.setPaintProperty(mapState.routeLineLayerId, 'line-width', isSearching ? 6 : 5);
     frameIndex = (frameIndex + 1) % ROUTE_DASH_FRAMES.length;
   }, 180);
 }
@@ -815,6 +927,8 @@ function ensureRouteLayers() {
         'line-dasharray': ROUTE_DASH_FRAMES[0]
       }
     });
+    mapState.map.setPaintProperty(mapState.routeLineLayerId, 'line-color-transition', { duration: 260, delay: 0 });
+    mapState.map.setPaintProperty(mapState.routeLineLayerId, 'line-opacity-transition', { duration: 260, delay: 0 });
   }
   startRouteDashAnimation();
 }
@@ -833,7 +947,8 @@ function buildFallbackDirections(pickup, destination) {
       `Start from pickup at ${pickup.lat.toFixed(4)}, ${pickup.lng.toFixed(4)}.`,
       `Continue to destination at ${destination.lat.toFixed(4)}, ${destination.lng.toFixed(4)}.`
     ],
-    sourceLabel: 'Estimated route'
+    sourceLabel: 'Estimated route',
+    trafficLabel: 'Clear route'
   };
 }
 
@@ -846,6 +961,7 @@ async function fetchDirectionsRoute(pickup, destination) {
     url.searchParams.set('geometries', 'geojson');
     url.searchParams.set('overview', 'full');
     url.searchParams.set('steps', 'true');
+    url.searchParams.set('annotations', 'congestion');
     const response = await fetch(url.toString());
     const payload = await response.json().catch(() => null);
     const route = payload?.routes?.[0];
@@ -856,10 +972,15 @@ async function fetchDirectionsRoute(pickup, destination) {
       .map(step => step?.maneuver?.instruction || step?.name)
       .filter(Boolean)
       .slice(0, 4);
+    const congestionValues = (Array.isArray(route.legs) ? route.legs : [])
+      .flatMap(leg => Array.isArray(leg?.annotation?.congestion) ? leg.annotation.congestion : []);
+    const hasHeavyTraffic = congestionValues.some(value => ['severe', 'heavy'].includes(String(value).toLowerCase()));
+    const hasSlowTraffic = congestionValues.some(value => ['moderate', 'low'].includes(String(value).toLowerCase()));
     return {
       geometry: coordinates,
       instructions: instructions.length ? instructions : buildFallbackDirections(pickup, destination).instructions,
-      sourceLabel: 'Mapbox live route'
+      sourceLabel: 'Mapbox live route',
+      trafficLabel: hasHeavyTraffic ? 'Heavy traffic' : hasSlowTraffic ? 'Slow traffic' : 'Clear route'
     };
   } catch (_error) {
     return buildFallbackDirections(pickup, destination);
@@ -870,11 +991,18 @@ function renderRouteInstructions(instructions) {
   const list = document.getElementById('route-instructions');
   if (!list) return;
   list.innerHTML = '';
-  (instructions?.length ? instructions : ['Set pickup and destination to preview your trip.']).forEach(item => {
+  (instructions?.length ? instructions : ['Set pickup and destination to preview your trip.']).forEach((item, index) => {
     const li = document.createElement('li');
-    li.textContent = item;
+    const icon = document.createElement('span');
+    icon.className = 'route-instruction-icon bi bi-arrow-right-circle';
+    icon.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('span');
+    label.textContent = item;
+    li.append(icon, label);
+    li.classList.toggle('is-current', index === 0);
     list.appendChild(li);
   });
+  list.querySelector('.is-current')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 function fitMapToScene(pickup, destination) {
@@ -903,6 +1031,28 @@ function fitMapToScene(pickup, destination) {
     duration: MAP_BOUNDS_ANIMATION_MS
   });
   mapState.hasFittedScene = true;
+}
+
+function flyToPrimaryLocation(pickup, destination) {
+  if (!mapState.map) return;
+  const flyKey = `${pickup.lat.toFixed(5)}:${pickup.lng.toFixed(5)}:${destination.lat.toFixed(5)}:${destination.lng.toFixed(5)}`;
+  if (flyKey === mapState.lastFlyKey) return;
+  mapState.lastFlyKey = flyKey;
+  const centerLng = (pickup.lng + destination.lng) / 2;
+  const centerLat = (pickup.lat + destination.lat) / 2;
+  mapState.map.flyTo({
+    center: [centerLng, centerLat],
+    zoom: clampZoom(mapState.map.getZoom?.(), MAP_FLY_MIN_ZOOM, MAP_FLY_MAX_ZOOM, MAP_FLY_TARGET_ZOOM),
+    duration: MAP_FLY_ANIMATION_MS,
+    essential: true,
+    curve: 1.35,
+    easing: t => 1 - Math.pow(1 - t, 3),
+    pitch: 40
+  });
+  window.setTimeout(() => {
+    if (!mapState.map || mapState.lastFlyKey !== flyKey) return;
+    mapState.map.easeTo({ pitch: 46, duration: 260 });
+  }, MAP_FLY_ANIMATION_MS);
 }
 
 function syncMapMarkers(pickup, destination) {
@@ -950,11 +1100,17 @@ function syncMapMarkers(pickup, destination) {
         Number(driverLocation.lng)
       );
     }
-    mapState.lastDriverPosition = { lat: Number(driverLocation.lat), lng: Number(driverLocation.lng) };
+    const nextDriverPosition = { lat: Number(driverLocation.lat), lng: Number(driverLocation.lng) };
+    const previousDriverPosition = mapState.lastDriverPosition || nextDriverPosition;
     mapState.markers.driver
-      .setLngLat([Number(driverLocation.lng), Number(driverLocation.lat)])
       .setPopup(new window.mapboxgl.Popup({ offset: 20 }).setText(currentRide?.driverName || 'Driver'))
       .addTo(mapState.map);
+    if (mapState.lastDriverPosition) {
+      animateDriverMarkerTo(mapState.markers.driver, previousDriverPosition, nextDriverPosition);
+    } else {
+      mapState.markers.driver.setLngLat([nextDriverPosition.lng, nextDriverPosition.lat]);
+    }
+    mapState.lastDriverPosition = nextDriverPosition;
     updateDriverMarkerVisuals({ heading: mapState.driverHeading });
   } else if (mapState.markers.driver) {
     mapState.markers.driver.remove();
@@ -988,9 +1144,11 @@ async function refreshMapRoute(options = {}) {
   };
   mapState.routeInstructions = route.instructions;
   mapState.routeSourceLabel = route.sourceLabel;
+  mapState.routeTrafficLabel = route.trafficLabel || 'Clear route';
   updateRouteSource();
   renderRouteInstructions(route.instructions);
   safeSetText('route-source-badge', route.sourceLabel);
+  safeSetText('map-route-traffic', mapState.routeTrafficLabel);
   if (fitRoute || !mapState.hasFittedScene) fitMapToScene(pickup, destination);
 }
 
@@ -1001,17 +1159,27 @@ function renderMapState(options = {}) {
     const fallbackDirections = buildFallbackDirections(pickup, destination);
     renderRouteInstructions(fallbackDirections.instructions);
     safeSetText('route-source-badge', fallbackDirections.sourceLabel);
+    safeSetText('map-route-traffic', fallbackDirections.trafficLabel || 'Clear route');
     return;
   }
+  flyToPrimaryLocation(pickup, destination);
   syncMapMarkers(pickup, destination);
   refreshMapRoute({ fitRoute }).catch(() => {
     const fallbackDirections = buildFallbackDirections(pickup, destination);
     renderRouteInstructions(fallbackDirections.instructions);
     safeSetText('route-source-badge', fallbackDirections.sourceLabel);
+    safeSetText('map-route-traffic', fallbackDirections.trafficLabel || 'Clear route');
   });
 }
 
-async function initializeMap() {
+async function initializeMap(options = {}) {
+  const { force = false } = options;
+  if (mapState.map && mapState.mapLoaded && !force) return;
+  if (mapState.map && force) {
+    mapState.map.remove();
+    mapState.map = null;
+    mapState.mapLoaded = false;
+  }
   mapState.token = readMapboxToken();
   const mapContainer = document.getElementById('mapbox');
   setMapLoading(true);
@@ -1097,11 +1265,14 @@ function selectCurrentRide() {
 }
 
 async function syncRides() {
+  setPollingIndicator(true);
   let backendRides = [];
   try {
     backendRides = await fetchBackendRides();
   } catch (_error) {
     backendRides = [];
+  } finally {
+    setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(currentRide.status)));
   }
   rides = mergeRides(backendRides, readSharedRideStore().rides);
   writeSharedRideStore({ rides });
@@ -1125,6 +1296,19 @@ async function handleRequestRide() {
     currentRide = normalizeRide(ride);
     rides = mergeRides([currentRide], readSharedRideStore().rides);
     renderRideState();
+    const requestButton = document.getElementById('request-ride-button');
+    const requestLabel = requestButton?.querySelector('.btn-label');
+    if (requestButton && requestLabel) {
+      const icon = requestButton.querySelector('.btn-icon');
+      requestButton.classList.add('is-success');
+      requestLabel.textContent = 'Ride Requested!';
+      if (icon) icon.className = 'bi bi-check2-circle btn-icon';
+      window.setTimeout(() => {
+        if (icon) icon.className = 'bi bi-lightning-charge-fill btn-icon';
+        requestLabel.textContent = 'Request Ride';
+        requestButton.classList.remove('is-success');
+      }, REQUEST_SUCCESS_ANIMATION_MS);
+    }
     showPopup('Ride request sent. Searching for driver...');
   } finally {
     setButtonLoading('request-ride-button', false);
@@ -1134,6 +1318,7 @@ async function handleRequestRide() {
 
 async function handleCancelRide() {
   if (!currentRide?.id) return;
+  setCancelModalOpen(false);
   setButtonLoading('cancel-ride-button', true);
   try {
     const canceledRide = await cancelRide(currentRide.id);
@@ -1147,6 +1332,11 @@ async function handleCancelRide() {
     setButtonLoading('cancel-ride-button', false);
     renderRideState();
   }
+}
+
+function handleCancelRideClick() {
+  if (!currentRide?.id) return;
+  setCancelModalOpen(true);
 }
 
 function handleLogout() {
@@ -1231,7 +1421,25 @@ function setupHandlers() {
     handleRequestRide().catch(() => showPopup('Unable to request ride.'));
   });
   document.getElementById('cancel-ride-button')?.addEventListener('click', () => {
+    handleCancelRideClick();
+  });
+  document.getElementById('cancel-modal-confirm')?.addEventListener('click', () => {
     handleCancelRide().catch(() => showPopup('Unable to cancel ride.'));
+  });
+  document.getElementById('cancel-modal-keep')?.addEventListener('click', () => {
+    setCancelModalOpen(false);
+  });
+  document.getElementById('cancel-modal')?.addEventListener('click', event => {
+    if (event.target === event.currentTarget) setCancelModalOpen(false);
+  });
+  document.getElementById('retry-map-button')?.addEventListener('click', () => {
+    initializeMap({ force: true }).catch(() => {});
+  });
+  document.getElementById('retry-estimate-button')?.addEventListener('click', () => {
+    refreshFareEstimate({ fitRoute: true }).catch(() => {});
+  });
+  document.getElementById('empty-state-request-button')?.addEventListener('click', () => {
+    document.getElementById('pickup-input')?.focus();
   });
   document.getElementById('current-location-button')?.addEventListener('click', () => {
     if (!navigator.geolocation) {
@@ -1288,7 +1496,9 @@ function setupHandlers() {
 
   window.addEventListener('beforeunload', () => {
     if (clockIntervalId) window.clearInterval(clockIntervalId);
+    if (searchingDotsIntervalId) window.clearInterval(searchingDotsIntervalId);
     if (mapState.routeAnimationTimer) window.clearInterval(mapState.routeAnimationTimer);
+    if (mapState.pendingDriverAnimation) window.cancelAnimationFrame(mapState.pendingDriverAnimation);
     Object.values(geocodeDebounceTimers).forEach(timer => window.clearTimeout(timer));
   });
 }
@@ -1297,6 +1507,7 @@ window.addEventListener('load', async () => {
   if (!setupSession()) return;
   seedDefaultInputs();
   setupHandlers();
+  startSearchingDotsAnimation();
   clockIntervalId = window.setInterval(updateHeaderClock, 60000);
   await initializeMap();
   resizeMapNow();
