@@ -8,13 +8,92 @@
  */
 
 import { env } from '../../config/env';
-import { store, makeId, timestamp } from '../data.store';
+import { store, makeId, timestamp, markStoreDirty } from '../data.store';
 import { randomBytes, scryptSync } from 'crypto';
+import { mkdirSync, writeFileSync } from 'fs';
+import path from 'path';
 
 function hashPassword(password: string) {
   const salt = randomBytes(16);
   const hash = scryptSync(password, salt, 64);
   return `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`;
+}
+
+/**
+ * Convert store to serializable format (copy from data.store.ts)
+ */
+function toSerializableStore() {
+  return {
+    users: Array.from(store.users.values()),
+    refreshTokens: Array.from(store.refreshTokens.entries()),
+    rides: Array.from(store.rides.values()),
+    drivers: Array.from(store.drivers.values()),
+    vehicles: Array.from(store.vehicles.values()),
+    riders: Array.from(store.riders.values()),
+    rideRequests: Array.from(store.rideRequests.values()),
+    payments: Array.from(store.payments.values()),
+    paymentMethods: Array.from(store.paymentMethods.values()),
+    invoices: Array.from(store.invoices.values()),
+    refunds: Array.from(store.refunds.values()),
+    walletTx: [...store.walletTx],
+    walletBalances: Array.from(store.walletBalances.values()),
+    kycStatus: Array.from(store.kycStatus.entries()),
+    kycSessions: Array.from(store.kycSessions.entries()),
+    kycVerifications: Array.from(store.kycVerifications.entries()),
+    kycSelfies: Array.from(store.kycSelfies.entries()),
+    tickets: Array.from(store.tickets.values()),
+    safetyIncidents: [...store.safetyIncidents],
+    merchantProducts: Array.from(store.merchantProducts.values()),
+    marketplaceDeliveries: Array.from(store.marketplaceDeliveries.values()),
+    auditLogs: [...store.auditLogs],
+    surgeConfig: Array.from(store.surgeConfig.entries()),
+    promos: Array.from(store.promos.entries()),
+    referralCodes: Array.from(store.referralCodes.entries()),
+    referralEvents: [...store.referralEvents],
+    markets: Array.from(store.markets.entries()),
+    adminApiKeys: [...store.adminApiKeys],
+    platformSettings: Array.from(store.platformSettings.entries()),
+    adminExportJobs: [...store.adminExportJobs],
+    adminImportJobs: [...store.adminImportJobs],
+    adminBulkJobs: [...store.adminBulkJobs],
+    scheduledRides: Array.from(store.scheduledRides.values()),
+    subscriptionPlans: Array.from(store.subscriptionPlans.entries()),
+    userSubscriptions: Array.from(store.userSubscriptions.entries()),
+    loyaltyAccounts: Array.from(store.loyaltyAccounts.entries()),
+    loyaltyTransactions: [...store.loyaltyTransactions],
+    corporateAccounts: Array.from(store.corporateAccounts.entries()),
+    corporateRideTags: [...store.corporateRideTags],
+    carpoolRides: Array.from(store.carpoolRides.entries()),
+    chargebacks: [...store.chargebacks],
+    fraudAlerts: [...store.fraudAlerts],
+    totpEntries: Array.from(store.totpEntries.entries()),
+    chatConversations: Array.from(store.chatConversations.entries()),
+    chatParticipants: [...store.chatParticipants],
+    chatMessages: [...store.chatMessages],
+    quickReplyTemplates: [...store.quickReplyTemplates],
+    callSessions: [...store.callSessions],
+    notificationLogs: [...store.notificationLogs],
+    notificationPreferences: Array.from(store.notificationPreferences.entries()),
+    deviceTokens: [...store.deviceTokens],
+    savedSearches: [...store.savedSearches],
+    searchHistory: [...store.searchHistory],
+    bankAccounts: Array.from(store.bankAccounts.entries()),
+    payoutRequests: Array.from(store.payoutRequests.entries()),
+    locationHistory: [...store.locationHistory],
+    dispatchEvents: [...store.dispatchEvents]
+  };
+}
+
+/**
+ * Persist store to file (copy from data.store.ts logic)
+ */
+function persistStore() {
+  if (env.dataStoreMode !== 'file') return;
+  const payload = JSON.stringify(toSerializableStore(), null, 2);
+  const resolvedPath = path.resolve(env.dataStoreFile);
+  mkdirSync(path.dirname(resolvedPath), { recursive: true });
+  writeFileSync(resolvedPath, payload, 'utf8');
+  console.log(`💾 Persisted data to ${resolvedPath}`);
 }
 
 async function runSeeds() {
@@ -146,6 +225,11 @@ async function runSeeds() {
     seeded.push('driver@example.com (driver)');
   }
 
+  // CRITICAL: Persist to disk if in file mode!
+  if (env.dataStoreMode === 'file') {
+    persistStore();
+  }
+
   return {
     ok: true,
     seeded,
@@ -163,13 +247,13 @@ if (require.main === module) {
       console.log('\n📝 Test Credentials:\n');
       console.log('Admin:');
       console.log('  Email: admin@drive.com');
-      console.log('  Password: Check .env ADMIN_SEED_PASSWORD');
+      console.log('  Password: FlupflapHaiti2025@');
       console.log('\nRider:');
       console.log('  Email: rider@example.com or rider@test.com');
-      console.log('  Password: Check .env TEST_RIDER_SEED_PASSWORD');
+      console.log('  Password: Test123!@#$');
       console.log('\nDriver:');
       console.log('  Email: driver@example.com or driver@test.com');
-      console.log('  Password: Check .env TEST_DRIVER_SEED_PASSWORD');
+      console.log('  Password: Driver123!@#$');
       console.log('\n');
       process.exit(0);
     })
