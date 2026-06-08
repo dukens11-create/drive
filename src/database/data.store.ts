@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID, scryptSync } from 'crypto';
+import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 import { env } from '../config/env';
@@ -975,6 +975,17 @@ function hashPassword(password: string) {
   return `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`;
 }
 
+function verifySeedPassword(inputPassword: string, storedPassword: string) {
+  if (!storedPassword.startsWith('scrypt$')) {
+    return storedPassword === inputPassword;
+  }
+
+  const [, saltHex, hashHex] = storedPassword.split('$');
+  const inputHash = scryptSync(inputPassword, Buffer.from(saltHex, 'hex'), 64);
+  const storedHash = Buffer.from(hashHex, 'hex');
+  return timingSafeEqual(inputHash, storedHash);
+}
+
 export function timestamp() {
   return now();
 }
@@ -1377,6 +1388,11 @@ function ensureSeedUser(seed: { email: string; role: Role; password: string }) {
 
   if (!existing) {
     store.users.set(user.id, user);
+  } else if (!verifySeedPassword(seed.password, existing.password)) {
+    store.users.set(existing.id, {
+      ...existing,
+      password: hashPassword(seed.password)
+    });
   }
 
   if (seed.role === 'rider' && !store.riders.get(user.id)) {
@@ -1397,13 +1413,13 @@ ensureSeedUser({
 ensureSeedUser({
   email: 'rider@test.com',
   role: 'rider',
-  password: 'Test123!@#$'
+  password: env.testRiderSeedPassword
 });
 
 ensureSeedUser({
   email: 'driver@test.com',
   role: 'driver',
-  password: 'Driver123!@#$'
+  password: env.testDriverSeedPassword
 });
 
 if (!store.platformSettings.get('global')) {

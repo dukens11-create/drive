@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
 import { createApp } from '../src/app';
+import { env } from '../src/config/env';
 import * as authService from '../src/services/auth.service';
 
 async function withServer(run: (baseUrl: string) => Promise<void>) {
@@ -50,14 +51,14 @@ test('auth login returns explicit wrong-password diagnostics', async () => {
 test('seeded rider and driver test accounts can login', async () => {
   const rider = await authService.login({
     email: 'rider@test.com',
-    password: 'Test123!@#$'
+    password: env.testRiderSeedPassword
   });
   assert.equal(rider.ok, true);
   assert.equal(rider.user?.role, 'rider');
 
   const driver = await authService.login({
     email: 'driver@test.com',
-    password: 'Driver123!@#$'
+    password: env.testDriverSeedPassword
   });
   assert.equal(driver.ok, true);
   assert.equal(driver.user?.role, 'driver');
@@ -67,7 +68,7 @@ test('auth middleware returns explicit missing-token diagnostics', async () => {
   await withServer(async baseUrl => {
     const response = await fetch(`${baseUrl}/api/auth/sessions`);
     assert.equal(response.status, 401);
-    const payload = await response.json() as { error: string; errorCode?: string };
+    const payload = await response.json() as { error: string; errorCode: string; message: string };
     assert.equal(payload.error, 'Missing token');
     assert.equal(payload.errorCode, 'AUTH_TOKEN_MISSING');
   });

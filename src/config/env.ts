@@ -92,6 +92,8 @@ export const env = {
   logLevel: getLogLevel(),
   jwtSecret: getRequiredInProduction('JWT_SECRET', 'dev-local-secret'),
   adminSeedPassword: getRequiredInProduction('ADMIN_SEED_PASSWORD', 'FlupflapHaiti2025@'),
+  testRiderSeedPassword: getString('TEST_RIDER_SEED_PASSWORD', 'Test123!@#$'),
+  testDriverSeedPassword: getString('TEST_DRIVER_SEED_PASSWORD', 'Driver123!@#$'),
   stripeSecretKey: stripe.secretKey,
   stripePublishableKey: stripe.publishableKey,
   stripeWebhookSecret: stripe.webhookSecret,
@@ -131,7 +133,7 @@ export const env = {
   databasePoolMax: Number(getString('DATABASE_POOL_MAX', '10')),
   loadedEnvFilePath,
   loadedEnvFileSource,
-  corsAllowedOrigins: getString('CORS_ALLOWED_ORIGINS')
+  corsAllowedOrigins: getString('CORS_ALLOWED_ORIGINS', 'http://localhost:8080,http://127.0.0.1:8080')
 };
 
 const hasAnyFirebaseCredential = Boolean(env.fcmProjectId || env.fcmPrivateKey || env.fcmClientEmail);
@@ -145,7 +147,7 @@ if (env.dataStoreMode === 'file' && !env.dataStoreFile.trim()) {
 }
 
 if (env.loadedEnvFileSource === '.env.example') {
-  console.warn('[config] Loaded .env.example fallback. Create / update .env for persistent local configuration.');
+  console.warn('[config] Loaded .env.example fallback. Create/update .env for persistent local configuration.');
 }
 
 if (env.loadedEnvFileSource === 'process.env' && env.nodeEnv !== 'production') {

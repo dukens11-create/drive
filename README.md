@@ -116,9 +116,9 @@ Development uses the checked-in `.env` with file persistence (`DATA_STORE_MODE=f
 
 Seeded development login accounts:
 
-- Admin: `admin@drive.com` / `FlupflapHaiti2025@`
-- Rider: `rider@test.com` / `Test123!@#$`
-- Driver: `driver@test.com` / `Driver123!@#$`
+- Admin: `admin@drive.com` / `ADMIN_SEED_PASSWORD` from `.env`
+- Rider: `rider@test.com` / `TEST_RIDER_SEED_PASSWORD` from `.env`
+- Driver: `driver@test.com` / `TEST_DRIVER_SEED_PASSWORD` from `.env`
 
 Backend source is organized under `src/`:
 

@@ -8,7 +8,7 @@ export function requireAuth(req: any, res: any, next: any) {
     return res.status(401).json({
       error: 'Missing token',
       errorCode: 'AUTH_TOKEN_MISSING',
-      message: 'Provide Authorization: ******'
+      message: 'Provide a valid Authorization header'
     });
   }
   try {
