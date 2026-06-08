@@ -662,7 +662,7 @@ function buildFallbackDirections(pickup, destination) {
   return {
     geometry: [[pickup.lng, pickup.lat], [destination.lng, destination.lat]],
     instructions: [
-      `Head to pickup at ${pickup.lat.toFixed(4)}, ${pickup.lng.toFixed(4)}.`,
+      `Start from pickup at ${pickup.lat.toFixed(4)}, ${pickup.lng.toFixed(4)}.`,
       `Continue to destination at ${destination.lat.toFixed(4)}, ${destination.lng.toFixed(4)}.`
     ],
     sourceLabel: 'Estimated route'
@@ -837,8 +837,9 @@ function renderMapState(options = {}) {
   }
   syncMapMarkers(pickup, destination);
   refreshMapRoute({ fitRoute }).catch(() => {
-    renderRouteInstructions(buildFallbackDirections(pickup, destination).instructions);
-    safeSetText('route-source-badge', 'Estimated route');
+    const fallbackDirections = buildFallbackDirections(pickup, destination);
+    renderRouteInstructions(fallbackDirections.instructions);
+    safeSetText('route-source-badge', fallbackDirections.sourceLabel);
   });
 }
 
