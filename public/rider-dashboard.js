@@ -18,7 +18,7 @@ const MAP_FLY_TARGET_ZOOM = 13;
 const MAP_FLY_MAX_ZOOM = 14;
 const CURRENT_LOCATION_TIMEOUT_MS = 12000;
 const WATCH_LOCATION_TIMEOUT_MS = 10000;
-const GEOCODE_DEBOUNCE_MS = 500;
+const GEOCODE_DEBOUNCE_MS = 300;
 const MIN_GEOCODE_QUERY_LENGTH = 3;
 const GEOCODE_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const DEFAULT_SERVICE_FEE_PERCENT = 0.12;
@@ -28,18 +28,30 @@ const FARE_ESTIMATE_LOW_MULTIPLIER = 0.9;
 const FARE_ESTIMATE_HIGH_MULTIPLIER = 1.15;
 const MORNING_END_HOUR = 12;
 const AFTERNOON_END_HOUR = 18;
-const MAX_SURGE_MULTIPLIER = 2.0;
+const MAX_SURGE_MULTIPLIER = 2.5;
 const SURGE_THRESHOLD_DOLLARS = 50;
 const MAX_DISTANCE_MILES = 1000;
 const MAX_DURATION_MINUTES = 1440;
 const ESTIMATE_RETRY_INTERVAL_MS = 3000;
-const ESTIMATE_MAX_RETRIES = 3;
+const ESTIMATE_MAX_RETRIES = 5;
 const MIN_DRIVER_ETA_MINUTES = 3;
 const MAX_DRIVER_ETA_MINUTES = 8;
 const DRIVER_START_POSITION_OFFSET = 0.04; // ~2–3 miles in lat/lng degrees
 const DRIVER_ASSIGN_DELAY_MIN_MS = 3000;
 const DRIVER_ASSIGN_DELAY_MAX_MS = 5000;
 const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'arrived_at_pickup', 'started'];
+const LONG_DISTANCE_WARNING_MINUTES = 360;
+const SUPPORTED_COUNTRY = 'United States';
+const MAX_RIDE_DISTANCE_MILES = {
+  ECONOMY: 80,
+  COMFORT: 150,
+  PREMIUM: 300
+};
+const MINIMUM_FARES = {
+  ECONOMY: 6,
+  COMFORT: 10,
+  PREMIUM: 18
+};
 const ROUTE_DASH_FRAMES = [
   [0, 4, 3],
   [0.6, 4, 2.4],
@@ -80,7 +92,30 @@ let statusProgressionTimerId = null;
 let assignedDriver = null;
 let estimateRetryCount = 0;
 let estimateRetryTimerId = null;
+let isFareEstimateLoading = false;
 const geocodeDebounceTimers = {};
+const resolvedLocations = {
+  'pickup-input': null,
+  'destination-input': null
+};
+const inputFeedbackState = {
+  'pickup-input': { type: '', text: '' },
+  'destination-input': { type: '', text: '' }
+};
+const rideValidationState = {
+  routeCategory: 'Local',
+  disabledReason: 'Enter a valid pickup and destination.',
+  distanceMessage: '',
+  longDistanceMessage: '',
+  internationalMessage: '',
+  selectedRideTypeAllowed: false,
+  availableRideTypes: {
+    ECONOMY: true,
+    COMFORT: true,
+    PREMIUM: true
+  },
+  isLongDistance: false
+};
 
 const mapState = {
   map: null,
@@ -157,6 +192,124 @@ function safeSetText(id, value) {
 
 function formatCoordinatePair(lat, lng) {
   return `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
+}
+
+function normalizeQuery(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function getResolvedLocation(id) {
+  const inputValue = String(document.getElementById(id)?.value || '').trim();
+  const parsed = parseCoordinateInput(inputValue);
+  if (parsed) {
+    const existing = resolvedLocations[id];
+    return existing && existing.coordinates
+      ? { ...existing, coordinates: parsed }
+      : { coordinates: parsed, label: formatCoordinatePair(parsed.lat, parsed.lng), query: normalizeQuery(inputValue), country: '' };
+  }
+  const stored = resolvedLocations[id];
+  if (!stored) return null;
+  return normalizeQuery(inputValue) === stored.query ? stored : null;
+}
+
+function setResolvedLocation(id, location, rawQuery) {
+  if (!location?.coordinates) {
+    resolvedLocations[id] = null;
+    return;
+  }
+  resolvedLocations[id] = {
+    coordinates: {
+      lat: Number(location.coordinates.lat),
+      lng: Number(location.coordinates.lng)
+    },
+    label: location.label || String(rawQuery || '').trim() || formatCoordinatePair(location.coordinates.lat, location.coordinates.lng),
+    feature: location.feature || null,
+    country: location.country || extractCountry(location.feature) || '',
+    query: normalizeQuery(rawQuery || location.label)
+  };
+}
+
+function clearResolvedLocation(id) {
+  resolvedLocations[id] = null;
+}
+
+function setInputFeedback(id, type = '', text = '') {
+  inputFeedbackState[id] = { type, text };
+  const node = document.getElementById(`${id}-message`);
+  const textNode = document.getElementById(`${id}-message-text`);
+  const iconNode = node?.querySelector('.input-message-icon');
+  if (!node || !textNode || !iconNode) return;
+  const normalizedType = text ? type || 'info' : '';
+  node.className = `input-message${normalizedType ? ` input-message--${normalizedType}` : ''}${text ? '' : ' d-none'}`;
+  textNode.textContent = text;
+  iconNode.textContent = ({
+    error: '✗',
+    warning: '⚠',
+    info: 'ⓘ',
+    success: '✓'
+  })[normalizedType] || 'ⓘ';
+}
+
+function setRideValidationMessage(type = '', text = '') {
+  const node = document.getElementById('ride-validation-message');
+  const textNode = document.getElementById('ride-validation-message-text');
+  if (!node || !textNode) return;
+  node.className = `ride-validation-message${type ? ` ride-validation-message--${type}` : ''}${text ? '' : ' d-none'}`;
+  textNode.textContent = text;
+}
+
+function extractCountry(feature) {
+  const placeName = String(feature?.place_name || '').trim();
+  if (!placeName) return '';
+  const parts = placeName.split(',').map(part => part.trim()).filter(Boolean);
+  return parts[parts.length - 1] || '';
+}
+
+function categorizeRoute(distanceMiles, durationMinutes) {
+  if (distanceMiles <= 10) return { label: 'Local', badge: 'Local Route', icon: '📍', theme: 'local' };
+  if (distanceMiles <= 80) return { label: 'Regional', badge: 'Regional Route', icon: '🛣️', theme: 'regional' };
+  return {
+    label: durationMinutes > LONG_DISTANCE_WARNING_MINUTES ? 'Long-distance' : 'Long-distance',
+    badge: 'Long-distance Route',
+    icon: '✈️',
+    theme: 'long-distance'
+  };
+}
+
+function getRideTypeDistanceLimit(rideType) {
+  return MAX_RIDE_DISTANCE_MILES[String(rideType || 'ECONOMY').toUpperCase()] || MAX_RIDE_DISTANCE_MILES.ECONOMY;
+}
+
+function getDistanceValidationMessage(distanceMiles, rideType = selectedRideType) {
+  const normalizedRideType = String(rideType || 'ECONOMY').toUpperCase();
+  if (distanceMiles <= getRideTypeDistanceLimit(normalizedRideType)) return '';
+  if (distanceMiles > MAX_RIDE_DISTANCE_MILES.PREMIUM) {
+    return 'Trip exceeds maximum distance (max 300 mi). Not available.';
+  }
+  if (normalizedRideType === 'ECONOMY') {
+    return 'Trip too far for Economy (max 80 mi). Try Comfort?';
+  }
+  if (normalizedRideType === 'COMFORT') {
+    return 'Trip too far for Comfort (max 150 mi). Try Premium?';
+  }
+  return 'This trip exceeds the maximum distance for on-demand rides.';
+}
+
+function getMinimumFare(rideType) {
+  return MINIMUM_FARES[String(rideType || 'ECONOMY').toUpperCase()] || MINIMUM_FARES.ECONOMY;
+}
+
+function toLocationResult(feature, fallbackLabel = '') {
+  const center = Array.isArray(feature?.center) ? feature.center : null;
+  const lng = Number(center?.[0]);
+  const lat = Number(center?.[1]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return {
+    coordinates: { lat, lng },
+    label: String(feature.place_name || fallbackLabel || '').trim() || formatCoordinatePair(lat, lng),
+    feature,
+    country: extractCountry(feature)
+  };
 }
 
 function setButtonLoading(id, isLoading) {
@@ -338,42 +491,45 @@ function buildEstimateFromRoute(route, rideType = selectedRideType, overrides = 
   const timeFare = roundToTwo(minutes * pricing.perMinuteFare);
   const meterFare = roundToTwo(baseFare + distanceFare + timeFare);
 
-  // Surge pricing: max 2x, only applied when base fare exceeds surge threshold
+  // Surge pricing: max 2.5x, only applied when the base trip exceeds the surge threshold.
   const rawSurge = Math.max(1, Number(overrides.surgeMultiplier || 1));
   const surgeMultiplier = meterFare > SURGE_THRESHOLD_DOLLARS ? Math.min(rawSurge, MAX_SURGE_MULTIPLIER) : 1;
-  const surgeFare = roundToTwo(meterFare * surgeMultiplier);
+  const surgedMeterFare = roundToTwo(meterFare * surgeMultiplier);
+  const surgeFare = roundToTwo(Math.max(0, surgedMeterFare - meterFare));
 
-  const serviceFee = roundToTwo(surgeFare * DEFAULT_SERVICE_FEE_PERCENT);
-  const subtotal = roundToTwo(surgeFare + serviceFee);
-  const total = roundToTwo(subtotal + taxes);
+  const serviceFee = roundToTwo((meterFare + surgeFare) * DEFAULT_SERVICE_FEE_PERCENT);
+  const subtotal = roundToTwo(meterFare + surgeFare + serviceFee);
+  const minimumFare = getMinimumFare(rideType);
+  const total = roundToTwo(Math.max(subtotal + taxes, minimumFare));
   return {
-    currency: 'USD',
-    fareEstimate: total,
-    fareEstimateRange: {
-      low: roundToTwo(Math.max(baseFare, total * FARE_ESTIMATE_LOW_MULTIPLIER)),
-      high: roundToTwo(total * FARE_ESTIMATE_HIGH_MULTIPLIER)
-    },
-    fareBreakdown: {
-      currency: 'USD',
-      baseFare,
-      distanceFare,
-      timeFare,
-      meterFare,
-      surgeMultiplier,
-      surgeFare,
-      serviceFeePercent: DEFAULT_SERVICE_FEE_PERCENT,
-      serviceFee,
-      taxes,
+   currency: 'USD',
+   fareEstimate: total,
+   fareEstimateRange: {
+     low: roundToTwo(Math.max(minimumFare, total * FARE_ESTIMATE_LOW_MULTIPLIER)),
+     high: roundToTwo(Math.max(minimumFare, total * FARE_ESTIMATE_HIGH_MULTIPLIER))
+   },
+   fareBreakdown: {
+     currency: 'USD',
+     baseFare,
+     distanceFare,
+     timeFare,
+     meterFare,
+     surgeMultiplier,
+     minimumFare,
+     surgeFare,
+     serviceFeePercent: DEFAULT_SERVICE_FEE_PERCENT,
+     serviceFee,
+     taxes,
       tolls: 0,
       discounts: 0,
       tips: 0,
       subtotal,
       total,
-      driverEarnings: roundToTwo(Math.max(0, surgeFare - serviceFee)),
+      driverEarnings: roundToTwo(Math.max(0, meterFare + surgeFare - serviceFee)),
       fareEstimate: total,
       fareEstimateRange: {
-        low: roundToTwo(Math.max(baseFare, total * FARE_ESTIMATE_LOW_MULTIPLIER)),
-        high: roundToTwo(total * FARE_ESTIMATE_HIGH_MULTIPLIER)
+        low: roundToTwo(Math.max(minimumFare, total * FARE_ESTIMATE_LOW_MULTIPLIER)),
+        high: roundToTwo(Math.max(minimumFare, total * FARE_ESTIMATE_HIGH_MULTIPLIER))
       }
     }
   };
@@ -440,12 +596,12 @@ async function estimateRideFare(pickup, destination) {
       })
     });
     if (!response.ok || !data?.ok) {
-      return { ...localEstimate, _isFallback: true, _fallbackReason: 'Live estimate unavailable - retrying' };
+      return { ...localEstimate, _isFallback: true, _fallbackReason: 'Using estimated pricing — live pricing unavailable.' };
     }
     estimateRetryCount = 0;
     return { ...normalizeEstimateResponse(data, localEstimate), _isFallback: false, _fallbackReason: '' };
   } catch (_error) {
-    return { ...localEstimate, _isFallback: true, _fallbackReason: 'Reconnecting to pricing service...' };
+    return { ...localEstimate, _isFallback: true, _fallbackReason: 'Using estimated pricing — reconnecting in the background.' };
   }
 }
 
@@ -476,7 +632,12 @@ async function geocodeAddress(query) {
   const cache = readGeocodeCache();
   const cached = cache[normalizedQuery];
   if (cached && now - Number(cached.cachedAt || 0) < GEOCODE_CACHE_TTL_MS) {
-    return { lat: Number(cached.lat), lng: Number(cached.lng) };
+    return {
+      coordinates: { lat: Number(cached.lat), lng: Number(cached.lng) },
+      label: cached.label || String(query || '').trim(),
+      country: cached.country || '',
+      feature: cached.feature || null
+    };
   }
 
   const token = mapState.token || readMapboxToken();
@@ -490,16 +651,71 @@ async function geocodeAddress(query) {
     const response = await fetch(url.toString());
     const payload = await response.json().catch(() => null);
     const feature = payload?.features?.[0];
-    const center = Array.isArray(feature?.center) ? feature.center : null;
-    const lng = Number(center?.[0]);
-    const lat = Number(center?.[1]);
-    if (!response.ok || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    const location = toLocationResult(feature, query);
+    if (!response.ok || !location) return null;
 
-    cache[normalizedQuery] = { lat, lng, cachedAt: now };
+    cache[normalizedQuery] = {
+      lat: location.coordinates.lat,
+      lng: location.coordinates.lng,
+      label: location.label,
+      country: location.country,
+      feature,
+      cachedAt: now
+    };
     writeGeocodeCache(cache);
-    return { lat, lng };
+    return location;
   } catch (_error) {
     return null;
+  }
+}
+
+async function reverseGeocodeCoordinates(coordinates) {
+  const lat = Number(coordinates?.lat);
+  const lng = Number(coordinates?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const cacheKey = `reverse:${lat.toFixed(5)},${lng.toFixed(5)}`;
+  const now = Date.now();
+  const cache = readGeocodeCache();
+  const cached = cache[cacheKey];
+  if (cached && now - Number(cached.cachedAt || 0) < GEOCODE_CACHE_TTL_MS) {
+    return {
+      coordinates: { lat: Number(cached.lat), lng: Number(cached.lng) },
+      label: cached.label || formatCoordinatePair(lat, lng),
+      country: cached.country || '',
+      feature: cached.feature || null
+    };
+  }
+
+  const token = mapState.token || readMapboxToken();
+  if (!token) return { coordinates: { lat, lng }, label: formatCoordinatePair(lat, lng), country: '', feature: null };
+
+  try {
+    const url = new URL(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json`);
+    url.searchParams.set('access_token', token);
+    url.searchParams.set('limit', '1');
+    const response = await fetch(url.toString());
+    const payload = await response.json().catch(() => null);
+    const feature = payload?.features?.[0];
+    const location = toLocationResult(feature, formatCoordinatePair(lat, lng)) || {
+      coordinates: { lat, lng },
+      label: formatCoordinatePair(lat, lng),
+      country: '',
+      feature: null
+    };
+    if (response.ok) {
+      cache[cacheKey] = {
+        lat: location.coordinates.lat,
+        lng: location.coordinates.lng,
+        label: location.label,
+        country: location.country,
+        feature: location.feature,
+        cachedAt: now
+      };
+      writeGeocodeCache(cache);
+    }
+    return location;
+  } catch (_error) {
+    return { coordinates: { lat, lng }, label: formatCoordinatePair(lat, lng), country: '', feature: null };
   }
 }
 
@@ -507,9 +723,19 @@ async function resolveCoordinateInput(id, options = {}) {
   const { fitRoute = true, showError = false } = options;
   const input = document.getElementById(id);
   const rawValue = String(input?.value || '').trim();
-  if (!input || !rawValue) return parseCoordinateInput(rawValue);
+  if (!input || !rawValue) {
+    clearResolvedLocation(id);
+    return parseCoordinateInput(rawValue);
+  }
   const parsedCoordinates = parseCoordinateInput(rawValue);
-  if (parsedCoordinates) return parsedCoordinates;
+  if (parsedCoordinates) {
+    const resolved = await reverseGeocodeCoordinates(parsedCoordinates);
+    setResolvedLocation(id, resolved || { coordinates: parsedCoordinates, label: rawValue }, rawValue);
+    setInputFeedback(id, id === 'pickup-input' ? 'success' : 'success', id === 'pickup-input' ? 'Pickup location confirmed.' : 'Destination confirmed.');
+    mapState.lastFetchedRouteKey = '';
+    await refreshFareEstimate({ fitRoute });
+    return parsedCoordinates;
+  }
 
   const token = mapState.token || readMapboxToken();
   if (!token) {
@@ -521,15 +747,18 @@ async function resolveCoordinateInput(id, options = {}) {
 
   setInputLoading(id, true);
   try {
-    const coordinates = await geocodeAddress(rawValue);
-    if (!coordinates) {
-      if (showError) showPopup(`Address not found for "${rawValue}".`);
+    const location = await geocodeAddress(rawValue);
+    if (!location?.coordinates) {
+      clearResolvedLocation(id);
+      setInputFeedback(id, 'error', 'Location not found.');
+      if (showError) showPopup(`Location not found for "${rawValue}".`);
       return null;
     }
-    input.value = formatCoordinatePair(coordinates.lat, coordinates.lng);
+    setResolvedLocation(id, location, rawValue);
+    setInputFeedback(id, 'success', id === 'pickup-input' ? 'Pickup location confirmed.' : 'Destination confirmed.');
     mapState.lastFetchedRouteKey = '';
     await refreshFareEstimate({ fitRoute });
-    return coordinates;
+    return location.coordinates;
   } finally {
     setInputLoading(id, false);
   }
@@ -547,8 +776,8 @@ function queueGeocodeResolution(id, options = {}) {
 
 function getPickupAndDestination(options = {}) {
   const { allowFallback = false } = options;
-  const pickup = parseCoordinateInput(document.getElementById('pickup-input')?.value);
-  const destination = parseCoordinateInput(document.getElementById('destination-input')?.value);
+  const pickup = getResolvedLocation('pickup-input')?.coordinates || parseCoordinateInput(document.getElementById('pickup-input')?.value);
+  const destination = getResolvedLocation('destination-input')?.coordinates || parseCoordinateInput(document.getElementById('destination-input')?.value);
   if (!allowFallback) {
     return { pickup, destination, hasValidCoordinates: Boolean(pickup && destination) };
   }
@@ -562,6 +791,8 @@ function getPickupAndDestination(options = {}) {
 
 async function requestRide(pickup, destination) {
   const estimate = latestEstimate || await estimateRideFare(pickup, destination);
+  const pickupLocation = getResolvedLocation('pickup-input');
+  const destinationLocation = getResolvedLocation('destination-input');
   const baseRide = {
     riderId: currentUser.id,
     riderName: currentUser.email,
@@ -570,8 +801,8 @@ async function requestRide(pickup, destination) {
     pickupLng: pickup.lng,
     dropoffLat: destination.lat,
     dropoffLng: destination.lng,
-    pickupLabel: document.getElementById('pickup-input')?.value.trim() || `${pickup.lat.toFixed(5)}, ${pickup.lng.toFixed(5)}`,
-    destinationLabel: document.getElementById('destination-input')?.value.trim() || `${destination.lat.toFixed(5)}, ${destination.lng.toFixed(5)}`,
+    pickupLabel: pickupLocation?.label || document.getElementById('pickup-input')?.value.trim() || `${pickup.lat.toFixed(5)}, ${pickup.lng.toFixed(5)}`,
+    destinationLabel: destinationLocation?.label || document.getElementById('destination-input')?.value.trim() || `${destination.lat.toFixed(5)}, ${destination.lng.toFixed(5)}`,
     rideType: selectedRideType,
     miles: estimate.route.distanceMiles,
     minutes: estimate.route.etaMinutes,
@@ -709,7 +940,6 @@ function renderRideState() {
   const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status));
   const showCancelButton = canCancelRide;
   if (requestButton) {
-    requestButton.disabled = canCancelRide;
     requestButton.classList.remove('d-none');
   }
   if (cancelButton) {
@@ -720,6 +950,7 @@ function renderRideState() {
     const visibleButtons = 1 + Number(showCancelButton);
     buttonGroup.classList.toggle('single-action', visibleButtons <= 1);
   }
+  updateRequestRideButtonState();
 
   const previousStatus = mapState.lastRideStatus;
   mapState.lastRideStatus = currentRide?.status || 'idle';
@@ -735,7 +966,9 @@ function showPopup(message) {
 }
 
 function setFareLoading(isLoading) {
+  isFareEstimateLoading = Boolean(isLoading);
   document.querySelector('.fare-card')?.classList.toggle('is-loading', Boolean(isLoading));
+  updateRequestRideButtonState();
 }
 
 function setFareError(message = '') {
@@ -759,6 +992,147 @@ function showSurgeWarning(baseFare, surgeMultiplier) {
 
 function hideSurgeWarning() {
   document.getElementById('surge-warning')?.classList.add('d-none');
+}
+
+function renderRouteCategory(routeCategory) {
+  const badge = document.getElementById('route-category-badge');
+  const iconNode = document.getElementById('route-category-icon');
+  const textNode = document.getElementById('route-category-text');
+  if (!badge || !iconNode || !textNode) return;
+  badge.className = `route-category-badge route-category-badge--${routeCategory.theme}`;
+  iconNode.textContent = routeCategory.icon;
+  textNode.textContent = routeCategory.badge;
+}
+
+function renderLongDistanceBanner(message = '') {
+  const banner = document.getElementById('long-distance-banner');
+  const textNode = document.getElementById('long-distance-banner-text');
+  if (!banner || !textNode) return;
+  const hasMessage = Boolean(String(message || '').trim());
+  banner.classList.toggle('d-none', !hasMessage);
+  if (hasMessage) textNode.textContent = message;
+}
+
+function updateRideTypeAvailability(distanceMiles = 0, blocked = false) {
+  const rideTypes = ['ECONOMY', 'COMFORT', 'PREMIUM'];
+  rideTypes.forEach(rideType => {
+    const button = document.querySelector(`[data-ride-type="${rideType}"]`);
+    if (!button) return;
+    const allowed = !blocked && distanceMiles <= getRideTypeDistanceLimit(rideType);
+    rideValidationState.availableRideTypes[rideType] = allowed;
+    button.disabled = !allowed;
+    button.classList.toggle('is-unavailable', !allowed);
+    button.setAttribute('aria-disabled', String(!allowed));
+    button.title = allowed ? '' : getDistanceValidationMessage(distanceMiles, rideType);
+  });
+}
+
+function deriveRideValidation(estimate) {
+  const { pickup, destination, hasValidCoordinates } = getPickupAndDestination();
+  const pickupValue = String(document.getElementById('pickup-input')?.value || '').trim();
+  const destinationValue = String(document.getElementById('destination-input')?.value || '').trim();
+  const pickupLocation = getResolvedLocation('pickup-input');
+  const destinationLocation = getResolvedLocation('destination-input');
+  const distanceMiles = Number(estimate?.route?.distanceMiles || 0);
+  const durationMinutes = Number(estimate?.route?.etaMinutes || 0);
+  const routeCategory = categorizeRoute(distanceMiles, durationMinutes);
+  const internationalBlocked = Boolean(
+    pickupLocation?.country
+    && destinationLocation?.country
+    && (
+      pickupLocation.country !== destinationLocation.country
+      || pickupLocation.country !== SUPPORTED_COUNTRY
+      || destinationLocation.country !== SUPPORTED_COUNTRY
+    )
+  );
+  const selectedRideTypeAllowed = hasValidCoordinates && distanceMiles > 0 && distanceMiles <= getRideTypeDistanceLimit(selectedRideType);
+  const distanceMessage = hasValidCoordinates ? getDistanceValidationMessage(distanceMiles, selectedRideType) : '';
+  const longDistanceMessage = durationMinutes > LONG_DISTANCE_WARNING_MINUTES
+    ? 'This is a long-distance trip. Consider scheduling in advance or using a rental service instead.'
+    : '';
+
+  let disabledReason = '';
+  if (!selectedRideType) {
+    disabledReason = 'Please select a ride type.';
+  } else if (!pickupValue || !pickup) {
+    disabledReason = pickupValue ? 'Please enter a valid pickup location.' : 'Enter a valid pickup location.';
+  } else if (!destinationValue || !destination) {
+    disabledReason = destinationValue ? 'Please enter a valid destination.' : 'Enter a valid destination.';
+  } else if (inputFeedbackState['pickup-input']?.type === 'error') {
+    disabledReason = inputFeedbackState['pickup-input'].text || 'Location not found.';
+  } else if (inputFeedbackState['destination-input']?.type === 'error') {
+    disabledReason = inputFeedbackState['destination-input'].text || 'Location not found.';
+  } else if (internationalBlocked) {
+    disabledReason = 'International ride requests are currently unavailable.';
+  } else if (!selectedRideTypeAllowed) {
+    disabledReason = distanceMessage || 'This trip exceeds the maximum distance for on-demand rides.';
+  } else if (durationMinutes > LONG_DISTANCE_WARNING_MINUTES) {
+    disabledReason = 'Long-distance trips over 6 hours are unavailable for on-demand booking.';
+  } else if (isFareEstimateLoading) {
+    disabledReason = 'Updating fare estimate...';
+  }
+
+  return {
+    routeCategory,
+    disabledReason,
+    distanceMessage,
+    longDistanceMessage,
+    internationalMessage: internationalBlocked ? 'International ride requests are currently unavailable.' : '',
+    selectedRideTypeAllowed,
+    isLongDistance: durationMinutes > LONG_DISTANCE_WARNING_MINUTES,
+    hasValidCoordinates,
+    distanceMiles
+  };
+}
+
+function renderInputMessages(validation) {
+  const pickupValue = String(document.getElementById('pickup-input')?.value || '').trim();
+  const destinationValue = String(document.getElementById('destination-input')?.value || '').trim();
+  const pickupFeedback = inputFeedbackState['pickup-input'] || { type: '', text: '' };
+  const destinationFeedback = inputFeedbackState['destination-input'] || { type: '', text: '' };
+
+  if (!pickupValue) {
+    setInputFeedback('pickup-input', '', '');
+  } else if (pickupFeedback.type === 'error') {
+    setInputFeedback('pickup-input', 'error', pickupFeedback.text || 'Location not found.');
+  } else if (pickupFeedback.type === 'success') {
+    setInputFeedback('pickup-input', 'success', pickupFeedback.text || 'Pickup location confirmed.');
+  }
+
+  if (!destinationValue) {
+    setInputFeedback('destination-input', '', '');
+  } else if (validation.internationalMessage) {
+    setInputFeedback('destination-input', 'warning', validation.internationalMessage);
+  } else if (validation.distanceMessage) {
+    setInputFeedback('destination-input', 'warning', validation.distanceMessage);
+  } else if (destinationFeedback.type === 'error') {
+    setInputFeedback('destination-input', 'error', destinationFeedback.text || 'Location not found.');
+  } else if (destinationFeedback.type === 'success') {
+    setInputFeedback('destination-input', 'success', destinationFeedback.text || 'Destination confirmed.');
+  }
+}
+
+function updateRequestRideButtonState() {
+  const requestButton = document.getElementById('request-ride-button');
+  if (!requestButton) return;
+  const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status));
+  const disabledReason = canCancelRide ? 'You already have an active ride.' : rideValidationState.disabledReason;
+  requestButton.disabled = canCancelRide || Boolean(disabledReason);
+  requestButton.title = disabledReason || 'Request your ride';
+}
+
+function updateRideValidation(estimate) {
+  const validation = deriveRideValidation(estimate);
+  Object.assign(rideValidationState, validation);
+  renderRouteCategory(validation.routeCategory);
+  renderLongDistanceBanner(validation.longDistanceMessage);
+  renderInputMessages(validation);
+  setRideValidationMessage(
+    validation.internationalMessage ? 'warning' : validation.distanceMessage ? 'warning' : '',
+    validation.internationalMessage || validation.distanceMessage
+  );
+  updateRideTypeAvailability(validation.distanceMiles, Boolean(validation.internationalMessage));
+  updateRequestRideButtonState();
 }
 
 function setPollingIndicator(isLive) {
@@ -831,6 +1205,7 @@ function renderFareEstimate(estimate) {
   const isFallback = Boolean(estimate._isFallback);
   const prefix = isFallback ? '~' : '';
   const surgeActive = Number(estimate.fareBreakdown?.surgeMultiplier || 1) > 1;
+  const routeCategory = categorizeRoute(estimate.route.distanceMiles, estimate.route.etaMinutes);
 
   setFareError(estimate._fallbackReason || '');
   safeSetText('fare-distance', formatMiles(estimate.route.distanceMiles));
@@ -844,10 +1219,11 @@ function renderFareEstimate(estimate) {
   safeSetText('fare-range', `${prefix}${formatCurrency(estimate.fareEstimateRange.low)} - ${prefix}${formatCurrency(estimate.fareEstimateRange.high)}`);
   safeSetText('map-route-distance', formatMiles(estimate.route.distanceMiles));
   animateNumericText('map-route-duration', formatMinutes(estimate.route.etaMinutes));
-  safeSetText('map-route-overview', `${formatMiles(estimate.route.distanceMiles)} • ${formatMinutes(estimate.route.etaMinutes)}`);
+  safeSetText('map-route-overview', `Fastest route • ${formatMiles(estimate.route.distanceMiles)} • ${formatMinutes(estimate.route.etaMinutes)} • ${routeCategory.label}`);
   animateNumericText('map-route-arrival', formatArrivalTimeFromMinutes(estimate.route.etaMinutes));
   safeSetText('map-route-traffic', mapState.routeTrafficLabel || 'Clear route');
   document.getElementById('map-route-arrival')?.classList.toggle('is-nearby', Number(estimate.route.etaMinutes || 0) < 2);
+  renderRouteCategory(routeCategory);
 
   if (surgeActive) {
     showSurgeWarning(estimate.fareBreakdown.meterFare, estimate.fareBreakdown.surgeMultiplier);
@@ -856,6 +1232,7 @@ function renderFareEstimate(estimate) {
   }
 
   updateRideTypePricing(estimate);
+  updateRideValidation(estimate);
 }
 
 async function refreshFareEstimate(options = {}) {
@@ -865,6 +1242,8 @@ async function refreshFareEstimate(options = {}) {
   if (!hasValidCoordinates || !pickup || !destination) {
     setFareError('');
     hideSurgeWarning();
+    latestEstimate = null;
+    updateRideValidation(null);
     renderMapState({ fitRoute, allowFallback: true });
     return;
   }
@@ -1062,7 +1441,7 @@ async function fetchDirectionsRoute(pickup, destination) {
     const distanceMiles = rawDistanceMiles > 0 && rawDistanceMiles < MAX_DISTANCE_MILES
       ? roundToTwo(rawDistanceMiles)
       : null;
-    if (process?.env?.NODE_ENV !== 'production') {
+    if (typeof process !== 'undefined' && process?.env?.NODE_ENV !== 'production') {
       console.log('[Mapbox] Route data:', { durationSeconds, rawEtaMinutes, etaMinutes, distanceMeters, rawDistanceMiles, distanceMiles });
     }
 
@@ -1400,9 +1779,10 @@ async function handleRequestRide() {
     resolveCoordinateInput('pickup-input', { fitRoute: true, showError: true }),
     resolveCoordinateInput('destination-input', { fitRoute: true, showError: true })
   ]);
+  updateRideValidation(latestEstimate);
   const { pickup, destination, hasValidCoordinates } = getPickupAndDestination();
-  if (!hasValidCoordinates || !pickup || !destination) {
-    showPopup('Enter valid pickup and destination coordinates to request a ride.');
+  if (!hasValidCoordinates || !pickup || !destination || rideValidationState.disabledReason) {
+    showPopup(rideValidationState.disabledReason || 'Enter valid pickup and destination to request a ride.');
     return;
   }
   setButtonLoading('request-ride-button', true);
@@ -1692,6 +2072,9 @@ function setupHandlers() {
   document.getElementById('retry-estimate-button')?.addEventListener('click', () => {
     refreshFareEstimate({ fitRoute: true }).catch(() => {});
   });
+  document.getElementById('dismiss-long-distance-banner')?.addEventListener('click', () => {
+    renderLongDistanceBanner('');
+  });
   document.getElementById('empty-state-request-button')?.addEventListener('click', () => {
     document.getElementById('pickup-input')?.focus();
   });
@@ -1700,11 +2083,14 @@ function setupHandlers() {
       showPopup('Geolocation unavailable in this browser.');
       return;
     }
-    navigator.geolocation.getCurrentPosition(position => {
+    navigator.geolocation.getCurrentPosition(async position => {
       const lat = Number(position.coords.latitude).toFixed(5);
       const lng = Number(position.coords.longitude).toFixed(5);
       const pickupInput = document.getElementById('pickup-input');
       if (pickupInput) pickupInput.value = formatCoordinatePair(lat, lng);
+      const resolved = await reverseGeocodeCoordinates({ lat, lng });
+      setResolvedLocation('pickup-input', resolved || { coordinates: { lat: Number(lat), lng: Number(lng) }, label: formatCoordinatePair(lat, lng) }, pickupInput?.value || '');
+      setInputFeedback('pickup-input', 'success', 'Using current location.');
       refreshFareEstimate({ fitRoute: true }).catch(() => {});
     }, () => {
       showPopup('Unable to read your current location.');
@@ -1724,15 +2110,26 @@ function setupHandlers() {
       mapState.lastFetchedRouteKey = '';
       const value = String(document.getElementById(id)?.value || '').trim();
       if (!value) {
+        clearResolvedLocation(id);
+        setInputFeedback(id, '', '');
         refreshFareEstimate({ fitRoute: true }).catch(() => {});
         return;
       }
       if (parseCoordinateInput(value)) {
+        setInputFeedback(id, 'success', id === 'pickup-input' ? 'Pickup location confirmed.' : 'Destination confirmed.');
         setInputLoading(id, false);
         refreshFareEstimate({ fitRoute: true }).catch(() => {});
         return;
       }
+      clearResolvedLocation(id);
+      setInputFeedback(id, 'info', id === 'pickup-input' ? 'Searching pickup location…' : 'Searching destination…');
       queueGeocodeResolution(id, { fitRoute: true, showError: false });
+      updateRideValidation(latestEstimate);
+    });
+    document.getElementById(id)?.addEventListener('keydown', event => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      resolveCoordinateInput(id, { fitRoute: true, showError: true }).catch(() => {});
     });
     document.getElementById(id)?.addEventListener('blur', () => {
       resolveCoordinateInput(id, { fitRoute: true, showError: true }).catch(() => {});
