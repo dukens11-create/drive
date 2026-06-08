@@ -6,6 +6,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import path from 'path';
 import { errorHandler, wrapRouterAsyncHandlers } from './middleware';
+import { env } from './config';
 import { authRoutes, ridesRoutes, driversRoutes, ridersRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, searchRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes, restaurantsRoutes } from './routes';
 import { getErrorDetails, logger } from './utils';
 import { registerTrackingSocket, registerChatSocket } from './websocket';
@@ -15,8 +16,17 @@ import { stripeWebhookHandler } from './webhooks/stripe.webhook';
 export function createApp() {
   try {
     const app = express();
+    const allowedCorsOrigins = (env.corsAllowedOrigins || '')
+      .split(',')
+      .map(origin => origin.trim())
+      .filter(Boolean);
     const httpServer = createServer(app);
-    const io = new Server(httpServer, { cors: { origin: '*' } });
+    const io = new Server(httpServer, {
+      cors: {
+        credentials: true,
+        origin: allowedCorsOrigins.length > 0 ? allowedCorsOrigins : true
+      }
+    });
     initializeFCM();
 
     app.use(helmet({
@@ -38,7 +48,16 @@ export function createApp() {
         }
       }
     }));
-    app.use(cors());
+    app.use(cors({
+      credentials: true,
+      origin(origin, callback) {
+        if (!origin || allowedCorsOrigins.includes(origin)) {
+          callback(null, true);
+          return;
+        }
+        callback(new Error('Not allowed by CORS'));
+      }
+    }));
     app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhookHandler);
     app.use(express.json({
       limit: '10mb',

@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID, scryptSync } from 'crypto';
+import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 import { env } from '../config/env';
@@ -975,6 +975,17 @@ function hashPassword(password: string) {
   return `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`;
 }
 
+function verifySeedPassword(inputPassword: string, storedPassword: string) {
+  if (!storedPassword.startsWith('scrypt$')) {
+    return storedPassword === inputPassword;
+  }
+
+  const [, saltHex, hashHex] = storedPassword.split('$');
+  const inputHash = scryptSync(inputPassword, Buffer.from(saltHex, 'hex'), 64);
+  const storedHash = Buffer.from(hashHex, 'hex');
+  return timingSafeEqual(inputHash, storedHash);
+}
+
 export function timestamp() {
   return now();
 }
@@ -1236,6 +1247,7 @@ function persistStore() {
 function hydrateStore() {
   if (env.dataStoreMode !== 'file') return;
   const resolvedPath = path.resolve(env.dataStoreFile);
+  mkdirSync(path.dirname(resolvedPath), { recursive: true });
   if (!existsSync(resolvedPath)) return;
   const raw = readFileSync(resolvedPath, 'utf8');
   if (!raw.trim()) return;
@@ -1332,17 +1344,83 @@ function hydrateStore() {
 
 hydrateStore();
 
-const hasAdmin = Array.from(store.users.values()).some(user => user.role === 'admin');
-if (!hasAdmin) {
-  const adminId = makeId('user');
-  store.users.set(adminId, {
-    id: adminId,
-    email: 'admin@drive.com',
-    password: hashPassword(env.adminSeedPassword),
-    role: 'admin',
-    createdAt: timestamp()
-  });
+function createSeedDriverProfile(userId: string): DriverProfile {
+  return {
+    userId,
+    status: 'pending',
+    verificationState: 'documents_pending',
+    availabilityStatus: 'offline',
+    available: false,
+    rating: 5,
+    acceptanceRate: 1,
+    cancellationRate: 0,
+    earningsCents: 0,
+    documents: [],
+    verificationDocuments: [],
+    selfieVerification: {
+      status: 'missing',
+      score: 0
+    },
+    verificationReview: {
+      status: 'pending_review'
+    }
+  };
 }
+
+function createSeedRiderProfile(userId: string): RiderProfile {
+  return {
+    userId,
+    favoriteLocations: [],
+    rating: 5,
+    reviewCount: 0
+  };
+}
+
+function ensureSeedUser(seed: { email: string; role: Role; password: string }) {
+  const existing = Array.from(store.users.values()).find(user => user.email === seed.email);
+  const user = existing || {
+    id: makeId('user'),
+    email: seed.email,
+    password: hashPassword(seed.password),
+    role: seed.role,
+    createdAt: timestamp()
+  };
+
+  if (!existing) {
+    store.users.set(user.id, user);
+  } else if (!verifySeedPassword(seed.password, existing.password)) {
+    store.users.set(existing.id, {
+      ...existing,
+      password: hashPassword(seed.password)
+    });
+  }
+
+  if (seed.role === 'rider' && !store.riders.get(user.id)) {
+    store.riders.set(user.id, createSeedRiderProfile(user.id));
+  }
+
+  if (seed.role === 'driver' && !store.drivers.get(user.id)) {
+    store.drivers.set(user.id, createSeedDriverProfile(user.id));
+  }
+}
+
+ensureSeedUser({
+  email: 'admin@drive.com',
+  role: 'admin',
+  password: env.adminSeedPassword
+});
+
+ensureSeedUser({
+  email: 'rider@test.com',
+  role: 'rider',
+  password: env.testRiderSeedPassword
+});
+
+ensureSeedUser({
+  email: 'driver@test.com',
+  role: 'driver',
+  password: env.testDriverSeedPassword
+});
 
 if (!store.platformSettings.get('global')) {
   store.platformSettings.set('global', {
