@@ -2156,7 +2156,7 @@ async function handleRequestRide() {
       simulateDriverAssignment(currentRide.id, pickup.lat, pickup.lng);
     }
   } catch (err) {
-    const errorMsg = (err instanceof Error ? err.message : null) || 'Failed to book ride. Please try again.';
+    const errorMsg = (err instanceof Error && err.message) || 'Failed to book ride. Please try again.';
     if (bookingErrorEl) {
       bookingErrorEl.textContent = errorMsg;
       bookingErrorEl.classList.remove('d-none');
