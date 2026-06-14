@@ -1172,11 +1172,13 @@ async function requestRide(pickup, destination) {
       riderId: currentUser.id
     };
     try {
+      console.log('[Ride Booking] Payload:', requestBody);
       const { response, data } = await fetchJson('/api/rides', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(requestBody)
       });
+      console.log('[Ride Booking] API response:', { status: response.status, data });
       if (response.ok && data?.ok && data.ride) {
         return upsertSharedRide({ ...baseRide, ...data.ride, fareDetails: data.ride.fareDetails || baseRide.fareDetails });
       }
@@ -1185,6 +1187,7 @@ async function requestRide(pickup, destination) {
         headers: getAuthHeaders(),
         body: JSON.stringify(requestBody)
       });
+      console.log('[Ride Booking] Fallback API response:', { status: fallback.response.status, data: fallback.data });
       if (fallback.response.ok && fallback.data?.ok && fallback.data.ride) {
         return upsertSharedRide({ ...baseRide, ...fallback.data.ride, fareDetails: fallback.data.ride.fareDetails || baseRide.fareDetails });
       }
@@ -2124,14 +2127,17 @@ async function handleRequestRide() {
     showPopup(rideValidationState.disabledReason || 'Enter valid pickup and destination to book a ride.');
     return;
   }
+  const requestButton = document.getElementById('request-ride-button');
+  const requestLabel = requestButton?.querySelector('.btn-label');
+  const bookingErrorEl = document.getElementById('booking-error-message');
+  if (bookingErrorEl) bookingErrorEl.classList.add('d-none');
+  if (requestLabel) requestLabel.textContent = 'Booking...';
   setButtonLoading('request-ride-button', true);
   try {
     const ride = await requestRide(pickup, destination);
     currentRide = normalizeRide(ride);
     rides = mergeRides([currentRide], readSharedRideStore().rides);
     renderRideState();
-    const requestButton = document.getElementById('request-ride-button');
-    const requestLabel = requestButton?.querySelector('.btn-label');
     if (requestButton && requestLabel) {
       const icon = requestButton.querySelector('.btn-icon');
       requestButton.classList.add('is-success');
@@ -2149,6 +2155,15 @@ async function handleRequestRide() {
     if (currentRide?.id) {
       simulateDriverAssignment(currentRide.id, pickup.lat, pickup.lng);
     }
+  } catch (err) {
+    const errorMsg = (err instanceof Error ? err.message : null) || 'Failed to book ride. Please try again.';
+    if (bookingErrorEl) {
+      bookingErrorEl.textContent = errorMsg;
+      bookingErrorEl.classList.remove('d-none');
+    } else {
+      showPopup(errorMsg);
+    }
+    if (requestLabel) requestLabel.textContent = 'Book a ride';
   } finally {
     setButtonLoading('request-ride-button', false);
     renderRideState();
