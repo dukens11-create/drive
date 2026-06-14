@@ -98,6 +98,9 @@ restaurant-admin/.next/
 # Vercel
 .vercel
 
+# Uploaded user content (runtime artifacts, not source)
+public/uploads/
+
 # Node
 node_modules
 .yarn
