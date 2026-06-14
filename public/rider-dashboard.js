@@ -204,6 +204,14 @@ function sanitizePhoneForUri(value) {
   return normalized.replace(/\s+/g, '');
 }
 
+function normalizeRideTypeForApi(rideType = selectedRideType) {
+  const normalized = String(rideType || '').trim().toLowerCase();
+  if (normalized === 'economy' || normalized === 'comfort' || normalized === 'premium' || normalized === 'xl') {
+    return normalized;
+  }
+  return 'economy';
+}
+
 function getDriverVehicleDisplay(vehicle = {}) {
   const label = String(vehicle.label || '').trim();
   const make = String(vehicle.make || '').trim();
@@ -223,7 +231,19 @@ function getDriverVehicleDisplay(vehicle = {}) {
 function renderDriverCardDetails(driver = {}, etaMinutes = 0) {
   const assignedCard = document.getElementById('driver-assigned-card');
   if (!assignedCard) return;
-  const vehicle = driver.vehicle && typeof driver.vehicle === 'object' ? driver.vehicle : {};
+  const fallbackVehicle = {
+    make: driver.vehicleMake,
+    model: driver.vehicleModel,
+    color: driver.vehicleColor,
+    plateNumber: driver.licensePlate || driver.vehiclePlate || driver.plateNumber,
+    photoUrl: driver.vehiclePhotoUrl || driver.vehicleImageUrl || driver.vehicleImage
+  };
+  const vehicle = driver.vehicle && typeof driver.vehicle === 'object'
+    ? {
+      ...driver.vehicle,
+      plateNumber: driver.vehicle.plateNumber || driver.vehicle.licensePlate || fallbackVehicle.plateNumber
+    }
+    : fallbackVehicle;
   const vehicleDisplay = getDriverVehicleDisplay(vehicle);
   safeSetText('driver-name', driver.name || currentRide?.driverName || currentRide?.driverId || '--');
   safeSetText('driver-vehicle', vehicleDisplay.title);
@@ -238,8 +258,13 @@ function renderDriverCardDetails(driver = {}, etaMinutes = 0) {
   const avatarImage = document.getElementById('driver-avatar');
   const avatarInitial = assignedCard.querySelector('.driver-avatar-initial');
   if (avatarImage) {
-    if (driver.profilePhotoUrl) {
-      avatarImage.src = driver.profilePhotoUrl;
+    const profilePhotoUrl = driver.profilePhotoUrl || driver.photoUrl || driver.photo || '';
+    avatarImage.onerror = () => {
+      avatarImage.classList.add('d-none');
+      avatarInitial?.classList.remove('d-none');
+    };
+    if (profilePhotoUrl) {
+      avatarImage.src = profilePhotoUrl;
       avatarImage.classList.remove('d-none');
       avatarInitial?.classList.add('d-none');
     } else {
@@ -251,6 +276,12 @@ function renderDriverCardDetails(driver = {}, etaMinutes = 0) {
 
   const vehiclePhoto = document.getElementById('driver-vehicle-photo');
   const vehicleIcon = document.getElementById('driver-vehicle-icon');
+  if (vehiclePhoto) {
+    vehiclePhoto.onerror = () => {
+      vehiclePhoto.classList.add('d-none');
+      vehicleIcon?.classList.remove('d-none');
+    };
+  }
   if (vehiclePhoto && vehicle.photoUrl) {
     vehiclePhoto.src = vehicle.photoUrl;
     vehiclePhoto.classList.remove('d-none');
@@ -316,15 +347,27 @@ function setResolvedLocation(id, location, rawQuery) {
     resolvedLocations[id] = null;
     return;
   }
+  const { input, coordinatesField, addressField } = getLocationElements(id);
+  const label = location.label || String(rawQuery || '').trim() || formatCoordinatePair(location.coordinates.lat, location.coordinates.lng);
+  if (input) {
+    input.value = label;
+    input.dataset.committedValue = label;
+  }
+  if (coordinatesField) {
+    coordinatesField.value = formatCoordinatePair(location.coordinates.lat, location.coordinates.lng);
+  }
+  if (addressField) {
+    addressField.value = label;
+  }
   resolvedLocations[id] = {
     coordinates: {
       lat: Number(location.coordinates.lat),
       lng: Number(location.coordinates.lng)
     },
-    label: location.label || String(rawQuery || '').trim() || formatCoordinatePair(location.coordinates.lat, location.coordinates.lng),
+    label,
     feature: location.feature || null,
     country: location.country || extractCountry(location.feature) || '',
-    query: normalizeQuery(rawQuery || location.label)
+    query: normalizeQuery(label)
   };
 }
 
@@ -683,6 +726,7 @@ function normalizeEstimateResponse(payload, fallback) {
 async function estimateRideFare(pickup, destination) {
   const localEstimate = buildLocalEstimate(pickup, destination, selectedRideType);
   if (!accessToken) return localEstimate;
+  const normalizedRideType = normalizeRideTypeForApi();
   try {
     const { response, data } = await fetchJson('/api/rides/estimate', {
       method: 'POST',
@@ -692,7 +736,7 @@ async function estimateRideFare(pickup, destination) {
         pickupLng: pickup.lng,
         dropoffLat: destination.lat,
         dropoffLng: destination.lng,
-        rideType: selectedRideType
+        rideType: normalizedRideType
       })
     });
     if (!response.ok || !data?.ok) {
@@ -1029,21 +1073,26 @@ async function resolveCoordinateInput(id, options = {}) {
       ? locationSuggestions[id]
       : await geocodeAddress(rawValue, { limit: MAX_GEOCODE_SUGGESTIONS });
     locationSuggestions[id] = features;
-    const topFeature = features[0] || null;
-    if (!topFeature) {
+    const preferredFeature = feature && getFeatureCoordinates(feature) ? feature : null;
+    const selectedFeature = preferredFeature || features[0] || null;
+    if (!selectedFeature) {
       clearResolvedLocation(id);
       setInputFeedback(id, 'error', 'Location not found.');
       if (showError) showPopup(`Location not found for "${rawValue}".`);
       return null;
     }
-    const topCoords = getFeatureCoordinates(topFeature);
-    if (!topCoords) {
+    const selectedCoords = getFeatureCoordinates(selectedFeature);
+    if (!selectedCoords) {
       clearResolvedLocation(id);
       setInputFeedback(id, 'error', 'Location not found.');
       return null;
     }
-    const topLabel = String(topFeature.place_name || rawValue).trim();
-    setResolvedLocation(id, { coordinates: topCoords, label: topLabel, feature: topFeature, country: extractCountry(topFeature) }, rawValue);
+    const selectedLabel = String(selectedFeature.place_name || rawValue).trim();
+    setResolvedLocation(
+      id,
+      { coordinates: selectedCoords, label: selectedLabel, feature: selectedFeature, country: extractCountry(selectedFeature) },
+      rawValue
+    );
     setInputFeedback(id, 'success', id === 'pickup-input' ? 'Pickup location confirmed.' : 'Destination confirmed.');
     mapState.lastFetchedRouteKey = '';
     hideSuggestions(id);
@@ -1075,6 +1124,7 @@ async function requestRide(pickup, destination) {
   const estimate = latestEstimate || await estimateRideFare(pickup, destination);
   const pickupLocation = getResolvedLocation('pickup-input');
   const destinationLocation = getResolvedLocation('destination-input');
+  const normalizedRideType = normalizeRideTypeForApi();
   const baseRide = {
     riderId: currentUser.id,
     riderName: currentUser.email,
@@ -1106,20 +1156,37 @@ async function requestRide(pickup, destination) {
   };
 
   if (accessToken) {
+    const requestBody = {
+      pickupLat: pickup.lat,
+      pickupLng: pickup.lng,
+      dropoffLat: destination.lat,
+      dropoffLng: destination.lng,
+      pickupAddress: pickupLocation?.label || document.getElementById('pickup-input')?.value.trim() || '',
+      dropoffAddress: destinationLocation?.label || document.getElementById('destination-input')?.value.trim() || '',
+      rideType: normalizedRideType,
+      fareEstimate: estimate.fareEstimate,
+      distance: estimate.route.distanceMiles,
+      duration: estimate.route.etaMinutes,
+      miles: estimate.route.distanceMiles,
+      minutes: estimate.route.etaMinutes,
+      riderId: currentUser.id
+    };
     try {
-      const { response, data } = await fetchJson('/api/rides/request', {
+      const { response, data } = await fetchJson('/api/rides', {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({
-          pickupLat: pickup.lat,
-          pickupLng: pickup.lng,
-          dropoffLat: destination.lat,
-          dropoffLng: destination.lng,
-          rideType: selectedRideType
-        })
+        body: JSON.stringify(requestBody)
       });
       if (response.ok && data?.ok && data.ride) {
         return upsertSharedRide({ ...baseRide, ...data.ride, fareDetails: data.ride.fareDetails || baseRide.fareDetails });
+      }
+      const fallback = await fetchJson('/api/rides/request', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(requestBody)
+      });
+      if (fallback.response.ok && fallback.data?.ok && fallback.data.ride) {
+        return upsertSharedRide({ ...baseRide, ...fallback.data.ride, fareDetails: fallback.data.ride.fareDetails || baseRide.fareDetails });
       }
     } catch (_error) {
       // Fall back to local demo mode.
@@ -1165,7 +1232,7 @@ async function cancelRide(rideId) {
 
 function getStatusViewModel(ride) {
   const status = String(ride?.status || 'idle');
-  if (status === 'requested') return { pill: 'Searching', message: 'Searching for the best nearby driver.', step: 'searching', headerStatus: 'Finding a driver' };
+  if (status === 'requested') return { pill: 'Searching', message: 'Searching for nearby drivers...', step: 'searching', headerStatus: 'Finding a driver' };
   if (status === 'accepted') return { pill: 'Assigned', message: 'Your driver is on the way to pickup.', step: 'assigned', headerStatus: 'Driver assigned' };
   if (status === 'arrived_at_pickup') return { pill: 'Arriving', message: 'Your driver has arrived at the pickup point.', step: 'arriving', headerStatus: 'Driver at pickup' };
   if (status === 'started') return { pill: 'In trip', message: 'You are on the way to your destination.', step: 'started', headerStatus: 'Ride in progress' };
@@ -2054,7 +2121,7 @@ async function handleRequestRide() {
   updateRideValidation(latestEstimate);
   const { pickup, destination, hasValidCoordinates } = getPickupAndDestination();
   if (!hasValidCoordinates || !pickup || !destination || rideValidationState.disabledReason) {
-    showPopup(rideValidationState.disabledReason || 'Enter valid pickup and destination to request a ride.');
+    showPopup(rideValidationState.disabledReason || 'Enter valid pickup and destination to book a ride.');
     return;
   }
   setButtonLoading('request-ride-button', true);
@@ -2068,15 +2135,15 @@ async function handleRequestRide() {
     if (requestButton && requestLabel) {
       const icon = requestButton.querySelector('.btn-icon');
       requestButton.classList.add('is-success');
-      requestLabel.textContent = 'Ride Requested!';
+      requestLabel.textContent = 'Ride booked!';
       if (icon) icon.className = 'bi bi-check2-circle btn-icon';
       window.setTimeout(() => {
         if (icon) icon.className = 'bi bi-lightning-charge-fill btn-icon';
-        requestLabel.textContent = 'Request Ride';
+        requestLabel.textContent = 'Book a ride';
         requestButton.classList.remove('is-success');
       }, REQUEST_SUCCESS_ANIMATION_MS);
     }
-    showPopup('Ride request sent. Searching for driver...');
+    showPopup('Searching for nearby drivers...');
 
     // Simulate driver assignment after 3-5 seconds
     if (currentRide?.id) {
@@ -2360,7 +2427,7 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
 function setupHandlers() {
   document.getElementById('logout-button')?.addEventListener('click', handleLogout);
   document.getElementById('request-ride-button')?.addEventListener('click', () => {
-    handleRequestRide().catch(() => showPopup('Unable to request ride.'));
+    handleRequestRide().catch(() => showPopup('Unable to book a ride.'));
   });
   document.getElementById('cancel-ride-button')?.addEventListener('click', () => {
     handleCancelRideClick();
