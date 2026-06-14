@@ -19,6 +19,7 @@ const MAP_FLY_MAX_ZOOM = 14;
 const CURRENT_LOCATION_TIMEOUT_MS = 12000;
 const WATCH_LOCATION_TIMEOUT_MS = 10000;
 const MAP_LOAD_TIMEOUT_MS = 10000;
+const MAP_RECOVERABLE_RETRY_DELAY_MS = 700;
 const GEOCODE_DEBOUNCE_MS = 300;
 const MIN_GEOCODE_QUERY_LENGTH = 3;
 const MAX_GEOCODE_SUGGESTIONS = 5;
@@ -43,6 +44,9 @@ const DRIVER_START_POSITION_OFFSET = 0.04; // ~2–3 miles in lat/lng degrees
 const DRIVER_ASSIGN_DELAY_MIN_MS = 3000;
 const DRIVER_ASSIGN_DELAY_MAX_MS = 5000;
 const MAX_RECOVERABLE_MAP_RETRIES = 2;
+const MAP_AUTH_ERROR_TERMS = ['401', '403', 'unauthorized', 'forbidden', 'access token', 'not authorized'];
+// Fatal errors include auth failures plus network failures that prevent map bootstrapping.
+const MAP_FATAL_ERROR_TERMS = [...MAP_AUTH_ERROR_TERMS, 'network', 'failed to fetch'];
 const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'arrived_at_pickup', 'started'];
 const LONG_DISTANCE_WARNING_MINUTES = 360;
 const SUPPORTED_COUNTRY = 'United States';
@@ -1525,29 +1529,19 @@ function clearMapLoadWatchdog() {
 }
 
 function isLikelyMapboxToken(value) {
-  return /^(pk|sk)\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(String(value || '').trim());
+  return /^pk\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(String(value || '').trim());
 }
 
 function isFatalMapError(error) {
   const message = String(error?.error?.message || error?.message || '').toLowerCase();
   if (!message) return false;
-  const fatalTerms = [
-    '401',
-    '403',
-    'unauthorized',
-    'forbidden',
-    'access token',
-    'not authorized',
-    'network',
-    'failed to fetch'
-  ];
-  return fatalTerms.some(term => message.includes(term));
+  return MAP_FATAL_ERROR_TERMS.some(term => message.includes(term));
 }
 
 function isTokenAuthMapError(error) {
   const message = String(error?.error?.message || error?.message || '').toLowerCase();
   if (!message) return false;
-  return ['401', '403', 'unauthorized', 'forbidden', 'access token', 'not authorized'].some(term => message.includes(term));
+  return MAP_AUTH_ERROR_TERMS.some(term => message.includes(term));
 }
 
 function resizeMapNow(delay = 0) {
@@ -2131,8 +2125,10 @@ async function initializeMap(options = {}) {
         mapState.recoverableInitRetries += 1;
         clearMapLoadWatchdog();
         window.setTimeout(() => {
-          initializeMap({ force: true }).catch(() => {});
-        }, 700);
+          initializeMap({ force: true }).catch(retryError => {
+            console.warn('Recoverable map retry failed.', retryError);
+          });
+        }, MAP_RECOVERABLE_RETRY_DELAY_MS);
         return;
       }
       if (!mapState.mapLoaded) {
