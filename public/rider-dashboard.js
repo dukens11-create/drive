@@ -1770,7 +1770,10 @@ async function fetchDirectionsRoute(pickup, destination) {
     const payload = await response.json().catch(() => null);
     const route = payload?.routes?.[0];
     const coordinates = Array.isArray(route?.geometry?.coordinates) ? route.geometry.coordinates : null;
-    if (!response.ok || !coordinates?.length) return buildFallbackDirections(pickup, destination);
+    if (!response.ok || !coordinates?.length) {
+      console.error('[Route] Route failed: Mapbox API returned no route', { status: response.status, hasCoordinates: Boolean(coordinates?.length) });
+      return buildFallbackDirections(pickup, destination);
+    }
 
     // Extract and validate duration (Mapbox returns seconds) and distance (meters)
     const durationSeconds = Number(route.duration || 0);
@@ -1796,6 +1799,7 @@ async function fetchDirectionsRoute(pickup, destination) {
       .flatMap(leg => Array.isArray(leg?.annotation?.congestion) ? leg.annotation.congestion : []);
     const hasHeavyTraffic = congestionValues.some(value => ['severe', 'heavy'].includes(String(value).toLowerCase()));
     const hasSlowTraffic = congestionValues.some(value => ['moderate', 'low'].includes(String(value).toLowerCase()));
+    console.log('[Route] Route loaded:', { distanceMiles, etaMinutes, instructions: instructions.length });
     return {
       geometry: coordinates,
       instructions: instructions.length ? instructions : buildFallbackDirections(pickup, destination).instructions,
@@ -1805,6 +1809,7 @@ async function fetchDirectionsRoute(pickup, destination) {
       etaMinutes
     };
   } catch (_error) {
+    console.error('[Route] Route failed:', _error);
     return buildFallbackDirections(pickup, destination);
   }
 }
@@ -2279,6 +2284,21 @@ function seedDefaultInputs() {
   }
   if (destinationAddress && !destinationAddress.value.trim()) {
     destinationAddress.value = String(destinationInput?.value || 'Mission Bay, San Francisco, CA');
+  }
+
+  // Populate resolvedLocations so getPickupAndDestination() returns valid coordinates
+  // at startup, enabling route and fare calculations immediately.
+  if (!resolvedLocations['pickup-input']) {
+    setResolvedLocation('pickup-input', {
+      coordinates: { lat: DEFAULT_PICKUP.lat, lng: DEFAULT_PICKUP.lng },
+      label: String(pickupInput?.value || 'San Francisco, CA')
+    }, String(pickupInput?.value || 'San Francisco, CA'));
+  }
+  if (!resolvedLocations['destination-input']) {
+    setResolvedLocation('destination-input', {
+      coordinates: { lat: defaultDestination.lat, lng: defaultDestination.lng },
+      label: String(destinationInput?.value || 'Mission Bay, San Francisco, CA')
+    }, String(destinationInput?.value || 'Mission Bay, San Francisco, CA'));
   }
 }
 
