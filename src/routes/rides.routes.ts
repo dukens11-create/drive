@@ -22,6 +22,7 @@ const router = Router();
 router.get('/health', controller.health);
 router.use(requireAuth);
 router.post('/estimate', validateBody(rideEstimateSchema), controller.estimate);
+router.post('/', requireRole('rider'), validateBody(rideRequestSchema), controller.request);
 router.get('/history', controller.history);
 router.get('/:rideId', controller.detail);
 router.get('/:rideId/driver', controller.assignedDriver);

@@ -403,6 +403,31 @@ test('GET /rider-dashboard.js includes Mapbox route rendering and fare breakdown
   });
 });
 
+test('POST /api/rides accepts rider dashboard booking payload', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+    const response = await postJson(baseUrl, '/api/rides', {
+      pickupLat: 37.77,
+      pickupLng: -122.41,
+      dropoffLat: 37.79,
+      dropoffLng: -122.39,
+      rideType: 'economy',
+      fareEstimate: 13.25,
+      distance: 4.1,
+      duration: 11,
+      miles: 4.1,
+      minutes: 11,
+      riderId: rider.user.id
+    }, rider.accessToken);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.action, 'request');
+    assert.equal(typeof body.ride?.id, 'string');
+    assert.equal(body.ride?.riderId, rider.user.id);
+  });
+});
+
 test('POST /api/auth/signup creates user and returns tokens', async () => {
   await withServer(async baseUrl => {
     const response = await postJson(baseUrl, '/api/auth/signup', {
