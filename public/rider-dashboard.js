@@ -18,6 +18,8 @@ const MAP_FLY_TARGET_ZOOM = 13;
 const MAP_FLY_MAX_ZOOM = 14;
 const CURRENT_LOCATION_TIMEOUT_MS = 12000;
 const WATCH_LOCATION_TIMEOUT_MS = 10000;
+const MAP_LOAD_TIMEOUT_MS = 10000;
+const MAP_RECOVERABLE_RETRY_DELAY_MS = 700;
 const GEOCODE_DEBOUNCE_MS = 300;
 const MIN_GEOCODE_QUERY_LENGTH = 3;
 const MAX_GEOCODE_SUGGESTIONS = 5;
@@ -41,6 +43,10 @@ const MAX_DRIVER_ETA_MINUTES = 8;
 const DRIVER_START_POSITION_OFFSET = 0.04; // ~2–3 miles in lat/lng degrees
 const DRIVER_ASSIGN_DELAY_MIN_MS = 3000;
 const DRIVER_ASSIGN_DELAY_MAX_MS = 5000;
+const MAX_RECOVERABLE_MAP_RETRIES = 2;
+const MAP_AUTH_ERROR_TERMS = ['401', '403', 'unauthorized', 'forbidden', 'access token', 'not authorized'];
+// Fatal errors include auth failures plus network failures that prevent map bootstrapping.
+const MAP_FATAL_ERROR_TERMS = [...MAP_AUTH_ERROR_TERMS, 'network', 'failed to fetch'];
 const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'arrived_at_pickup', 'started'];
 const LONG_DISTANCE_WARNING_MINUTES = 360;
 const SUPPORTED_COUNTRY = 'United States';
@@ -128,6 +134,8 @@ const mapState = {
   map: null,
   token: '',
   mapLoaded: false,
+  mapLoadTimeoutId: null,
+  recoverableInitRetries: 0,
   resizeHandlerBound: false,
   markers: { pickup: null, destination: null, driver: null, rider: null },
   routeSourceId: 'rider-route',
@@ -1514,6 +1522,28 @@ function setMapLoading(isLoading) {
   loading.classList.toggle('is-hidden', !isLoading);
 }
 
+function clearMapLoadWatchdog() {
+  if (!mapState.mapLoadTimeoutId) return;
+  window.clearTimeout(mapState.mapLoadTimeoutId);
+  mapState.mapLoadTimeoutId = null;
+}
+
+function isLikelyMapboxToken(value) {
+  return /^pk\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(String(value || '').trim());
+}
+
+function isFatalMapError(error) {
+  const message = String(error?.error?.message || error?.message || '').toLowerCase();
+  if (!message) return false;
+  return MAP_FATAL_ERROR_TERMS.some(term => message.includes(term));
+}
+
+function isTokenAuthMapError(error) {
+  const message = String(error?.error?.message || error?.message || '').toLowerCase();
+  if (!message) return false;
+  return MAP_AUTH_ERROR_TERMS.some(term => message.includes(term));
+}
+
 function resizeMapNow(delay = 0) {
   const run = () => {
     if (!mapState.map) return;
@@ -1616,7 +1646,12 @@ function readMapboxToken() {
   const queryToken = new URLSearchParams(window.location.search).get('mapbox_token') || '';
   const storedToken = localStorage.getItem(MAPBOX_TOKEN_STORAGE_KEY) || '';
   const metaToken = String(document.querySelector('meta[name="mapbox-token"]')?.content || '').trim();
-  return String(queryToken || storedToken || metaToken || '').trim();
+  const normalizedStoredToken = String(storedToken || '').trim();
+  if (normalizedStoredToken && !isLikelyMapboxToken(normalizedStoredToken)) {
+    localStorage.removeItem(MAPBOX_TOKEN_STORAGE_KEY);
+  }
+  const safeStoredToken = isLikelyMapboxToken(normalizedStoredToken) ? normalizedStoredToken : '';
+  return String(queryToken || metaToken || safeStoredToken || '').trim();
 }
 
 function createRouteMarkerElement(kind) {
@@ -2016,6 +2051,7 @@ function renderMapState(options = {}) {
 async function initializeMap(options = {}) {
   const { force = false } = options;
   if (mapState.map && mapState.mapLoaded && !force) return;
+  clearMapLoadWatchdog();
   if (mapState.map && force) {
     mapState.map.remove();
     mapState.map = null;
@@ -2023,7 +2059,9 @@ async function initializeMap(options = {}) {
   }
   mapState.token = readMapboxToken();
   const mapContainer = document.getElementById('mapbox');
+  const fallback = document.getElementById('map-fallback');
   setMapLoading(true);
+  fallback?.classList.add('d-none');
   console.log('Mapbox token:', mapState.token ? '✓' : '✗ MISSING');
   console.log('Map container:', mapContainer ? '✓' : '✗ NOT FOUND');
   if (!mapContainer) {
@@ -2060,17 +2098,51 @@ async function initializeMap(options = {}) {
       bearing: -14,
       antialias: true
     });
+    mapState.mapLoadTimeoutId = window.setTimeout(() => {
+      mapState.mapLoadTimeoutId = null;
+      if (mapState.mapLoaded) return;
+      console.error(`Mapbox map load timed out after ${MAP_LOAD_TIMEOUT_MS}ms.`);
+      setMapFallbackMessage('Map took too long to load. Check your connection and retry map.');
+      document.getElementById('map-fallback')?.classList.remove('d-none');
+      setMapLoading(false);
+    }, MAP_LOAD_TIMEOUT_MS);
     console.log('Map instance:', mapState.map ? '✓' : '✗ FAILED');
     mapState.map.addControl(new window.mapboxgl.NavigationControl({ showCompass: true }), 'top-right');
     mapState.map.on('error', error => {
       console.error('Mapbox error:', error);
-      setMapFallbackMessage('Map failed to render. Check your Mapbox token/network and retry.');
-      document.getElementById('map-fallback')?.classList.remove('d-none');
-      setMapLoading(false);
+      const fatalError = isFatalMapError(error);
+      if (fatalError) {
+        if (isTokenAuthMapError(error)) {
+          localStorage.removeItem(MAPBOX_TOKEN_STORAGE_KEY);
+        }
+        clearMapLoadWatchdog();
+        setMapFallbackMessage('Map failed to render. Check your Mapbox token/network and retry.');
+        document.getElementById('map-fallback')?.classList.remove('d-none');
+        setMapLoading(false);
+        return;
+      }
+      if (!mapState.mapLoaded && mapState.recoverableInitRetries < MAX_RECOVERABLE_MAP_RETRIES) {
+        mapState.recoverableInitRetries += 1;
+        clearMapLoadWatchdog();
+        window.setTimeout(() => {
+          initializeMap({ force: true }).catch(retryError => {
+            console.warn('Recoverable map retry failed.', retryError);
+          });
+        }, MAP_RECOVERABLE_RETRY_DELAY_MS);
+        return;
+      }
+      if (!mapState.mapLoaded) {
+        clearMapLoadWatchdog();
+        setMapFallbackMessage('Map hit a temporary error. Tap "Retry map" to try again.');
+        document.getElementById('map-fallback')?.classList.remove('d-none');
+        setMapLoading(false);
+      }
     });
     mapState.map.on('load', () => {
       console.log('Mapbox map loaded successfully');
       mapState.mapLoaded = true;
+      mapState.recoverableInitRetries = 0;
+      clearMapLoadWatchdog();
       document.getElementById('map-fallback')?.classList.add('d-none');
       setMapLoading(false);
       ensureRouteLayers();
@@ -2089,6 +2161,7 @@ async function initializeMap(options = {}) {
     resizeMapNow(50);
   } catch (_error) {
     console.error('Unable to initialize Mapbox map.', _error);
+    clearMapLoadWatchdog();
     setMapFallbackMessage('Unable to initialize the map. Verify your Mapbox token and try again.');
     document.getElementById('map-fallback')?.classList.remove('d-none');
     setMapLoading(false);
@@ -2477,6 +2550,7 @@ function setupHandlers() {
     if (event.target === event.currentTarget) setCancelModalOpen(false);
   });
   document.getElementById('retry-map-button')?.addEventListener('click', () => {
+    mapState.recoverableInitRetries = 0;
     initializeMap({ force: true }).catch(() => {});
   });
   document.getElementById('retry-estimate-button')?.addEventListener('click', () => {
