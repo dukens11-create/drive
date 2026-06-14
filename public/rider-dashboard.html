@@ -269,18 +269,6 @@
               </div>
             </div>
 
-            <div class="button-group">
-              <button id="request-ride-button" type="button" class="btn btn-primary btn-block btn-lg" title="Enter a valid pickup and destination.">
-                <span class="btn-spinner" aria-hidden="true"></span>
-                <i class="bi bi-lightning-charge-fill btn-icon"></i>
-                <span class="btn-label">Book a ride</span>
-              </button>
-              <button id="cancel-ride-button" type="button" class="btn btn-danger btn-block btn-lg d-none" disabled>
-                <span class="btn-spinner" aria-hidden="true"></span>
-                <i class="bi bi-x-circle btn-icon"></i>
-                <span class="btn-label">Cancel Ride</span>
-              </button>
-            </div>
           </section>
 
           <section class="right-panel" aria-label="Map and ride status">
@@ -380,6 +368,21 @@
                 <p id="status-message" class="status-message">Enter pickup and destination to request a ride.</p>
                 <p id="searching-status" class="searching-status d-none" aria-live="polite">Searching for nearby drivers<span class="searching-dots" aria-hidden="true"></span></p>
 
+                <div id="booking-error-message" class="booking-error d-none" role="alert" aria-live="assertive"></div>
+
+                <div class="button-group">
+                  <button id="request-ride-button" type="button" class="btn btn-primary btn-block btn-lg" title="Enter a valid pickup and destination.">
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                    <i class="bi bi-lightning-charge-fill btn-icon"></i>
+                    <span class="btn-label">Book a ride</span>
+                  </button>
+                  <button id="cancel-ride-button" type="button" class="btn btn-danger btn-block btn-lg d-none" disabled>
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                    <i class="bi bi-x-circle btn-icon"></i>
+                    <span class="btn-label">Cancel Ride</span>
+                  </button>
+                </div>
+
                 <div id="driver-assigned-card" class="driver-card d-none" aria-live="polite">
                   <div class="driver-card-header">
                     <div class="driver-avatar-wrap">
@@ -452,10 +455,6 @@
                 </ol>
                 <div id="ride-empty-state" class="ride-empty-state d-none">
                   <p>No rides yet. Book your first ride!</p>
-                  <button id="empty-state-request-button" type="button" class="btn btn-primary btn-sm">
-                    <i class="bi bi-lightning-charge-fill"></i>
-                    <span>Book a ride</span>
-                  </button>
                 </div>
               </div>
             </div>
