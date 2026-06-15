@@ -1267,7 +1267,6 @@ async function requestRide(pickup, destination) {
       minutes: estimate.route.etaMinutes,
       riderId: currentUser.id,
       ...(appliedPromo ? { promoCode: appliedPromo.code, discountAmount, finalFare } : {}),
-
       paymentMethod: selectedPaymentMethod,
       ...(scheduleState.isScheduled && scheduleState.scheduledDateTime ? { scheduledAt: scheduleState.scheduledDateTime } : {})
     };
