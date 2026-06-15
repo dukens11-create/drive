@@ -11,6 +11,7 @@ import {
   pushWalletTx,
   store,
   timestamp,
+  type DriverEarning,
   type Ride,
   type RideFareDetails,
   type RideLifecycleState,
@@ -1359,6 +1360,26 @@ export async function complete(body: any, _params?: any, _query?: any) {
   const driverPayoutCents = amountToCents(ride.fareDetails.driverEarnings);
   if (ride.driverId) {
     pushWalletTx(ride.driverId, 'credit', driverPayoutCents, `ride:${ride.id}:payout`);
+    const driverEarning: DriverEarning = {
+      id: makeId('earn'),
+      driverId: ride.driverId,
+      rideId: ride.id,
+      type: 'ride',
+      amountCents: driverPayoutCents,
+      baseFareCents: amountToCents(ride.fareDetails.baseFare),
+      distanceFareCents: amountToCents(ride.fareDetails.distanceFare),
+      timeFareCents: amountToCents(ride.fareDetails.timeFare),
+      surgeFareCents: amountToCents(ride.fareDetails.surgeFare),
+      tipsCents: amountToCents(ride.fareDetails.tips),
+      serviceFeeCents: amountToCents(ride.fareDetails.serviceFee),
+      surgeMultiplier: ride.fareDetails.surgeMultiplier,
+      createdAt: completedAt
+    };
+    store.driverEarnings.push(driverEarning);
+    const driverProfile = store.drivers.get(ride.driverId);
+    if (driverProfile) {
+      driverProfile.earningsCents = (driverProfile.earningsCents || 0) + driverPayoutCents;
+    }
     await pushRideNotification(
       ride.driverId,
       'earnings',

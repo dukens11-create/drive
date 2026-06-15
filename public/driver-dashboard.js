@@ -127,6 +127,9 @@ let incomingRideRequests = [];
 let completedRideHistory = [];
 let selectedRideForDetails = null;
 let earningsSnapshot = { earningsCents: 0, rideCount: 0 };
+let walletSnapshot = null;
+let tripHistoryData = { trips: [], total: 0, offset: 0, limit: 20 };
+let payoutsData = [];
 let realtimeSubscriptions = [];
 let realtimePollers = [];
 let realtimeSocket = null;
@@ -3879,6 +3882,8 @@ async function performRideFlowAction(actionPath, successMessage, payload = {}) {
       return;
     }
     await Promise.all([loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
+    // Refresh trip history and payouts asynchronously after ride flow actions
+    Promise.all([loadTripHistory(0), loadPayouts()]).catch(() => {});
     const refreshedRide = getRefreshedRideOrFallback(ride, data.ride, { status: data?.ride?.status || ride.status });
     if (!refreshedRide) {
       showAlert('warning', 'Ride updated, but details are unavailable. Refreshing dashboard.');
@@ -4092,47 +4097,221 @@ function handleRidePopupKeyboardShortcuts(event) {
 // ─── Earnings ─────────────────────────────────────────────────────────────────
 function renderEarnings() {
   const earningsDiv = document.getElementById('earnings-info');
+  if (!earningsDiv) return;
   const earningsCents = Number(earningsSnapshot.earningsCents);
   const rideCount = Number(earningsSnapshot.rideCount);
   if (!Number.isFinite(earningsCents) || !Number.isFinite(rideCount)) {
     earningsDiv.innerHTML = '<div class="text-danger">Unable to load earnings.</div>';
     return;
   }
+
+  // Use wallet data if available for richer display
+  const todayCents = walletSnapshot ? Number(walletSnapshot.todayCents || 0) : 0;
+  const weekCents = walletSnapshot ? Number(walletSnapshot.weekCents || 0) : 0;
+  const monthCents = walletSnapshot ? Number(walletSnapshot.monthCents || 0) : 0;
+  const lifetimeCents = walletSnapshot ? Number(walletSnapshot.lifetimeCents || 0) : earningsCents;
   const averagePayout = rideCount > 0 ? earningsCents / rideCount / 100 : 0;
+
+  // Build daily earnings bar chart from tripHistoryData if available
+  let graphHtml = '';
+  if (walletSnapshot && walletSnapshot.dailyBreakdown) {
+    const days = Object.entries(walletSnapshot.dailyBreakdown);
+    const maxCents = Math.max(...days.map(([, v]) => v), 1);
+    graphHtml = `
+      <div class="panel-section mt-2">
+        <div class="metric-label mb-2">Last 7 Days</div>
+        <div class="d-flex align-items-end gap-1" style="height:60px">
+          ${days.map(([date, cents]) => {
+            const pct = Math.round((Number(cents) / maxCents) * 100);
+            const label = new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short' });
+            return `<div class="d-flex flex-column align-items-center flex-grow-1" title="${label}: $${(Number(cents)/100).toFixed(2)}">
+              <div style="width:100%;background:var(--primary,#5c6bc0);height:${Math.max(pct * 0.6, 2)}px;border-radius:3px 3px 0 0"></div>
+              <small style="font-size:9px;color:var(--text-muted)">${label}</small>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+  }
+
   earningsDiv.innerHTML = `
     <div class="earnings-grid">
       <div class="metric-card highlight">
-        <div class="metric-label">Total Earnings</div>
-        <div class="metric-value">$${(earningsCents / 100).toFixed(2)}</div>
+        <div class="metric-label">Today</div>
+        <div class="metric-value">$${(todayCents / 100).toFixed(2)}</div>
       </div>
       <div class="metric-card">
-        <div class="metric-label">Completed Ride Payouts</div>
+        <div class="metric-label">This Week</div>
+        <div class="metric-value">$${(weekCents / 100).toFixed(2)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">This Month</div>
+        <div class="metric-value">$${(monthCents / 100).toFixed(2)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Lifetime</div>
+        <div class="metric-value">$${(lifetimeCents / 100).toFixed(2)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Rides Completed</div>
         <div class="metric-value">${rideCount}</div>
       </div>
       <div class="metric-card">
-        <div class="metric-label">Average Payout</div>
+        <div class="metric-label">Avg. per Ride</div>
         <div class="metric-value">$${averagePayout.toFixed(2)}</div>
       </div>
     </div>
+    ${graphHtml}
   `;
 }
+
+function renderWallet() {
+  const walletDiv = document.getElementById('wallet-info');
+  if (!walletDiv) return;
+  if (!walletSnapshot) {
+    walletDiv.innerHTML = '<div class="text-muted">No wallet data available.</div>';
+    return;
+  }
+  const available = Number(walletSnapshot.availableBalanceCents || 0);
+  const pending = Number(walletSnapshot.pendingBalanceCents || 0);
+  const withdrawn = Number(walletSnapshot.withdrawnCents || 0);
+  const bank = walletSnapshot.bankAccount;
+  const lastPayout = walletSnapshot.lastPayoutAt ? new Date(walletSnapshot.lastPayoutAt).toLocaleDateString() : 'N/A';
+
+  walletDiv.innerHTML = `
+    <div class="earnings-grid">
+      <div class="metric-card highlight">
+        <div class="metric-label">Available Balance</div>
+        <div class="metric-value">$${(available / 100).toFixed(2)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Pending (next payout)</div>
+        <div class="metric-value">$${(pending / 100).toFixed(2)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Total Withdrawn</div>
+        <div class="metric-value">$${(withdrawn / 100).toFixed(2)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Last Payout</div>
+        <div class="metric-value">${escapeHtml(lastPayout)}</div>
+      </div>
+      ${bank ? `<div class="metric-card">
+        <div class="metric-label">Bank Account</div>
+        <div class="metric-value">${escapeHtml(bank.bankName)} ····${escapeHtml(bank.last4)}</div>
+      </div>` : '<div class="metric-card"><div class="metric-label">Bank Account</div><div class="metric-value text-muted">Not set</div></div>'}
+    </div>
+  `;
+}
+
+function renderTripHistory() {
+  const body = document.getElementById('trip-history-body');
+  const paginationEl = document.getElementById('trip-history-pagination');
+  if (!body) return;
+
+  const trips = tripHistoryData.trips || [];
+  if (!trips.length) {
+    body.innerHTML = '<tr><td colspan="7" class="text-muted">No completed trips yet.</td></tr>';
+    if (paginationEl) paginationEl.innerHTML = '';
+    return;
+  }
+
+  body.innerHTML = trips.map(trip => {
+    const date = trip.completedAt ? new Date(trip.completedAt).toLocaleDateString() : '--';
+    const pickup = trip.pickupAddress || '--';
+    const dropoff = trip.dropoffAddress || '--';
+    const dist = `${Number(trip.distance || 0).toFixed(1)} mi`;
+    const dur = `${Number(trip.duration || 0)} min`;
+    const earned = `$${(Number(trip.earnedCents || 0) / 100).toFixed(2)}`;
+    const rating = trip.rating ? `${Number(trip.rating).toFixed(1)} ★` : '--';
+    return `<tr>
+      <td>${escapeHtml(date)}</td>
+      <td><span title="${escapeHtml(pickup)}">${escapeHtml(pickup.slice(0, 20))}${pickup.length > 20 ? '…' : ''}</span> → <span title="${escapeHtml(dropoff)}">${escapeHtml(dropoff.slice(0, 20))}${dropoff.length > 20 ? '…' : ''}</span></td>
+      <td>${escapeHtml(dist)}</td>
+      <td>${escapeHtml(dur)}</td>
+      <td><strong>${escapeHtml(earned)}</strong></td>
+      <td>${escapeHtml(rating)}</td>
+      <td><a href="${escapeHtml(trip.receiptUrl || '#')}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">Receipt</a></td>
+    </tr>`;
+  }).join('');
+
+  if (paginationEl) {
+    const total = tripHistoryData.total || 0;
+    const limit = tripHistoryData.limit || 20;
+    const offset = tripHistoryData.offset || 0;
+    const hasPrev = offset > 0;
+    const hasNext = offset + limit < total;
+    paginationEl.innerHTML = `
+      <small class="text-muted align-self-center">Showing ${offset + 1}–${Math.min(offset + trips.length, total)} of ${total}</small>
+      ${hasPrev ? `<button class="btn btn-sm btn-outline-secondary" id="trips-prev-btn">← Prev</button>` : ''}
+      ${hasNext ? `<button class="btn btn-sm btn-outline-secondary" id="trips-next-btn">Next →</button>` : ''}
+    `;
+    const prevBtn = document.getElementById('trips-prev-btn');
+    const nextBtn = document.getElementById('trips-next-btn');
+    if (prevBtn) prevBtn.addEventListener('click', () => loadTripHistory(Math.max(0, offset - limit)));
+    if (nextBtn) nextBtn.addEventListener('click', () => loadTripHistory(offset + limit));
+  }
+}
+
+function renderPayouts() {
+  const body = document.getElementById('payouts-body');
+  if (!body) return;
+  if (!payoutsData.length) {
+    body.innerHTML = '<tr><td colspan="4" class="text-muted">No payouts yet.</td></tr>';
+    return;
+  }
+  const statusBadge = status => {
+    const map = { pending: 'secondary', processing: 'info', paid: 'success', failed: 'danger', canceled: 'warning' };
+    return `<span class="badge bg-${map[status] || 'secondary'}">${escapeHtml(status)}</span>`;
+  };
+  body.innerHTML = payoutsData.map(p => {
+    const date = p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '--';
+    const amount = `$${(Number(p.amountCents || 0) / 100).toFixed(2)}`;
+    const bank = p.bankLast4 ? `${escapeHtml(p.bankName || '')} ····${escapeHtml(p.bankLast4)}` : '--';
+    return `<tr>
+      <td>${escapeHtml(date)}</td>
+      <td><strong>${escapeHtml(amount)}</strong></td>
+      <td>${statusBadge(p.status)}</td>
+      <td>${bank}</td>
+    </tr>`;
+  }).join('');
+}
+
 async function loadEarnings() {
   const earningsDiv = document.getElementById('earnings-info');
   try {
-    const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/earnings`, {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + accessToken }
-    });
-    const earningsCents = Number(data?.earningsCents);
-    const rideCount = Number(data?.rideCount);
-    if (!data?.ok || !Number.isFinite(earningsCents) || !Number.isFinite(rideCount)) {
-      earningsDiv.innerHTML = '<div class="text-danger">Unable to load earnings.</div>';
-      return;
+    // Use GET /api/drivers/earnings (via POST for legacy compatibility) and wallet
+    const [earningsRes, walletRes, weekRes] = await Promise.all([
+      fetchJson(`${API_BASE_URL}/api/drivers/earnings`, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + accessToken }
+      }),
+      fetchJson(`${API_BASE_URL}/api/drivers/wallet`, {
+        headers: { Authorization: 'Bearer ' + accessToken }
+      }).catch(() => ({ data: null })),
+      fetchJson(`${API_BASE_URL}/api/drivers/earnings/week`, {
+        headers: { Authorization: 'Bearer ' + accessToken }
+      }).catch(() => ({ data: null }))
+    ]);
+
+    const earningsCents = Number(earningsRes.data?.earningsCents);
+    const rideCount = Number(earningsRes.data?.rideCount);
+    if (earningsRes.data?.ok && Number.isFinite(earningsCents) && Number.isFinite(rideCount)) {
+      earningsSnapshot = { earningsCents, rideCount };
+      cacheRealtimeSection('earnings', earningsSnapshot);
+      publishRealtimeSnapshot('earnings', earningsSnapshot).catch(() => {});
     }
-    earningsSnapshot = { earningsCents, rideCount };
-    cacheRealtimeSection('earnings', earningsSnapshot);
-    publishRealtimeSnapshot('earnings', earningsSnapshot).catch(() => {});
+
+    if (walletRes.data?.ok) {
+      walletSnapshot = walletRes.data;
+    }
+
+    if (weekRes.data?.ok && weekRes.data.dailyBreakdown) {
+      if (!walletSnapshot) walletSnapshot = {};
+      walletSnapshot.dailyBreakdown = weekRes.data.dailyBreakdown;
+    }
+
     renderEarnings();
+    renderWallet();
   } catch (_error) {
     const cache = getRealtimeCache();
     if (cache.earnings && typeof cache.earnings === 'object') {
@@ -4143,9 +4322,39 @@ async function loadEarnings() {
       renderEarnings();
       return;
     }
-    earningsDiv.innerHTML = '<div class="text-danger">Unable to load earnings.</div>';
+    if (earningsDiv) earningsDiv.innerHTML = '<div class="text-danger">Unable to load earnings.</div>';
   }
 }
+
+async function loadTripHistory(offset = 0) {
+  const sort = document.getElementById('trips-sort')?.value || 'newest';
+  try {
+    const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/trips?sort=${encodeURIComponent(sort)}&limit=20&offset=${offset}`, {
+      headers: { Authorization: 'Bearer ' + accessToken }
+    });
+    if (data?.ok) {
+      tripHistoryData = { trips: data.trips || [], total: data.total || 0, offset, limit: 20 };
+    }
+  } catch (_error) {
+    tripHistoryData = { trips: [], total: 0, offset: 0, limit: 20 };
+  }
+  renderTripHistory();
+}
+
+async function loadPayouts() {
+  try {
+    const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/payouts`, {
+      headers: { Authorization: 'Bearer ' + accessToken }
+    });
+    if (data?.ok) {
+      payoutsData = data.payouts || [];
+    }
+  } catch (_error) {
+    payoutsData = [];
+  }
+  renderPayouts();
+}
+
 
 function setActivePane(pane) {
   activePane = PANE_ORDER.includes(pane) ? pane : 'map';
@@ -4956,6 +5165,7 @@ window.addEventListener('load', async () => {
 
   // Load data
   await Promise.all([loadDriverProfile(), loadVehicleProfile(), loadAvailableRideRequests(), fetchIncomingRequests(), loadRideHistory(), loadEarnings()]);
+  await Promise.all([loadTripHistory(), loadPayouts()]);
   await initializeMapbox();
   await ensureDriverLocation();
   await requestWakeLock();
@@ -4974,6 +5184,34 @@ window.addEventListener('load', async () => {
   // Demo ride button – lets QA inject a test request without opening rider page
   document.getElementById('btn-demo-ride-request')?.addEventListener('click', injectDemoRideRequest);
   // ────────────────────────────────────────────────────────────────────────────
+
+  // Bank account form
+  document.getElementById('bank-account-form')?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const msgEl = document.getElementById('bank-account-msg');
+    const bankName = document.getElementById('bank-name')?.value?.trim();
+    const accountHolderName = document.getElementById('account-holder-name')?.value?.trim();
+    const routingNumber = document.getElementById('routing-number')?.value?.trim();
+    const accountNumber = document.getElementById('account-number')?.value?.trim();
+    try {
+      const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/bank-account`, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bankName, accountHolderName, routingNumber, accountNumber, isDefault: true })
+      });
+      if (data?.ok) {
+        if (msgEl) msgEl.innerHTML = '<div class="alert alert-success">Bank account saved successfully.</div>';
+        await Promise.all([loadEarnings(), loadPayouts()]);
+      } else {
+        if (msgEl) msgEl.innerHTML = `<div class="alert alert-danger">${escapeHtml(data?.error || 'Failed to save bank account.')}</div>`;
+      }
+    } catch (_error) {
+      if (msgEl) msgEl.innerHTML = '<div class="alert alert-danger">Unable to save bank account.</div>';
+    }
+  });
+
+  // Trip sort control
+  document.getElementById('trips-sort')?.addEventListener('change', () => loadTripHistory(0));
 
   window.addEventListener('online', () => {
     flushOfflineLocationQueue().catch(() => {});

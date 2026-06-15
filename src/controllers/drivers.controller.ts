@@ -10,6 +10,16 @@ export async function locationById(req:any,res:any){res.json(await service.locat
 export async function me(req:any,res:any){res.json(await service.me({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function currentTrip(req:any,res:any){res.json(await service.currentTrip({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function earnings(req:any,res:any){res.json(await service.earnings({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function earningsToday(req:any,res:any){res.json(await service.earningsToday({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function earningsWeek(req:any,res:any){res.json(await service.earningsWeek({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function wallet(req:any,res:any){res.json(await service.wallet({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function transactions(req:any,res:any){res.json(await service.transactions({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function trips(req:any,res:any){res.json(await service.trips({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function tripReceipt(req:any,res:any){res.json(await service.tripReceipt({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function payouts(req:any,res:any){res.json(await service.payouts({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function getPayoutById(req:any,res:any){res.json(await service.getPayoutById({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function saveBankAccount(req:any,res:any){res.json(await service.saveBankAccount({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function updatePayoutPreferences(req:any,res:any){res.json(await service.updatePayoutPreferences({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function documents(req:any,res:any){res.json(await service.documents({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function nearby(req:any,res:any){res.json(await service.nearby({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function createVehicle(req:any,res:any){res.json(await service.createVehicle({ ...req.body, actor: req.user }, req.params, req.query));}

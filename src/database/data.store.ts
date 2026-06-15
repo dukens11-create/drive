@@ -917,6 +917,26 @@ export type CallSession = {
   updatedAt: string;
 };
 
+// ─── Driver Earnings ───────────────────────────────────────────────────────
+
+export type DriverEarningType = 'ride' | 'bonus' | 'referral' | 'adjustment';
+
+export type DriverEarning = {
+  id: string;
+  driverId: string;
+  rideId?: string;
+  type: DriverEarningType;
+  amountCents: number;
+  baseFareCents: number;
+  distanceFareCents: number;
+  timeFareCents: number;
+  surgeFareCents: number;
+  tipsCents: number;
+  serviceFeeCents: number;
+  surgeMultiplier: number;
+  createdAt: string;
+};
+
 // ─── Notification Log ───────────────────────────────────────────────────────
 
 export type NotificationChannel = 'sms' | 'email' | 'push';
@@ -1080,6 +1100,7 @@ type PersistedStore = {
   payoutRequests: Array<[string, PayoutRequest]>;
   locationHistory: DriverLocationPoint[];
   dispatchEvents: DispatchEvent[];
+  driverEarnings: DriverEarning[];
 };
 
 let isHydrating = false;
@@ -1200,6 +1221,7 @@ export const store = {
   payoutRequests: new PersistentMap<string, PayoutRequest>(),
   locationHistory: createPersistentArray<DriverLocationPoint>(),
   dispatchEvents: createPersistentArray<DispatchEvent>(),
+  driverEarnings: createPersistentArray<DriverEarning>(),
   // Ephemeral store – not persisted (tokens expire in 1 hour)
   passwordResetTokens: new Map<string, { userId: string; expiresAt: string }>()
 };
@@ -1262,7 +1284,8 @@ function toSerializableStore(): PersistedStore {
     bankAccounts: Array.from(store.bankAccounts.entries()),
     payoutRequests: Array.from(store.payoutRequests.entries()),
     locationHistory: [...store.locationHistory],
-    dispatchEvents: [...store.dispatchEvents]
+    dispatchEvents: [...store.dispatchEvents],
+    driverEarnings: [...store.driverEarnings]
   };
 }
 
@@ -1367,6 +1390,7 @@ function hydrateStore() {
     for (const [id, payoutRequest] of parsed.payoutRequests || []) store.payoutRequests.set(id, payoutRequest);
     for (const locationPoint of parsed.locationHistory || []) store.locationHistory.push(locationPoint);
     for (const dispatchEvent of parsed.dispatchEvents || []) store.dispatchEvents.push(dispatchEvent);
+    for (const earning of parsed.driverEarnings || []) store.driverEarnings.push(earning);
   } finally {
     isHydrating = false;
   }

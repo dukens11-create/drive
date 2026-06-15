@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { mkdirSync, writeFileSync } from 'fs';
 import path from 'path';
 import * as authService from './auth.service';
-import { makeId, markStoreDirty, store, timestamp, type DriverProfile, type DriverVehicleProfile, type DriverVerificationDocument, type Vehicle, type VehicleType } from '../database/data.store';
+import { getWalletBalanceCents, makeId, markStoreDirty, store, timestamp, type BankAccount, type DriverProfile, type DriverVehicleProfile, type DriverVerificationDocument, type Vehicle, type VehicleType } from '../database/data.store';
 import { publishDriverRealtimeLocation, publishDriverStatusChanged } from './realtime-dispatch.service';
 import { findNearbyDrivers, rankDrivers } from '../utils/dispatch.engine';
 import { sendEmail } from './email.service';
@@ -853,4 +853,322 @@ export async function documents(body: any, _params?: any, _query?: any) {
   syncProfileState(profile);
   markStoreDirty();
   return { module: 'drivers', action: 'documents', ok: true, profile };
+}
+
+// ─── Phase 2: Earnings, Wallet & Payouts ────────────────────────────────────
+
+function driverEarningsToCents(fareDetails: { driverEarnings: number }): number {
+  return Math.round(fareDetails.driverEarnings * 100);
+}
+
+function startOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+function startOfWeek(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getUTCDay(); // 0=Sun
+  d.setUTCDate(d.getUTCDate() - day);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+function startOfMonth(date: Date): Date {
+  const d = new Date(date);
+  d.setUTCDate(1);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+export async function earningsToday(body: any, _params?: any, _query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'drivers', action: 'earnings-today', error: 'actor ID is required' };
+  const profile = getProfile(userId);
+  if (!profile) return { module: 'drivers', action: 'earnings-today', error: 'driver not found' };
+
+  const todayStart = startOfDay(new Date());
+  const entries = store.driverEarnings.filter(e => e.driverId === userId && new Date(e.createdAt) >= todayStart);
+  const totalCents = entries.reduce((sum, e) => sum + e.amountCents, 0);
+  return { module: 'drivers', action: 'earnings-today', ok: true, totalCents, count: entries.length, entries };
+}
+
+export async function earningsWeek(body: any, _params?: any, _query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'drivers', action: 'earnings-week', error: 'actor ID is required' };
+  const profile = getProfile(userId);
+  if (!profile) return { module: 'drivers', action: 'earnings-week', error: 'driver not found' };
+
+  const weekStart = startOfWeek(new Date());
+  const entries = store.driverEarnings.filter(e => e.driverId === userId && new Date(e.createdAt) >= weekStart);
+  const totalCents = entries.reduce((sum, e) => sum + e.amountCents, 0);
+
+  // Build daily breakdown (last 7 days)
+  const daily: Record<string, number> = {};
+  const baseDate = new Date();
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(baseDate);
+    d.setUTCDate(d.getUTCDate() - i);
+    daily[d.toISOString().slice(0, 10)] = 0;
+  }
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 6);
+  sevenDaysAgo.setUTCHours(0, 0, 0, 0);
+  store.driverEarnings
+    .filter(e => e.driverId === userId && new Date(e.createdAt) >= sevenDaysAgo)
+    .forEach(e => {
+      const day = e.createdAt.slice(0, 10);
+      if (day in daily) daily[day] = (daily[day] || 0) + e.amountCents;
+    });
+
+  return { module: 'drivers', action: 'earnings-week', ok: true, totalCents, count: entries.length, dailyBreakdown: daily };
+}
+
+export async function wallet(body: any, _params?: any, _query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'drivers', action: 'wallet', error: 'actor ID is required' };
+  const profile = getProfile(userId);
+  if (!profile) return { module: 'drivers', action: 'wallet', error: 'driver not found' };
+
+  const now = new Date();
+  const todayStart = startOfDay(now);
+  const weekStart = startOfWeek(now);
+  const monthStart = startOfMonth(now);
+
+  const allEarnings = store.driverEarnings.filter(e => e.driverId === userId);
+  const lifetimeCents = allEarnings.reduce((sum, e) => sum + e.amountCents, 0);
+  const todayCents = allEarnings.filter(e => new Date(e.createdAt) >= todayStart).reduce((sum, e) => sum + e.amountCents, 0);
+  const weekCents = allEarnings.filter(e => new Date(e.createdAt) >= weekStart).reduce((sum, e) => sum + e.amountCents, 0);
+  const monthCents = allEarnings.filter(e => new Date(e.createdAt) >= monthStart).reduce((sum, e) => sum + e.amountCents, 0);
+
+  const availableBalanceCents = getWalletBalanceCents(userId);
+
+  const payouts = Array.from(store.payoutRequests.values()).filter(p => p.userId === userId);
+  const withdrawnCents = payouts.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amountCents, 0);
+  const pendingBalanceCents = payouts.filter(p => p.status === 'pending' || p.status === 'processing').reduce((sum, p) => sum + p.amountCents, 0);
+  const lastPayout = payouts.filter(p => p.status === 'paid').sort((a, b) => (b.paidAt || '').localeCompare(a.paidAt || ''))[0];
+  const defaultBank = Array.from(store.bankAccounts.values()).find(a => a.userId === userId && a.isDefault);
+
+  return {
+    module: 'drivers',
+    action: 'wallet',
+    ok: true,
+    availableBalanceCents,
+    pendingBalanceCents,
+    withdrawnCents,
+    lifetimeCents,
+    todayCents,
+    weekCents,
+    monthCents,
+    lastPayoutAt: lastPayout?.paidAt,
+    bankAccount: defaultBank ? { last4: defaultBank.last4, bankName: defaultBank.bankName } : undefined
+  };
+}
+
+export async function transactions(body: any, _params?: any, query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'drivers', action: 'transactions', error: 'actor ID is required' };
+  const profile = getProfile(userId);
+  if (!profile) return { module: 'drivers', action: 'transactions', error: 'driver not found' };
+
+  let entries = store.driverEarnings.filter(e => e.driverId === userId);
+
+  const from = query?.from ? new Date(query.from) : null;
+  const to = query?.to ? new Date(query.to) : null;
+  if (from) entries = entries.filter(e => new Date(e.createdAt) >= from!);
+  if (to) entries = entries.filter(e => new Date(e.createdAt) <= to!);
+  if (query?.type) entries = entries.filter(e => e.type === query.type);
+
+  const limit = Math.min(100, Math.max(1, Number(query?.limit || 20)));
+  const offset = Math.max(0, Number(query?.offset || 0));
+  const total = entries.length;
+  const page = entries.slice(offset, offset + limit);
+
+  return { module: 'drivers', action: 'transactions', ok: true, total, limit, offset, entries: page };
+}
+
+export async function trips(body: any, _params?: any, query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'drivers', action: 'trips', error: 'actor ID is required' };
+  const profile = getProfile(userId);
+  if (!profile) return { module: 'drivers', action: 'trips', error: 'driver not found' };
+
+  let rides = Array.from(store.rides.values()).filter(r => r.driverId === userId && r.status === 'completed');
+
+  const from = query?.from ? new Date(query.from) : null;
+  const to = query?.to ? new Date(query.to) : null;
+  if (from) rides = rides.filter(r => r.completedAt && new Date(r.completedAt) >= from!);
+  if (to) rides = rides.filter(r => r.completedAt && new Date(r.completedAt) <= to!);
+
+  const sort = query?.sort || 'newest';
+  if (sort === 'newest') rides.sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
+  else if (sort === 'oldest') rides.sort((a, b) => (a.completedAt || '').localeCompare(b.completedAt || ''));
+  else if (sort === 'highest_earnings') rides.sort((a, b) => (b.fareDetails?.driverEarnings || 0) - (a.fareDetails?.driverEarnings || 0));
+  else if (sort === 'longest_distance') rides.sort((a, b) => b.miles - a.miles);
+
+  const limit = Math.min(100, Math.max(1, Number(query?.limit || 20)));
+  const offset = Math.max(0, Number(query?.offset || 0));
+  const total = rides.length;
+  const page = rides.slice(offset, offset + limit).map(r => {
+    const earning = store.driverEarnings.find(e => e.rideId === r.id);
+    const riderUser = store.users.get(r.riderId);
+    return {
+      rideId: r.id,
+      riderId: r.riderId,
+      riderName: riderUser?.email?.split('@')[0] || 'Rider',
+      pickupAddress: r.pickupAddress,
+      dropoffAddress: r.dropoffAddress,
+      distance: r.miles,
+      duration: r.minutes,
+      fare: r.fareDetails?.total,
+      earnedCents: earning?.amountCents ?? (r.fareDetails ? driverEarningsToCents(r.fareDetails) : 0),
+      rating: r.passengerRating,
+      completedAt: r.completedAt,
+      receiptUrl: `/api/drivers/trips/${r.id}/receipt`
+    };
+  });
+
+  return { module: 'drivers', action: 'trips', ok: true, total, limit, offset, trips: page };
+}
+
+export async function tripReceipt(body: any, params?: any, _query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'drivers', action: 'trip-receipt', error: 'actor ID is required' };
+  const rideId = params?.rideId;
+  if (!rideId) return { module: 'drivers', action: 'trip-receipt', error: 'rideId is required' };
+
+  const ride = store.rides.get(rideId);
+  if (!ride) return { module: 'drivers', action: 'trip-receipt', error: 'ride not found' };
+  if (ride.driverId !== userId) return { module: 'drivers', action: 'trip-receipt', error: 'access denied' };
+  if (ride.status !== 'completed') return { module: 'drivers', action: 'trip-receipt', error: 'receipt only available for completed rides' };
+
+  const earning = store.driverEarnings.find(e => e.rideId === rideId);
+  const riderUser = store.users.get(ride.riderId);
+  const driverUser = store.users.get(userId);
+
+  return {
+    module: 'drivers',
+    action: 'trip-receipt',
+    ok: true,
+    receipt: {
+      rideId: ride.id,
+      riderName: riderUser?.email?.split('@')[0] || 'Rider',
+      driverName: driverUser?.email?.split('@')[0] || 'Driver',
+      pickupAddress: ride.pickupAddress,
+      dropoffAddress: ride.dropoffAddress,
+      distance: ride.miles,
+      duration: ride.minutes,
+      completedAt: ride.completedAt,
+      fareDetails: ride.fareDetails,
+      earnedCents: earning?.amountCents ?? (ride.fareDetails ? driverEarningsToCents(ride.fareDetails) : 0),
+      fareBreakdown: earning ? {
+        baseFareCents: earning.baseFareCents,
+        distanceFareCents: earning.distanceFareCents,
+        timeFareCents: earning.timeFareCents,
+        surgeFareCents: earning.surgeFareCents,
+        tipsCents: earning.tipsCents,
+        serviceFeeCents: earning.serviceFeeCents,
+        surgeMultiplier: earning.surgeMultiplier
+      } : undefined
+    }
+  };
+}
+
+export async function payouts(body: any, _params?: any, query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'drivers', action: 'payouts', error: 'actor ID is required' };
+  const profile = getProfile(userId);
+  if (!profile) return { module: 'drivers', action: 'payouts', error: 'driver not found' };
+
+  let entries = Array.from(store.payoutRequests.values()).filter(p => p.userId === userId);
+  if (query?.status) entries = entries.filter(p => p.status === query.status);
+  entries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  const limit = Math.min(100, Math.max(1, Number(query?.limit || 20)));
+  const offset = Math.max(0, Number(query?.offset || 0));
+  const total = entries.length;
+  const page = entries.slice(offset, offset + limit).map(p => {
+    const bank = store.bankAccounts.get(p.bankAccountId);
+    return { ...p, bankLast4: bank?.last4, bankName: bank?.bankName };
+  });
+
+  return { module: 'drivers', action: 'payouts', ok: true, total, limit, offset, payouts: page };
+}
+
+export async function getPayoutById(body: any, params?: any, _query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'drivers', action: 'payout-by-id', error: 'actor ID is required' };
+  const payoutId = params?.payoutId;
+  if (!payoutId) return { module: 'drivers', action: 'payout-by-id', error: 'payoutId is required' };
+
+  const payout = store.payoutRequests.get(payoutId);
+  if (!payout) return { module: 'drivers', action: 'payout-by-id', error: 'payout not found' };
+  if (payout.userId !== userId) return { module: 'drivers', action: 'payout-by-id', error: 'access denied' };
+
+  const bank = store.bankAccounts.get(payout.bankAccountId);
+  return { module: 'drivers', action: 'payout-by-id', ok: true, payout: { ...payout, bankLast4: bank?.last4, bankName: bank?.bankName } };
+}
+
+export async function saveBankAccount(body: any, _params?: any, _query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'drivers', action: 'save-bank-account', error: 'actor ID is required' };
+  const profile = getProfile(userId);
+  if (!profile) return { module: 'drivers', action: 'save-bank-account', error: 'driver not found' };
+
+  const bankName = typeof body?.bankName === 'string' ? body.bankName.trim() : '';
+  const accountHolderName = typeof body?.accountHolderName === 'string' ? body.accountHolderName.trim() : '';
+  const routingNumber = typeof body?.routingNumber === 'string' ? body.routingNumber.replace(/\D/g, '') : '';
+  const accountNumber = typeof body?.accountNumber === 'string' ? body.accountNumber.replace(/\D/g, '') : '';
+  const accountType = body?.accountType === 'savings' ? 'savings' : 'checking';
+
+  if (!bankName) return { module: 'drivers', action: 'save-bank-account', error: 'bankName is required' };
+  if (!accountHolderName) return { module: 'drivers', action: 'save-bank-account', error: 'accountHolderName is required' };
+  if (routingNumber.length !== 9) return { module: 'drivers', action: 'save-bank-account', error: 'routingNumber must be a valid 9-digit number' };
+  if (accountNumber.length < 4) return { module: 'drivers', action: 'save-bank-account', error: 'accountNumber must have at least 4 digits' };
+
+  const last4 = accountNumber.slice(-4);
+  const now = timestamp();
+  const userAccounts = Array.from(store.bankAccounts.values()).filter(a => a.userId === userId);
+  const isDefault = body?.isDefault === true || userAccounts.length === 0;
+
+  if (isDefault) {
+    for (const acct of userAccounts) { acct.isDefault = false; acct.updatedAt = now; }
+  }
+
+  const bankAccount: BankAccount = {
+    id: makeId('ba'),
+    userId,
+    bankName,
+    accountHolderName,
+    accountType,
+    routingNumber,
+    last4,
+    isDefault,
+    createdAt: now,
+    updatedAt: now
+  };
+  store.bankAccounts.set(bankAccount.id, bankAccount);
+  markStoreDirty();
+  const { routingNumber: _omit, ...safeAccount } = bankAccount;
+  return { module: 'drivers', action: 'save-bank-account', ok: true, bankAccount: safeAccount };
+}
+
+export async function updatePayoutPreferences(body: any, _params?: any, _query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'drivers', action: 'payout-preferences', error: 'actor ID is required' };
+  const profile = getProfile(userId);
+  if (!profile) return { module: 'drivers', action: 'payout-preferences', error: 'driver not found' };
+
+  const validMethods = new Set(['bank_transfer', 'check', 'paypal']);
+  const payoutMethod = validMethods.has(body?.payoutMethod) ? body.payoutMethod : undefined;
+  const autoPayouts = typeof body?.autoPayouts === 'boolean' ? body.autoPayouts : undefined;
+
+  markStoreDirty();
+  return {
+    module: 'drivers',
+    action: 'payout-preferences',
+    ok: true,
+    preferences: { payoutMethod: payoutMethod || 'bank_transfer', autoPayouts: autoPayouts ?? true }
+  };
 }
