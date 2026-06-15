@@ -59,6 +59,8 @@ const MINIMUM_FARES = {
   COMFORT: 10,
   PREMIUM: 18
 };
+const MIN_VOICE_COMMAND_CONFIDENCE = 0.5;
+const CANCELLATION_CONFIRMATION_RESPONSES = new Set(['yes', 'yes please', 'confirm', 'confirmed']);
 const ROUTE_DASH_FRAMES = [
   [0, 4, 3],
   [0.6, 4, 2.4],
@@ -3084,6 +3086,64 @@ function switchPanelTab(tab) {
   }
 }
 
+let voiceAlertsEnabled = true;
+
+function triggerSpokenAlert(spokenAlertState) {
+  const text = typeof spokenAlertState === 'string' ? spokenAlertState.trim() : '';
+  if (!voiceAlertsEnabled || !text || typeof SpeechSynthesisUtterance === 'undefined' || !window.speechSynthesis) return;
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 1;
+  utterance.pitch = 1;
+  utterance.volume = 1;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utterance);
+}
+
+function handleVoiceCommandResult(transcript, confidence) {
+  const command = String(transcript || '').toLowerCase().trim();
+  if (!command || confidence < MIN_VOICE_COMMAND_CONFIDENCE) return;
+
+  if (command.includes('cancel') || CANCELLATION_CONFIRMATION_RESPONSES.has(command)) {
+    if (currentRide && ['requested', 'accepted', 'assigned', 'arrived_at_pickup'].includes(normalizeRideStatus(currentRide.status))) {
+      handleCancelRideClick();
+      const spokenAlertState = 'Cancellation dialog opened.';
+      triggerSpokenAlert(spokenAlertState);
+    }
+  }
+}
+
+function setupVoiceControls() {
+  const voiceAlertsToggle = document.getElementById('voice-alerts-toggle');
+  const voiceCommandButton = document.getElementById('btn-voice-command');
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (voiceAlertsToggle instanceof HTMLInputElement) {
+    voiceAlertsEnabled = voiceAlertsToggle.checked;
+    voiceAlertsToggle.addEventListener('change', () => {
+      voiceAlertsEnabled = voiceAlertsToggle.checked;
+    });
+  }
+
+  if (!voiceCommandButton) return;
+  if (!SpeechRecognition) {
+    voiceCommandButton.setAttribute('disabled', 'true');
+    voiceCommandButton.setAttribute('title', 'Voice recognition is not supported in this browser');
+    return;
+  }
+
+  voiceCommandButton.addEventListener('click', () => {
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.maxAlternatives = 1;
+    recognition.interimResults = false;
+    recognition.onresult = event => {
+      const result = event.results?.[0]?.[0];
+      handleVoiceCommandResult(result?.transcript || '', Number(result?.confidence || 0));
+    };
+    recognition.start();
+  });
+}
+
 function setupHandlers() {
   document.getElementById('logout-button')?.addEventListener('click', handleLogout);
   document.getElementById('request-ride-button')?.addEventListener('click', () => {
@@ -3338,6 +3398,7 @@ function setupHandlers() {
 
   // History load more
   document.getElementById('history-load-more')?.addEventListener('click', handleLoadMoreHistory);
+  setupVoiceControls();
 }
 
 window.addEventListener('load', async () => {
