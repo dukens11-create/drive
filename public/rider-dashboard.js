@@ -1340,10 +1340,7 @@ function renderRideState() {
     renderDriverCardDetails(activeDriver, currentRide.etaMinutes || currentRide.minutes || 0);
     const statusText = String(currentRide.driverStatus || '').trim();
     const distanceText = formatDistanceAway(currentRide.distanceAway);
-    const coordinateText = currentRide.driverLocation
-      ? `${Number(currentRide.driverLocation.lat).toFixed(5)}, ${Number(currentRide.driverLocation.lng).toFixed(5)}`
-      : '';
-    safeSetText('driver-location', [distanceText, statusText, coordinateText].filter(Boolean).join(' • ') || '--');
+    safeSetText('driver-location', [distanceText, statusText].filter(Boolean).join(' • ') || '--');
     if (distanceText) animateNumericText('driver-countdown', distanceText);
     if (!etaCountdownIntervalId) animateNumericText('driver-eta', formatMinutes(currentRide.etaMinutes || currentRide.minutes || 0));
   }
