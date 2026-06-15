@@ -1772,7 +1772,7 @@ input {
 }
 
 @keyframes toastSlideOut {
-  from { opacity: 1; transform: translateX(0); max-height: 80px; margin-bottom: 0; }
+  from { opacity: 1; transform: translateX(0); max-height: 120px; margin-bottom: 0; }
   to   { opacity: 0; transform: translateX(32px); max-height: 0; margin-bottom: -10px; }
 }
 
@@ -1791,7 +1791,7 @@ input {
   }
 
   @keyframes toastSlideOut {
-    from { opacity: 1; transform: translateY(0); max-height: 80px; }
+    from { opacity: 1; transform: translateY(0); max-height: 120px; }
     to   { opacity: 0; transform: translateY(16px); max-height: 0; }
   }
 }

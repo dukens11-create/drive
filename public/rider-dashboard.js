@@ -42,6 +42,7 @@ const DRIVER_START_POSITION_OFFSET = 0.04; // ~2–3 miles in lat/lng degrees
 const DRIVER_ASSIGN_DELAY_MIN_MS = 3000;
 const DRIVER_ASSIGN_DELAY_MAX_MS = 5000;
 const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'arrived_at_pickup', 'started'];
+const TOAST_MAX_VISIBLE = 3;
 const LONG_DISTANCE_WARNING_MINUTES = 360;
 const SUPPORTED_COUNTRY = 'United States';
 const MAX_RIDE_DISTANCE_MILES = {
@@ -1327,17 +1328,18 @@ function showToast(message, type = 'info', duration = 4000) {
   const container = document.getElementById('toast-container');
   if (!container) return;
 
-  while (activeToasts.length >= 3) {
+  while (activeToasts.length >= TOAST_MAX_VISIBLE) {
     const oldest = activeToasts.shift();
     oldest?.remove();
   }
 
   const iconMap = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
+  const iconLabel = { info: 'Info', success: 'Success', error: 'Error', warning: 'Warning' };
   const toast = document.createElement('div');
   toast.className = `toast-item toast-item--${type}`;
   toast.setAttribute('role', 'status');
   toast.innerHTML =
-    `<span class="toast-icon" aria-hidden="true">${iconMap[type] || 'ℹ️'}</span>` +
+    `<span class="toast-icon" role="img" aria-label="${iconLabel[type] || 'Info'}">${iconMap[type] || 'ℹ️'}</span>` +
     `<span class="toast-message">${message}</span>` +
     `<button class="toast-close" aria-label="Dismiss notification" type="button">×</button>`;
 
@@ -2311,6 +2313,7 @@ async function handleCancelRide() {
     const canceledRide = await cancelRide(rideId);
     if (canceledRide) {
       console.log('[Cancel Ride] Ride cancelled:', rideId);
+      updateSharedRide(rideId, { status: 'canceled', lifecycleState: 'canceled', canceledAt: new Date().toISOString() });
       currentRide = null;
       rides = rides.filter(r => r.id !== rideId);
       renderRideState();
