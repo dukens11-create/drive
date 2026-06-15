@@ -1200,6 +1200,23 @@ async function requestRide(pickup, destination) {
     };
     try {
       console.log('[Ride Booking] Payload:', requestBody);
+      if (scheduleState.isScheduled) {
+        const scheduled = await fetchJson('/api/scheduled/book', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify(requestBody)
+        });
+        console.log('[Ride Booking] Scheduled API response:', { status: scheduled.response.status, data: scheduled.data });
+        if (scheduled.response.ok && scheduled.data?.id) {
+          return upsertSharedRide({
+            ...baseRide,
+            ...scheduled.data,
+            pickupLabel: scheduled.data.pickupLabel || scheduled.data.pickupAddress || baseRide.pickupLabel,
+            destinationLabel: scheduled.data.destinationLabel || scheduled.data.dropoffAddress || baseRide.destinationLabel,
+            fareDetails: baseRide.fareDetails
+          });
+        }
+      }
       const { response, data } = await fetchJson('/api/rides', {
         method: 'POST',
         headers: getAuthHeaders(),
@@ -2526,9 +2543,9 @@ function persistSavedPlaces() {
 
 async function fetchSavedPlaces() {
   loadSavedPlaces();
-  if (accessToken && currentUser?.id) {
+  if (accessToken) {
     try {
-      const { response, data } = await fetchJson(`/api/users/${currentUser.id}/places`, { headers: getAuthHeaders() });
+      const { response, data } = await fetchJson('/api/riders/places', { headers: getAuthHeaders() });
       if (response.ok && Array.isArray(data?.places)) {
         savedPlaces = data.places;
         persistSavedPlaces();
@@ -2551,9 +2568,9 @@ async function saveSavedPlace(place) {
   }
   persistSavedPlaces();
   console.log('[Saved Places] Saved place:', place);
-  if (accessToken && currentUser?.id) {
+  if (accessToken) {
     try {
-      await fetchJson(`/api/users/${currentUser.id}/places`, {
+      await fetchJson('/api/riders/places', {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify({ places: savedPlaces })
@@ -2568,9 +2585,9 @@ async function deleteSavedPlace(placeId) {
   savedPlaces = savedPlaces.filter(p => p.id !== placeId);
   persistSavedPlaces();
   console.log('[Saved Places] Deleted place:', placeId);
-  if (accessToken && currentUser?.id) {
+  if (accessToken) {
     try {
-      await fetchJson(`/api/users/${currentUser.id}/places`, {
+      await fetchJson('/api/riders/places', {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify({ places: savedPlaces })
@@ -2773,8 +2790,8 @@ async function handlePlaceModalSave() {
   }
 
   // Check max favorites (exclude the current place being edited)
-  if (type === 'favorite' && !placeModalEditId) {
-    const favCount = savedPlaces.filter(p => p.type === 'favorite').length;
+  if (type === 'favorite') {
+    const favCount = savedPlaces.filter(p => p.type === 'favorite' && p.id !== placeModalEditId).length;
     if (favCount >= MAX_FAVORITE_PLACES) { showError(`You can save up to ${MAX_FAVORITE_PLACES} favorite places.`); return; }
   }
 
@@ -2946,9 +2963,9 @@ function applyScheduleQuickOption(offsetDays) {
 async function fetchScheduledRides() {
   if (accessToken) {
     try {
-      const { response, data } = await fetchJson('/api/rides?status=scheduled', { headers: getAuthHeaders() });
-      if (response.ok && Array.isArray(data?.rides)) {
-        scheduleState.scheduledRides = data.rides;
+      const { response, data } = await fetchJson('/api/scheduled/mine', { headers: getAuthHeaders() });
+      if (response.ok && Array.isArray(data)) {
+        scheduleState.scheduledRides = data;
         console.log('[Schedule] Fetched scheduled rides:', scheduleState.scheduledRides.length);
       }
     } catch (_error) {}
@@ -3024,13 +3041,13 @@ async function handleCancelScheduledRide(rideId) {
   console.log('[Schedule] Cancelling scheduled ride:', rideId);
   if (accessToken) {
     try {
-      await fetchJson(`/api/rides/${rideId}/cancel`, { method: 'POST', headers: getAuthHeaders() });
+      await fetchJson(`/api/scheduled/${rideId}/cancel`, { method: 'POST', headers: getAuthHeaders() });
     } catch (_error) {}
   }
   scheduleState.scheduledRides = scheduleState.scheduledRides.filter(r => r.id !== rideId);
   // Also remove from shared ride store
   const store = readSharedRideStore();
-  const updated = store.rides.map(r => r.id === rideId ? { ...r, status: 'cancelled' } : r);
+  const updated = store.rides.map(r => r.id === rideId ? { ...r, status: 'canceled' } : r);
   writeSharedRideStore({ rides: updated });
   renderScheduledRides();
   showPopup('Scheduled ride cancelled.');

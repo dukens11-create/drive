@@ -302,6 +302,20 @@ export type RiderFavoriteLocation = {
   lng: number;
 };
 
+export type RiderSavedPlace = {
+  id: string;
+  type: 'home' | 'work' | 'favorite';
+  label: string;
+  address: string;
+  coordinates?: {
+    lat: number;
+    lng: number;
+  };
+  notes?: string;
+  createdAt?: string;
+  lastUsed?: string;
+};
+
 export type RiderProfile = {
   userId: string;
   currentTripId?: string;
@@ -321,6 +335,7 @@ export type RiderProfile = {
   accessibilityNeeds?: string;
   updatedAt?: string;
   favoriteLocations: RiderFavoriteLocation[];
+  savedPlaces: RiderSavedPlace[];
   rating: number;
   reviewCount: number;
 };
