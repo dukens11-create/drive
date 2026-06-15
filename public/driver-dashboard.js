@@ -5413,16 +5413,24 @@ function startUiRefreshLoop() {
 
 // ─── Page Lifecycle ───────────────────────────────────────────────────────────
 window.addEventListener('load', async () => {
-  accessToken = localStorage.getItem('accessToken');
-  const refreshToken = localStorage.getItem('refreshToken');
-  const userStr = localStorage.getItem('user');
+  accessToken = localStorage.getItem('accessToken') || localStorage.getItem('drive.accessToken');
+  const refreshToken = localStorage.getItem('refreshToken') || localStorage.getItem('drive.refreshToken');
+  const userStr = localStorage.getItem('user') || localStorage.getItem('drive.user');
+
+  if (accessToken) {
+    console.log('[DRIVER] Access token found on page load');
+  } else {
+    console.warn('[DRIVER] Access token missing on page load');
+  }
+
   if (!accessToken || !refreshToken || !userStr) {
-    console.error('Driver dashboard auth session is incomplete', {
+    console.error('Driver dashboard auth session is incomplete — redirecting to login', {
       hasAccessToken: Boolean(accessToken),
       hasRefreshToken: Boolean(refreshToken),
       hasUser: Boolean(userStr)
     });
-    window.location.href = '/index.html';
+    sessionStorage.setItem('authRedirectMessage', 'Session expired. Please log in again.');
+    window.location.href = '/drivers.html';
     return;
   }
 
@@ -5434,9 +5442,11 @@ window.addEventListener('load', async () => {
     return;
   }
 
-  if (!currentUser?.id || currentUser.role !== 'driver') {
+  if (!currentUser?.id || (currentUser.role?.toLowerCase() || '') !== 'driver') {
     console.error('Invalid driver session role payload', { user: currentUser });
-    window.location.replace('/rider-dashboard.html');
+    console.log('[DRIVER] Auth redirect: role is not driver, redirecting to login');
+    sessionStorage.setItem('authRedirectMessage', 'Session expired. Please log in again.');
+    window.location.replace('/drivers.html');
     return;
   }
 
