@@ -603,6 +603,28 @@ function startSocketRealtimeSync() {
   realtimeSocket.on('dispatch:rides', payload => {
     applyRealtimeRides(payload?.items ?? payload);
   });
+  realtimeSocket.on('dispatch:ride_request', payload => {
+    const requestRide = payload?.ride ? normalizeRide(payload.ride, 0) : normalizeRide(payload, 0);
+    if (!requestRide?.id) return;
+    if (payload?.expiresAt) {
+      const expiresAtMs = new Date(payload.expiresAt).getTime();
+      if (Number.isFinite(expiresAtMs)) rideRequestExpirations.set(requestRide.id, expiresAtMs);
+    }
+    nearbyRideRequests = mergeRidesById([requestRide], nearbyRideRequests);
+    refreshRideRequestFeedState(nearbyRideRequests);
+    renderAvailableRideRequests();
+  });
+  realtimeSocket.on('dispatch:request_expired', payload => {
+    const rideId = String(payload?.rideId || '').trim();
+    if (!rideId) return;
+    nearbyRideRequests = nearbyRideRequests.filter(ride => ride.id !== rideId);
+    rideRequestExpirations.delete(rideId);
+    if (rideRequestPopupState.rideId === rideId && rideRequestPopupState.phase === 'requesting') {
+      const expiredRide = getPopupRideSnapshot() || normalizeRide({ id: rideId, status: 'requested' }, 0);
+      setRideRequestPopupPhase('expired', expiredRide);
+    }
+    renderAvailableRideRequests();
+  });
   realtimeSocket.on('dispatch:earnings', payload => {
     applyRealtimeEarnings(payload);
   });

@@ -101,6 +101,7 @@ export type Ride = {
   passengerReview?: string;
   passengerRatedAt?: string;
   arrivedAt?: string;
+  assignedAt?: string;
   waitingSince?: string;
   waitTimeoutAt?: string;
   startConfirmationAt?: string;

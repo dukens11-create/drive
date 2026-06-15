@@ -24,7 +24,14 @@ import { markDriverAssigned, releaseDriverFromRide } from './drivers.service';
 import { sendRealtimePushEvent } from './notifications.service';
 import { sendEmail } from './email.service';
 import { sendSMS } from './sms.service';
-import { publishDriverRealtimeEarnings, publishRideRealtimeUpdate, publishRiderRatingSubmitted } from './realtime-dispatch.service';
+import {
+  publishDispatchRequestExpired,
+  publishDispatchRequestRejected,
+  publishDispatchRideRequest,
+  publishDriverRealtimeEarnings,
+  publishRideRealtimeUpdate,
+  publishRiderRatingSubmitted
+} from './realtime-dispatch.service';
 import { logger } from '../utils/logger';
 import { notificationTemplates } from '../utils/fcm-templates';
 import { getPricingForVehicleType } from '../utils/vehicle-pricing';
@@ -38,6 +45,7 @@ const DEFAULT_WAIT_TIMEOUT_SECONDS = 5 * 60;
 const DEFAULT_CANCELLATION_FEE_CENTS = 400;
 const DEFAULT_NO_SHOW_FEE_CENTS = 500;
 const RIDE_REQUEST_EXPIRY_MS = 30_000;
+const RIDE_REQUEST_EXPIRY_DELAY_BUFFER_MS = 20;
 const MAX_FAVORITE_LOCATIONS = 10;
 const SHARED_RIDE_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const ETA_MINUTES_PER_MILE = 3.5;
@@ -53,6 +61,56 @@ type SharedRideTokenRecord = {
 };
 
 const sharedRideTokens = new Map<string, SharedRideTokenRecord>();
+const rideRequestExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function clearRideRequestExpiryTimer(requestId: string) {
+  const timer = rideRequestExpiryTimers.get(requestId);
+  if (timer) {
+    clearTimeout(timer);
+    rideRequestExpiryTimers.delete(requestId);
+  }
+}
+
+function scheduleRideRequestExpiry(request: RideRequest) {
+  clearRideRequestExpiryTimer(request.id);
+  const expiresInMs = Math.max(0, new Date(request.expiresAt).getTime() - Date.now());
+  const timer = setTimeout(() => {
+    rideRequestExpiryTimers.delete(request.id);
+    const latestRequest = store.rideRequests.get(request.id);
+    if (!latestRequest) return;
+    const previousStatus = latestRequest.status;
+    syncRideRequestState(latestRequest);
+    if (previousStatus === latestRequest.status || latestRequest.status !== 'expired') return;
+    const ride = store.rides.get(latestRequest.rideId);
+    latestRequest.broadcastedDrivers.forEach(driverId => {
+      publishDispatchRequestExpired(driverId, {
+        rideId: latestRequest.rideId,
+        requestId: latestRequest.id,
+        status: 'expired',
+        expiresAt: latestRequest.expiresAt,
+        updatedAt: latestRequest.updatedAt
+      });
+    });
+    if (ride && !ride.driverId && ride.status === 'requested') {
+      appendRideEvent(
+        ride,
+        'dispatch_expired',
+        'Driver search expired',
+        'No driver accepted your request in time. Please try requesting again.',
+        'system'
+      );
+      publishDispatchRequestRejected(ride.riderId, {
+        rideId: ride.id,
+        requestId: latestRequest.id,
+        reason: 'request_expired',
+        status: 'SEARCHING',
+        updatedAt: latestRequest.updatedAt
+      });
+      publishRideRealtimeUpdate(ride, 'ride_request_expired');
+    }
+  }, expiresInMs + RIDE_REQUEST_EXPIRY_DELAY_BUFFER_MS);
+  rideRequestExpiryTimers.set(request.id, timer);
+}
 
 function normalizeRequestedVehicleType(input: unknown): VehicleType | null {
   const normalized = String(input || '').trim().toLowerCase();
@@ -796,6 +854,7 @@ export async function request(body: any, _params?: any, _query?: any) {
     updatedAt: now
   };
   store.rideRequests.set(rideRequest.id, rideRequest);
+  const riderDisplayName = 'Rider';
   for (const candidate of dispatch.candidates) {
     const requestTemplate = notificationTemplates.RIDE_REQUEST({
       rideId: ride.id,
@@ -812,6 +871,30 @@ export async function request(body: any, _params?: any, _query?: any) {
       'ride_request',
       requestTemplate.data
     );
+    publishDispatchRideRequest(candidate.driverId, {
+      requestId: rideRequest.id,
+      rideId: ride.id,
+      expiresAt: rideRequest.expiresAt,
+      ride: {
+        id: ride.id,
+        rideId: ride.id,
+        riderId: ride.riderId,
+        riderName: riderDisplayName,
+        passengerName: riderDisplayName,
+        pickupAddress: ride.pickupAddress || '',
+        destinationAddress: ride.dropoffAddress || '',
+        pickupLat: ride.pickupLat,
+        pickupLng: ride.pickupLng,
+        dropoffLat: ride.dropoffLat,
+        dropoffLng: ride.dropoffLng,
+        fareEstimate: ride.fareEstimate,
+        distance: ride.miles,
+        minutes: ride.minutes,
+        status: 'requested',
+        createdAt: ride.createdAt
+      },
+      updatedAt: now
+    });
     const candidateUser = store.users.get(candidate.driverId);
     if (candidateUser?.phone) {
       try {
@@ -834,6 +917,7 @@ export async function request(body: any, _params?: any, _query?: any) {
       ride.driverId = assigned.profile.userId;
       assigned.profile.currentTripId = ride.id;
       ride.status = 'accepted';
+      ride.assignedAt = timestamp();
       ride.lifecycleState = 'arriving';
       rideRequest.acceptedDriverId = assigned.profile.userId;
       rideRequest.status = 'accepted';
@@ -862,6 +946,11 @@ export async function request(body: any, _params?: any, _query?: any) {
       );
       await sendRideConfirmationEmail(ride);
     }
+  }
+  if (rideRequest.status === 'broadcasting') {
+    scheduleRideRequestExpiry(rideRequest);
+  } else {
+    clearRideRequestExpiryTimer(rideRequest.id);
   }
   publishRideRealtimeUpdate(ride, 'ride_requested');
   const riderRide = toRiderRideSummary(ride);
@@ -1063,6 +1152,7 @@ export async function accept(body: any, params?: any, _query?: any) {
   const request = getRideRequestByRideId(ride.id);
   if (request) syncRideRequestState(request);
   if (request?.status === 'expired') {
+    clearRideRequestExpiryTimer(request.id);
     return { module: 'rides', action: 'accept', error: 'ride request expired' };
   }
   if (ride.status !== 'requested' && ride.status !== 'accepted') {
@@ -1077,7 +1167,10 @@ export async function accept(body: any, params?: any, _query?: any) {
     return { module: 'rides', action: 'accept', error: 'driver was not included in this request broadcast' };
   }
   if (ride.status === 'accepted' && ride.driverId === driverId) {
-    if (request) syncRideRequestState(request, 'accepted');
+    if (request) {
+      syncRideRequestState(request, 'accepted');
+      clearRideRequestExpiryTimer(request.id);
+    }
     return {
       module: 'rides',
       action: 'accept',
@@ -1088,19 +1181,37 @@ export async function accept(body: any, params?: any, _query?: any) {
     };
   }
   if (ride.status === 'accepted' && ride.driverId !== driverId) {
-    if (request) upsertRideRequestResponse(request, driverId, 'ignored');
+    if (request) {
+      upsertRideRequestResponse(request, driverId, 'ignored');
+      clearRideRequestExpiryTimer(request.id);
+    }
     return { module: 'rides', action: 'accept', error: 'ride is already accepted by another driver' };
   }
   const assigned = markDriverAssigned(driverId);
   if (!assigned.ok) return { module: 'rides', action: 'accept', error: assigned.error };
   ride.driverId = driverId;
   ride.status = 'accepted';
+  ride.assignedAt = timestamp();
   ride.lifecycleState = 'arriving';
   assigned.profile.currentTripId = ride.id;
   if (request) {
     request.acceptedDriverId = driverId;
     syncRideRequestState(request, 'accepted');
     upsertRideRequestResponse(request, driverId, 'accepted');
+    clearRideRequestExpiryTimer(request.id);
+    request.broadcastedDrivers
+      .filter(candidateDriverId => candidateDriverId !== driverId)
+      .forEach(candidateDriverId => {
+        upsertRideRequestResponse(request, candidateDriverId, 'ignored');
+        publishDispatchRequestExpired(candidateDriverId, {
+          rideId: ride.id,
+          requestId: request.id,
+          status: 'expired',
+          reason: 'accepted_by_other_driver',
+          acceptedDriverId: driverId,
+          updatedAt: request.updatedAt
+        });
+      });
   }
   appendRideEvent(ride, 'driver_assigned', 'Pickup approaching', 'Driver is heading to your pickup point now.', 'driver', driverId);
   const driverProfile = store.drivers.get(driverId);

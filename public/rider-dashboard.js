@@ -10,6 +10,7 @@ const SHARED_RIDE_STORAGE_KEY = 'drive.sharedRideRequests.v1';
 const SHARED_RIDE_STORAGE_VERSION = 1;
 const RIDE_POLL_INTERVAL_MS = 2500;
 const DRIVER_ASSIGNMENT_POLL_INTERVAL_MS = 3000;
+const REALTIME_ETA_REFRESH_INTERVAL_MS = 3000;
 const MIN_LOCATION_PUSH_INTERVAL_MS = 8000;
 const REQUEST_SUCCESS_ANIMATION_MS = 1200;
 const DEFAULT_PICKUP = { lat: 37.7749, lng: -122.4194 };
@@ -49,6 +50,9 @@ const DRIVER_ASSIGN_DELAY_MIN_MS = 3000;
 const DRIVER_ASSIGN_DELAY_MAX_MS = 5000;
 const DRIVER_LOCATION_UPDATE_INTERVAL_MS = 2500;
 const MILES_PER_LAT_DEGREE = 69; // approximate miles per degree of latitude at mid-latitudes
+const KM_TO_MILES = 0.621371;
+// Fallback ETA conversion for live socket updates when no fresh routing ETA is available yet.
+const ETA_MINUTES_PER_MILE = 3.5;
 const MIN_VALID_VEHICLE_YEAR = 1900;
 const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'assigned', 'arrived_at_pickup', 'started'];
 const DRIVER_VISIBLE_RIDE_STATUSES = ['assigned', 'arrived_at_pickup', 'started'];
@@ -142,6 +146,10 @@ let estimateRetryCount = 0;
 let estimateRetryTimerId = null;
 let latestKnownRiderPosition = null;
 let isFareEstimateLoading = false;
+let realtimeSocket = null;
+let realtimeSocketConnected = false;
+let realtimeEtaRefreshIntervalId = null;
+let subscribedRideRoomId = null;
 
 // ─── Promo Code State ──────────────────────────────────────────────────────
 let appliedPromo = null;
@@ -273,8 +281,29 @@ function formatArrivalTimeFromMinutes(minutes) {
   return etaDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+const UI_ID_ALIASES = {
+  'driver-assigned-card': 'driver-card',
+  'driver-name': 'driver-full-name',
+  'driver-rating': 'driver-rating-text',
+  'driver-status-text': 'driver-status',
+  'driver-distance-away': 'trip-distance',
+  'driver-eta': 'trip-eta',
+  'driver-countdown': 'driver-eta-time',
+  'driver-avatar': 'driver-photo',
+  'driver-vehicle': 'vehicle-make-model',
+  'driver-vehicle-specs': 'vehicle-color',
+  'driver-plate': 'vehicle-plate',
+  'driver-plate-vehicle': 'vehicle-plate',
+  'driver-vehicle-photo': 'vehicle-photo',
+  'driver-vehicle-icon': 'vehicle-icon'
+};
+
+function getNodeById(id) {
+  return document.getElementById(id) || document.getElementById(UI_ID_ALIASES[id] || '');
+}
+
 function animateNumericText(id, nextText) {
-  const node = document.getElementById(id);
+  const node = getNodeById(id);
   if (!node) return;
   if (node.textContent === nextText) return;
   node.classList.add('is-updating');
@@ -285,7 +314,7 @@ function animateNumericText(id, nextText) {
 }
 
 function safeSetText(id, value) {
-  const node = document.getElementById(id);
+  const node = getNodeById(id);
   if (node) node.textContent = value;
 }
 
@@ -341,7 +370,7 @@ function getDriverVehicleDisplay(vehicle = {}) {
 }
 
 function renderDriverCardDetails(driver = {}, etaMinutes = 0) {
-  const assignedCard = document.getElementById('driver-assigned-card');
+  const assignedCard = getNodeById('driver-assigned-card');
   if (!assignedCard) return;
   const fallbackVehicle = {
     make: driver.vehicleMake,
@@ -378,7 +407,7 @@ function renderDriverCardDetails(driver = {}, etaMinutes = 0) {
     animateNumericText('driver-countdown', formatMinutes(etaMinutes || currentRide?.etaMinutes || currentRide?.minutes || 0));
   }
 
-  const avatarImage = document.getElementById('driver-avatar');
+  const avatarImage = getNodeById('driver-avatar');
   const avatarInitial = assignedCard.querySelector('.driver-avatar-initial');
   if (avatarImage) {
     const profilePhotoUrl = driver.profilePhotoUrl || driver.photoUrl || driver.photo || '';
@@ -397,8 +426,8 @@ function renderDriverCardDetails(driver = {}, etaMinutes = 0) {
     }
   }
 
-  const vehiclePhoto = document.getElementById('driver-vehicle-photo');
-  const vehicleIcon = document.getElementById('driver-vehicle-icon');
+  const vehiclePhoto = getNodeById('driver-vehicle-photo');
+  const vehicleIcon = getNodeById('driver-vehicle-icon');
   if (vehiclePhoto) {
     vehiclePhoto.onerror = () => {
       vehiclePhoto.classList.add('d-none');
@@ -1442,7 +1471,7 @@ function renderRideState() {
   setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(normalizeRideStatus(currentRide.status))));
   document.getElementById('ride-empty-state')?.classList.toggle('d-none', rides.some(ride => ride.riderId === currentUser?.id));
 
-  const assignedCard = document.getElementById('driver-assigned-card');
+  const assignedCard = getNodeById('driver-assigned-card');
   const showDriverCard = Boolean(currentRide && DRIVER_VISIBLE_RIDE_STATUSES.includes(normalizeRideStatus(currentRide.status)));
   const rideStatus = normalizeRideStatus(currentRide?.status || '');
   const wasHidden = assignedCard?.classList.contains('d-none');
@@ -2640,11 +2669,127 @@ async function syncRides() {
   selectCurrentRide();
   const normalizedStatus = normalizeRideStatus(currentRide?.status);
   if (currentRide?.id && normalizedStatus === 'requested') {
-    startPollingForDriver(currentRide.id);
+    if (!realtimeSocketConnected) startPollingForDriver(currentRide.id);
+    if (realtimeSocketConnected) subscribeRideRoom(currentRide.id);
   } else if (!currentRide?.id || TERMINAL_RIDE_STATUSES.includes(normalizedStatus) || DRIVER_VISIBLE_RIDE_STATUSES.includes(normalizedStatus)) {
     stopPollingForDriver();
+    if (currentRide?.id && realtimeSocketConnected) subscribeRideRoom(currentRide.id);
   }
   renderRideState();
+}
+
+function subscribeRideRoom(rideId) {
+  const normalizedRideId = String(rideId || '').trim();
+  if (!realtimeSocket || !realtimeSocketConnected || !normalizedRideId) return;
+  if (subscribedRideRoomId === normalizedRideId) return;
+  realtimeSocket.emit('ride:join', { rideId: normalizedRideId });
+  subscribedRideRoomId = normalizedRideId;
+}
+
+function applyRealtimeRideUpdate(nextRideLike) {
+  const nextRide = normalizeRide(nextRideLike);
+  if (!nextRide?.id) return;
+  const previousStatus = normalizeRideStatus(currentRide?.status);
+  currentRide = nextRide;
+  rides = mergeRides([nextRide], readSharedRideStore().rides);
+  writeSharedRideStore({ rides });
+  renderRideState();
+  subscribeRideRoom(nextRide.id);
+  const nextStatus = normalizeRideStatus(nextRide.status);
+  if (DRIVER_VISIBLE_RIDE_STATUSES.includes(nextStatus) && previousStatus !== nextStatus) {
+    stopPollingForDriver();
+  } else if (TERMINAL_RIDE_STATUSES.includes(nextStatus)) {
+    stopPollingForDriver();
+  }
+}
+
+function applyRealtimeDriverLocation(payload) {
+  const rideId = String(payload?.rideId || '').trim();
+  if (!rideId) return;
+  const baseRide = currentRide?.id === rideId
+    ? currentRide
+    : rides.find(ride => ride.id === rideId);
+  if (!baseRide) return;
+  const lat = Number(payload?.lat);
+  const lng = Number(payload?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  const previousLocation = baseRide.driverLocation || {};
+  const heading = Number.isFinite(Number(payload?.heading))
+    ? normalizeHeading(Number(payload.heading))
+    : (Number.isFinite(Number(previousLocation.heading)) ? Number(previousLocation.heading) : null);
+  const distanceMiles = calculateDistanceKm(lat, lng, Number(baseRide.pickupLat), Number(baseRide.pickupLng)) * KM_TO_MILES;
+  const etaMinutes = Math.max(1, Math.round(distanceMiles * ETA_MINUTES_PER_MILE));
+  applyRealtimeRideUpdate({
+    ...baseRide,
+    distanceAway: Number(distanceMiles.toFixed(1)),
+    etaMinutes,
+    driverLocation: {
+      ...(baseRide.driverLocation || {}),
+      lat,
+      lng,
+      heading,
+      speed: Number.isFinite(Number(payload?.speed)) ? Number(payload.speed) : previousLocation.speed,
+      updatedAt: payload?.updatedAt || new Date().toISOString()
+    }
+  });
+}
+
+function stopRealtimeEtaRefresh() {
+  if (realtimeEtaRefreshIntervalId) {
+    window.clearInterval(realtimeEtaRefreshIntervalId);
+    realtimeEtaRefreshIntervalId = null;
+  }
+}
+
+function startRealtimeEtaRefresh() {
+  stopRealtimeEtaRefresh();
+  realtimeEtaRefreshIntervalId = window.setInterval(() => {
+    const status = normalizeRideStatus(currentRide?.status);
+    if (!currentRide?.id || !currentRide?.driverLocation) return;
+    if (!DRIVER_APPROACH_RIDE_STATUSES.includes(status)) return;
+    refreshMapRoute({ force: true }).catch(() => {});
+  }, REALTIME_ETA_REFRESH_INTERVAL_MS);
+}
+
+function startRideRealtimeSync() {
+  if (!accessToken || typeof window.io === 'undefined') return false;
+  try {
+    realtimeSocket = window.io({
+      auth: { token: accessToken }
+    });
+  } catch (_error) {
+    realtimeSocket = null;
+    return false;
+  }
+  realtimeSocket.on('connect', () => {
+    realtimeSocketConnected = true;
+    subscribedRideRoomId = null;
+    realtimeSocket.emit('dispatch:subscribe');
+    if (currentRide?.id) subscribeRideRoom(currentRide.id);
+    stopPollingForDriver();
+  });
+  realtimeSocket.on('disconnect', () => {
+    realtimeSocketConnected = false;
+    subscribedRideRoomId = null;
+  });
+  realtimeSocket.on('dispatch:trip_update', payload => {
+    if (!payload?.ride) return;
+    applyRealtimeRideUpdate(payload.ride);
+  });
+  realtimeSocket.on('dispatch:assignment_confirmed', payload => {
+    const ridePayload = payload?.ride || payload?.assignment || payload;
+    if (!ridePayload) return;
+    applyRealtimeRideUpdate(ridePayload);
+  });
+  realtimeSocket.on('dispatch:request_rejected', payload => {
+    if (!payload?.rideId || payload.rideId !== currentRide?.id) return;
+    showToast('No driver accepted in time. Still searching…', 'warning');
+  });
+  realtimeSocket.on('ride:driver_location', payload => {
+    applyRealtimeDriverLocation(payload);
+  });
+  startRealtimeEtaRefresh();
+  return true;
 }
 
 async function pollForDriverAssignment(rideId) {
@@ -2824,7 +2969,10 @@ async function handleRequestRide() {
     }
     showToast('Searching for nearby drivers...', 'info');
 
-    if (!scheduleState.isScheduled && currentRide?.id) startPollingForDriver(currentRide.id);
+    if (!scheduleState.isScheduled && currentRide?.id) {
+      if (realtimeSocketConnected) subscribeRideRoom(currentRide.id);
+      else startPollingForDriver(currentRide.id);
+    }
   } catch (err) {
     const errorMsg = (err instanceof Error && err.message) || 'Failed to book ride. Please try again.';
     if (bookingErrorEl) {
@@ -3038,7 +3186,7 @@ function applyRideStatusUpdate(rideId, patch) {
 
 function renderDriverCard(driver, etaMinutes) {
   if (!driver) return;
-  const card = document.getElementById('driver-assigned-card');
+  const card = getNodeById('driver-assigned-card');
   if (!card) return;
 
   const normalizedDriver = driver.vehicle && typeof driver.vehicle === 'object'
@@ -4882,6 +5030,11 @@ function setupHandlers() {
     if (ridePollingIntervalId) window.clearInterval(ridePollingIntervalId);
     if (estimateRetryTimerId) window.clearTimeout(estimateRetryTimerId);
     if (driverLocationSimIntervalId) window.clearInterval(driverLocationSimIntervalId);
+    if (realtimeSocket) {
+      realtimeSocket.disconnect();
+      realtimeSocket = null;
+    }
+    stopRealtimeEtaRefresh();
     if (mapState.routeAnimationTimer) window.clearInterval(mapState.routeAnimationTimer);
     if (mapState.pendingDriverAnimation) window.cancelAnimationFrame(mapState.pendingDriverAnimation);
     Object.values(geocodeDebounceTimers).forEach(timer => window.clearTimeout(timer));
@@ -4894,6 +5047,7 @@ window.addEventListener('load', async () => {
   if (!setupSession()) return;
   seedDefaultInputs();
   setupHandlers();
+  startRideRealtimeSync();
   showPromoSection(false); // Hidden until fare is estimated
   initializeVoiceRecognition();
   const toggle = document.getElementById('voice-alerts-toggle');
