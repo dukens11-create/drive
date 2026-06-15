@@ -10,6 +10,8 @@ export async function locationById(req:any,res:any){res.json(await service.locat
 export async function me(req:any,res:any){res.json(await service.me({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function currentTrip(req:any,res:any){res.json(await service.currentTrip({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function earnings(req:any,res:any){res.json(await service.earnings({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function earningsBreakdown(req:any,res:any){res.json(await service.earningsBreakdown({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function pricingInfo(req:any,res:any){res.json(await service.pricingInfo({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function documents(req:any,res:any){res.json(await service.documents({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function nearby(req:any,res:any){res.json(await service.nearby({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function createVehicle(req:any,res:any){res.json(await service.createVehicle({ ...req.body, actor: req.user }, req.params, req.query));}

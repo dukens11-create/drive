@@ -20,6 +20,7 @@ import {
   type VehicleType
 } from '../database/data.store';
 import { env } from '../config/env';
+import { getCommissionRate } from '../config/pricing';
 import { markDriverAssigned, releaseDriverFromRide } from './drivers.service';
 import { sendRealtimePushEvent } from './notifications.service';
 import { sendEmail } from './email.service';
@@ -28,6 +29,7 @@ import {
   publishDispatchRequestExpired,
   publishDispatchRequestRejected,
   publishDispatchRideRequest,
+  publishDriverEarningsUpdate,
   publishDriverRealtimeEarnings,
   publishRideRealtimeUpdate,
   publishRiderRatingSubmitted
@@ -600,7 +602,8 @@ function getRideReceipt(ride: Ride) {
   if (ride.status !== 'completed' && ride.status !== 'canceled') return null;
   const fare = ride.fareDetails || buildFareDetails(ride.miles, ride.minutes, {
     surgeMultiplier: ride.surgeMultiplier,
-    discountCents: ride.discountCents
+    discountCents: ride.discountCents,
+    serviceFeePercent: getCommissionRate(ride.vehicleType)
   });
   const surgeMultiplier = fare.surgeMultiplier || ride.surgeMultiplier || 1;
   const discountCents = amountToCents(fare.discounts || 0);
@@ -712,7 +715,8 @@ export async function estimate(body: any, _params?: any, _query?: any) {
   const requestedVehicleType = normalizeRequestedVehicleType(body?.vehicleType ?? body?.rideType ?? body?.vehiclePreference) || 'economy';
   const fare = buildFareDetails(route.distanceMiles, route.etaMinutes, {
     surgeMultiplier,
-    vehicleType: requestedVehicleType
+    vehicleType: requestedVehicleType,
+    serviceFeePercent: getCommissionRate(requestedVehicleType)
   });
   const fareEstimate = fare.fareEstimate;
   const fareEstimateRange = fare.fareEstimateRange;
@@ -1319,6 +1323,7 @@ export async function complete(body: any, _params?: any, _query?: any) {
   if (ride.status !== 'started') return { module: 'rides', action: 'complete', error: 'ride not started' };
 
   const completedAt = timestamp();
+  const commissionRate = getCommissionRate(ride.vehicleType);
   ride.status = 'completed';
   ride.lifecycleState = 'completed';
   ride.completedAt = completedAt;
@@ -1328,10 +1333,19 @@ export async function complete(body: any, _params?: any, _query?: any) {
     taxesCents: Number(body?.taxesCents || 0),
     tollsCents: Number(body?.tollsCents || 0),
     tipsCents: Number(body?.tipsCents || 0),
-    vehicleType: ride.vehicleType
+    vehicleType: ride.vehicleType,
+    serviceFeePercent: commissionRate
   });
   ride.fareEstimate = ride.fareDetails.total;
   ride.paymentStatus = 'settled_internal';
+
+  // Store tiered commission pricing breakdown on the ride record
+  ride.grossFare = amountToCents(ride.fareDetails.surgeFare);
+  ride.platformFee = amountToCents(ride.fareDetails.serviceFee);
+  ride.platformFeePercent = commissionRate;
+  ride.driverPayout = amountToCents(ride.fareDetails.driverEarnings);
+  ride.payoutStatus = 'processed';
+
   const request = getRideRequestByRideId(ride.id);
   if (request) syncRideRequestState(request, 'completed');
   appendRideEvent(ride, 'ride_completed', 'Ride completed', 'Your trip is complete and receipt details are ready.', 'driver', driverId, completedAt);
@@ -1359,6 +1373,24 @@ export async function complete(body: any, _params?: any, _query?: any) {
   const driverPayoutCents = amountToCents(ride.fareDetails.driverEarnings);
   if (ride.driverId) {
     pushWalletTx(ride.driverId, 'credit', driverPayoutCents, `ride:${ride.id}:payout`);
+
+    // Append DriverEarning record with full breakdown
+    store.driverEarnings.push({
+      id: makeId('earning'),
+      driverId: ride.driverId,
+      rideId: ride.id,
+      amountCents: driverPayoutCents,
+      grossFare: ride.grossFare,
+      platformFee: ride.platformFee,
+      platformFeePercent: commissionRate,
+      rideType: ride.vehicleType || 'economy',
+      tips: amountToCents(ride.fareDetails.tips),
+      taxes: amountToCents(ride.fareDetails.taxes),
+      tolls: amountToCents(ride.fareDetails.tolls),
+      completedAt,
+      createdAt: completedAt
+    });
+
     await pushRideNotification(
       ride.driverId,
       'earnings',
@@ -1447,7 +1479,17 @@ export async function complete(body: any, _params?: any, _query?: any) {
   if (riderProfile?.currentTripId === ride.id) riderProfile.currentTripId = undefined;
 
   publishRideRealtimeUpdate(ride, 'completed');
-  if (ride.driverId) publishDriverRealtimeEarnings(ride.driverId);
+  if (ride.driverId) {
+    publishDriverRealtimeEarnings(ride.driverId);
+    publishDriverEarningsUpdate(ride.driverId, {
+      driverPayout: ride.driverPayout!,
+      grossFare: ride.grossFare!,
+      platformFee: ride.platformFee!,
+      platformFeePercent: ride.platformFeePercent!,
+      rideId: ride.id,
+      tips: amountToCents(ride.fareDetails.tips)
+    });
+  }
   return { module: 'rides', action: 'complete', ok: true, ride: toRiderRideSummary(ride), grossCents, discountCents, amountCents, receipt: getRideReceipt(ride) };
 }
 
