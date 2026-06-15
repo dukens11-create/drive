@@ -107,6 +107,75 @@ test('payment capture updates rider and driver wallet balances', async () => {
   });
 });
 
+test('GET /api/config exposes stripe publishable key field', async () => {
+  await withServer(async baseUrl => {
+    const response = await fetch(`${baseUrl}/api/config`);
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(Object.prototype.hasOwnProperty.call(payload, 'stripePublishableKey'), true);
+    assert.equal(typeof payload.stripePublishableKey, 'string');
+  });
+});
+
+test('create-ride-payment creates payment intent for rider ride and marks ride pending', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signupAndToken(baseUrl, 'rider');
+
+    const rideRes = await fetch(`${baseUrl}/api/rides`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer ' + rider.token,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        pickupLat: 37.77,
+        pickupLng: -122.41,
+        dropoffLat: 37.79,
+        dropoffLng: -122.39,
+        rideType: 'economy',
+        riderId: rider.userId,
+        paymentMethod: 'card'
+      })
+    });
+    assert.equal(rideRes.status, 200);
+    const rideBody = await rideRes.json();
+    assert.equal(rideBody.ok, true);
+
+    const createPaymentRes = await fetch(`${baseUrl}/api/payments/create-ride-payment`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer ' + rider.token,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        rideId: rideBody.ride.id,
+        riderId: rider.userId,
+        paymentMethodType: 'card'
+      })
+    });
+    assert.equal(createPaymentRes.status, 200);
+    const paymentBody = await createPaymentRes.json();
+    assert.equal(paymentBody.ok, true);
+    assert.equal(paymentBody.action, 'create-ride-payment');
+    assert.equal(typeof paymentBody.clientSecret, 'string');
+    assert.equal(paymentBody.payment.rideId, rideBody.ride.id);
+
+    const rideDetailRes = await fetch(`${baseUrl}/api/rides/detail`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer ' + rider.token,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ rideId: rideBody.ride.id })
+    });
+    assert.equal(rideDetailRes.status, 200);
+    const rideDetail = await rideDetailRes.json();
+    assert.equal(rideDetail.ok, true);
+    assert.equal(rideDetail.ride.paymentStatus, 'pending');
+    assert.equal(rideDetail.ride.paymentIntentId, paymentBody.paymentIntentId);
+  });
+});
+
 test('stripe webhook captures payment by payment intent and is idempotent', async () => {
   await withServer(async baseUrl => {
     const rider = await signupAndToken(baseUrl, 'rider');

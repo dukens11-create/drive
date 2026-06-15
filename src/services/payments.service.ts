@@ -9,6 +9,8 @@ import { constructStripeEvent, getStripeSignatureHeader } from '../utils/stripe-
 import { getErrorDetails, logger } from '../utils';
 
 const PAYMENT_METHOD_TYPES = new Set<PaymentMethodType>(['card', 'apple_pay', 'google_pay', 'paypal', 'bank_transfer', 'wallet']);
+const AMOUNT_TOLERANCE_CENTS = 1;
+const MIN_RIDE_PAYMENT_AMOUNT_CENTS = 50;
 
 function normalizePaymentMethodType(value: any): PaymentMethodType | undefined {
   if (typeof value !== 'string') return undefined;
@@ -211,6 +213,55 @@ export async function create_intent(body: any, _params?: any, _query?: any) {
     }
     return { module: 'payments', action: 'create-intent', ok: false, error: 'stripe_unavailable', message: 'Payment processing unavailable. Try again later.' };
   }
+}
+
+export async function create_ride_payment(body: any, _params?: any, _query?: any) {
+  const rideId = typeof body?.rideId === 'string' ? body.rideId.trim() : '';
+  const riderId = typeof body?.riderId === 'string' ? body.riderId.trim() : '';
+  if (!rideId || !riderId) {
+    return { module: 'payments', action: 'create-ride-payment', error: 'rideId and riderId are required' };
+  }
+
+  const ride = store.rides.get(rideId);
+  if (!ride) return { module: 'payments', action: 'create-ride-payment', error: 'ride not found' };
+  if (ride.riderId !== riderId) {
+    return { module: 'payments', action: 'create-ride-payment', error: 'ride does not belong to rider' };
+  }
+
+  const paymentMethodType = normalizePaymentMethodType(body?.paymentMethodType || body?.paymentMethod || ride.paymentMethod || 'card');
+  if (paymentMethodType === 'wallet' || paymentMethodType === 'bank_transfer' || paymentMethodType === 'paypal') {
+    return { module: 'payments', action: 'create-ride-payment', error: 'unsupported ride payment method' };
+  }
+
+  const expectedAmountCents = Math.max(MIN_RIDE_PAYMENT_AMOUNT_CENTS, Math.round(Number(ride.fareDetails?.total ?? ride.fareEstimate ?? 0) * 100));
+  const providedAmountCents = Number(body?.amountCents ?? body?.amount ?? 0);
+  if (providedAmountCents > 0 && Math.abs(providedAmountCents - expectedAmountCents) > AMOUNT_TOLERANCE_CENTS) {
+    return { module: 'payments', action: 'create-ride-payment', error: 'payment amount mismatch' };
+  }
+
+  const intentResult = await create_intent({
+    ...body,
+    rideId,
+    riderId,
+    amountCents: expectedAmountCents,
+    currency: String(body?.currency || 'usd'),
+    paymentMethodType: paymentMethodType || 'card',
+    description: body?.description || `Payment for ride ${rideId}`
+  });
+
+  const paymentIntentId = (intentResult as any)?.paymentIntentId;
+  if ((intentResult as any)?.ok && paymentIntentId) {
+    ride.paymentStatus = 'pending';
+    ride.paymentIntentId = paymentIntentId;
+    ride.updatedAt = timestamp();
+    markStoreDirty();
+  }
+
+  return {
+    ...intentResult,
+    action: 'create-ride-payment',
+    amountCents: expectedAmountCents
+  };
 }
 
 export async function capture(body: any, _params?: any, _query?: any) {

@@ -565,7 +565,7 @@
 
                 <div class="payment-method-section" id="payment-method-section">
                   <div class="payment-method-header">
-                    <span class="payment-method-label">Pay with</span>
+                    <span class="payment-method-label">Payment Method</span>
                     <button type="button" class="payment-pill" id="payment-method-pill" aria-expanded="false" aria-controls="payment-method-dropdown" aria-haspopup="listbox">
                       <span id="payment-method-icon" aria-hidden="true">💳</span>
                       <span id="payment-method-text">Card</span>
@@ -590,6 +590,14 @@
                       <span>Cash</span>
                     </button>
                   </div>
+                </div>
+                <div id="payment-element-container" class="payment-element-container d-none">
+                  <div id="payment-element"></div>
+                  <div id="payment-message" class="payment-message d-none"></div>
+                </div>
+                <div id="payment-status" class="payment-status d-none">
+                  <span id="payment-status-text"></span>
+                  <span id="payment-status-icon" aria-hidden="true"></span>
                 </div>
 
                 <div class="button-group">
@@ -864,6 +872,7 @@
   </div>
 
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.js"></script>
+  <script src="https://js.stripe.com/v3/"></script>
   <script src="/rider-dashboard.js"></script>
 </body>
 </html>

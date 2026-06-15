@@ -113,7 +113,10 @@ export type Ride = {
   cancellationReason?: string;
   cancellationActorRole?: 'rider' | 'driver' | 'system';
   cancellationFeeCents?: number;
+  paymentMethod?: 'card' | 'apple_pay' | 'google_pay' | 'cash';
   paymentStatus?: string;
+  paymentIntentId?: string;
+  chargeId?: string;
   fareDetails?: RideFareDetails;
   events?: RideEvent[];
   createdAt: string;

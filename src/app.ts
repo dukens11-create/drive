@@ -32,10 +32,11 @@ export function createApp() {
     app.use(helmet({
       contentSecurityPolicy: {
         directives: {
-          scriptSrc: ["'self'", 'https://api.mapbox.com'],
+          scriptSrc: ["'self'", 'https://api.mapbox.com', 'https://js.stripe.com'],
           styleSrc: ["'self'", "'unsafe-inline'", 'https://cdn.jsdelivr.net', 'https://api.mapbox.com'],
-          imgSrc: ["'self'", 'data:', 'blob:', 'https://api.mapbox.com', 'https://*.tiles.mapbox.com'],
+          imgSrc: ["'self'", 'data:', 'blob:', 'https://api.mapbox.com', 'https://*.tiles.mapbox.com', 'https://*.stripe.com'],
           workerSrc: ["'self'", 'blob:'],
+          frameSrc: ["'self'", 'https://js.stripe.com', 'https://hooks.stripe.com'],
           connectSrc: [
             "'self'",
             'https://*.firebaseio.com',
@@ -43,7 +44,9 @@ export function createApp() {
             'wss://*.supabase.co',
             'https://api.mapbox.com',
             'https://events.mapbox.com',
-            'https://*.tiles.mapbox.com'
+            'https://*.tiles.mapbox.com',
+            'https://api.stripe.com',
+            'https://r.stripe.com'
           ]
         }
       }
@@ -90,9 +93,12 @@ export function createApp() {
     logger.debug('serving static files', { publicPath });
     app.use(express.static(publicPath));
 
-    app.get('/health', (_, res) => res.json({ ok: true, service: 'flupflap-ride-v7' }));
+    app.get('/health', (_, res) => res.json({ ok: true, service: 'drive-api' }));
     app.get('/livez', (_, res) => res.json({ ok: true }));
     app.get('/readyz', (_, res) => res.json({ ok: true, uptimeSeconds: parseFloat(process.uptime().toFixed(3)) }));
+    app.get('/api/config', (_, res) => res.json({
+      stripePublishableKey: env.stripePublishableKey || ''
+    }));
 
     const routers = [
       authRoutes,
