@@ -35,15 +35,15 @@ function sanitizeRider(profile: RiderProfile) {
   return {
     ...profile,
     favoriteLocations: Array.isArray(profile.favoriteLocations) ? profile.favoriteLocations : [],
-    savedPlaces: Array.isArray((profile as any).savedPlaces) ? (profile as any).savedPlaces : []
+    savedPlaces: Array.isArray(profile.savedPlaces) ? profile.savedPlaces : []
   };
 }
 
 function getSavedPlaces(profile: RiderProfile) {
-  if (!Array.isArray((profile as any).savedPlaces)) {
-    (profile as any).savedPlaces = [];
+  if (!Array.isArray(profile.savedPlaces)) {
+    profile.savedPlaces = [];
   }
-  return (profile as any).savedPlaces as RiderSavedPlace[];
+  return profile.savedPlaces;
 }
 
 function normalizeSavedPlace(place: any): RiderSavedPlace | null {
