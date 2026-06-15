@@ -242,6 +242,28 @@ function createEmptyRouteCache() {
   };
 }
 
+async function submitRideDecline(ride, reason = 'declined') {
+  if (!ride?.id || !accessToken || reason === 'expired') return;
+  console.log(`[DRIVER] Decline clicked for ride ${ride.id}`);
+  try {
+    const { data } = await fetchJson(`${API_BASE_URL}/api/rides/${encodeURIComponent(ride.id)}/decline`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + accessToken
+      },
+      body: JSON.stringify({ rideId: ride.id, reason })
+    });
+    if (data?.ok) {
+      console.log(`[DRIVER] Ride ${ride.id} declined successfully`);
+      return;
+    }
+    console.log(`[DRIVER] Decline failed: ${data?.error || 'Unable to decline ride.'}`);
+  } catch (error) {
+    console.log(`[DRIVER] Decline error: ${error?.message || 'Unable to decline ride.'}`);
+  }
+}
+
 let routeCache = createEmptyRouteCache();
 let rideRequestCountdownIntervalId = null;
 let rideRequestFeedInitialized = false;
@@ -614,6 +636,7 @@ function startSocketRealtimeSync() {
   realtimeSocket.on('dispatch:ride_request', payload => {
     const requestRide = payload?.ride ? normalizeRide(payload.ride, 0) : normalizeRide(payload, 0);
     if (!requestRide?.id) return;
+    console.log(`[DRIVER] Received ride request for ride ${requestRide.id}`);
     if (payload?.expiresAt) {
       const expiresAtMs = new Date(payload.expiresAt).getTime();
       if (Number.isFinite(expiresAtMs)) rideRequestExpirations.set(requestRide.id, expiresAtMs);
@@ -621,6 +644,19 @@ function startSocketRealtimeSync() {
     nearbyRideRequests = mergeRidesById([requestRide], nearbyRideRequests);
     refreshRideRequestFeedState(nearbyRideRequests);
     renderAvailableRideRequests();
+  });
+  realtimeSocket.on('dispatch:ride_assigned', payload => {
+    const assignedRide = payload?.ride ? normalizeRide(payload.ride, 0) : null;
+    if (!assignedRide?.id) return;
+    upsertSharedRide(assignedRide);
+    renderAvailableRideRequests();
+  });
+  realtimeSocket.on('dispatch:request_rejected', payload => {
+    const rideId = String(payload?.rideId || '').trim();
+    if (!rideId) return;
+    if (rideRequestPopupState.rideId === rideId) {
+      hideRideRequestPopup();
+    }
   });
   realtimeSocket.on('dispatch:request_expired', payload => {
     const rideId = String(payload?.rideId || '').trim();
@@ -630,6 +666,7 @@ function startSocketRealtimeSync() {
     if (rideRequestPopupState.rideId === rideId && rideRequestPopupState.phase === 'requesting') {
       const expiredRide = getPopupRideSnapshot() || normalizeRide({ id: rideId, status: 'requested' }, 0);
       setRideRequestPopupPhase('expired', expiredRide);
+      console.log('[DRIVER] Ride request popup expired');
     }
     renderAvailableRideRequests();
   });
@@ -717,6 +754,7 @@ async function syncDriverLocationToBackends(location, { allowQueue = true } = {}
 
   let ok = true;
   try {
+    console.log(`[DRIVER] Sending location: ${payload.lat}, ${payload.lng}`);
     const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/location`, {
       method: 'POST',
       headers: {
@@ -1736,6 +1774,9 @@ function declineRideRequest(ride, reason = 'declined') {
   // the rider dashboard knows to keep searching for another driver.
   if (reason !== 'expired') {
     publishSharedRideStatus(ride.id, 'rejected');
+    submitRideDecline(ride, reason).catch(() => {});
+  } else {
+    console.log('[DRIVER] Ride request popup expired');
   }
   renderAvailableRideRequests();
   showAlert(reason === 'expired' ? 'warning' : 'info', reason === 'expired'
@@ -2002,6 +2043,7 @@ function syncIncomingRideRequestPopup() {
   if (rideRequestPopupState.rideId !== activeRide.id || rideRequestPopupState.phase === 'hidden') {
     rideRequestPopupState.lowTimeCuePlayed = false;
     setRideRequestPopupPhase('requesting', activeRide, { expiresAt: nextExpiresAt, lowTimeCuePlayed: false });
+    console.log(`[DRIVER] Ride request popup shown for ride ${activeRide.id}`);
     return;
   }
   rideRequestPopupState.rideSnapshot = { ...activeRide };
@@ -3010,6 +3052,7 @@ async function startLocationTracking({ reason = 'start' } = {}) {
     return;
   }
   if (gpsWatchId !== null) return; // already tracking
+  console.log('[DRIVER] Starting location tracking');
 
   // Check/request permission
   try {
@@ -3067,6 +3110,7 @@ function stopLocationTracking() {
     gpsPollIntervalId = null;
   }
   cancelMarkerAnimation();
+  console.log('[DRIVER] Location tracking stopped');
 }
 
 async function restartLocationTracking({ reason = 'restart' } = {}) {
@@ -3183,6 +3227,10 @@ function getCurrentAvailability() {
   return currentProfile?.availabilityStatus || 'offline';
 }
 
+function isOnlineAvailabilityStatus(status) {
+  return status === 'online' || status === 'assigned';
+}
+
 function renderDashboardSummary() {
   const requestsCount = nearbyRideRequests.length;
   const nearbyCount = document.getElementById('nearby-requests-count');
@@ -3198,7 +3246,7 @@ function renderAvailabilityControls() {
   const pill = document.getElementById('availability-pill');
   const button = document.getElementById('toggle-availability-button');
   const statusHeadline = document.getElementById('status-headline');
-  const isOnline = availability === 'online';
+  const isOnline = isOnlineAvailabilityStatus(availability);
   pill.textContent = `Availability: ${availability.toUpperCase()}`;
   pill.dataset.state = isOnline ? 'online' : 'offline';
   button.dataset.state = isOnline ? 'online' : 'offline';
@@ -3206,7 +3254,9 @@ function renderAvailabilityControls() {
     ? '<i class="bi bi-pause-circle"></i> Go Offline'
     : '<i class="bi bi-broadcast"></i> Go Online';
   if (statusHeadline) {
-    statusHeadline.textContent = isOnline ? 'Ready to accept trips' : 'Offline standby';
+    statusHeadline.textContent = availability === 'assigned'
+      ? 'Active trip in progress'
+      : isOnline ? 'Ready to accept trips' : 'Offline standby';
   }
 }
 
@@ -3829,6 +3879,9 @@ function renderRideDetailsModal(ride) {
   const passengerRating = Number(ride.passengerRating);
   const passengerRatingText = Number.isFinite(passengerRating) ? `${passengerRating.toFixed(1)} ★` : 'N/A';
   const lifecycleLabel = formatLifecycleLabel(ride.lifecycleState, ride.status);
+  const vehicle = currentProfile?.vehicle || ride?.driver?.vehicle || {};
+  const vehicleLabel = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ');
+  const vehicleMeta = [vehicle.color, vehicle.plateNumber || vehicle.licensePlate || vehicle.plate].filter(Boolean).join(' • ');
   const timeline = (Array.isArray(ride.events) ? ride.events : [])
     .slice()
     .reverse()
@@ -3851,6 +3904,10 @@ function renderRideDetailsModal(ride) {
     <div><strong>Passenger:</strong> ${escapeHtml(ride.passengerName || 'Guest Rider')}</div>
     <div><strong>Passenger Rating:</strong> ${passengerRatingText}</div>
     <div><strong>Ride Status:</strong> ${escapeHtml(lifecycleLabel)}</div>
+    ${vehicleLabel || vehicleMeta ? `
+    <div class="mt-2"><strong>Vehicle:</strong> ${escapeHtml(vehicleLabel || 'Vehicle details pending')}</div>
+    <div>${escapeHtml(vehicleMeta || '')}</div>
+    ` : ''}
     <div><strong>Pickup:</strong> ${escapeHtml(formatCoordinate(ride.pickupLat, ride.pickupLng))}</div>
     <div><strong>Dropoff:</strong> ${escapeHtml(formatCoordinate(ride.dropoffLat, ride.dropoffLng))}</div>
     <div><strong>Trip Distance:</strong> ${Number(ride.miles || 0).toFixed(2)} mi</div>
@@ -3929,10 +3986,16 @@ async function performRideFlowAction(actionPath, successMessage, payload = {}) {
 }
 
 function handleArrivedAtPickup() {
+  if (selectedRideForDetails?.id) {
+    console.log(`[DRIVER] Arrived at pickup for ride ${selectedRideForDetails.id}`);
+  }
   performRideFlowAction('arrive', 'Marked as arrived at pickup.');
 }
 
 function handleStartTrip() {
+  if (selectedRideForDetails?.id) {
+    console.log(`[DRIVER] Starting trip for ride ${selectedRideForDetails.id}`);
+  }
   openRideActionConfirmation({
     title: 'Start Trip',
     message: 'Confirm rider pickup and begin navigation to the destination.',
@@ -3941,6 +4004,9 @@ function handleStartTrip() {
 }
 
 function handleEndTrip() {
+  if (selectedRideForDetails?.id) {
+    console.log(`[DRIVER] Completing trip for ride ${selectedRideForDetails.id}`);
+  }
   openRideActionConfirmation({
     title: 'End Trip',
     message: 'Confirm trip completion at the destination and finalize payment.',
@@ -4025,6 +4091,7 @@ async function acceptRideById(rawRideId, options = {}) {
   if (rideIdInput) rideIdInput.value = rideId;
   acceptingRideIds.add(rideId);
   try {
+    console.log(`[DRIVER] Accept clicked for ride ${rideId}`);
     const { data } = await fetchJson(`${API_BASE_URL}/api/rides/${encodeURIComponent(rideId)}/accept`, {
       method: 'POST',
       headers: {
@@ -4053,6 +4120,7 @@ async function acceptRideById(rawRideId, options = {}) {
     } else {
       console.log(`[DRIVER] Accepted ride: ${rideId}, Rider: ${acceptedRide.passengerName || acceptedRide.riderName || 'Rider'}`);
     }
+    console.log(`[DRIVER] Ride ${rideId} accepted successfully`);
     emitRideRequestAction('accepted', acceptedRide, { source: options.source || 'manual' });
     // [REALTIME] Replace publishSharedRideStatus with a Firebase/Supabase write so
     // the rider dashboard sees "Driver assigned" in real time.
@@ -4906,9 +4974,10 @@ function handleSupportSubmit(event) {
 // ─── Availability ─────────────────────────────────────────────────────────────
 async function toggleAvailability() {
   const current = getCurrentAvailability();
-  const next = current === 'online' ? 'offline' : 'online';
+  const next = isOnlineAvailabilityStatus(current) ? 'offline' : 'online';
 
   try {
+    console.log(next === 'online' ? '[DRIVER] Go Online clicked' : '[DRIVER] Go Offline clicked');
     if (next === 'online') {
       await ensureDriverLocation();
       await startLocationTracking();
@@ -4925,6 +4994,7 @@ async function toggleAvailability() {
       body: JSON.stringify({ status: next })
     });
     if (!data?.ok) {
+      if (next === 'online') stopLocationTracking();
       showAlert('warning', data?.error || `Unable to go ${next}.`);
       return;
     }
@@ -4932,7 +5002,11 @@ async function toggleAvailability() {
     renderProfile();
     renderAvailabilityControls();
     showAlert('success', `You are now ${next}.`);
+    console.log(next === 'online'
+      ? `[DRIVER] Driver ${currentUser?.id || currentProfile?.userId || 'unknown'} is now ONLINE`
+      : `[DRIVER] Driver ${currentUser?.id || currentProfile?.userId || 'unknown'} is now OFFLINE`);
   } catch (_error) {
+    if (next === 'online') stopLocationTracking();
     showAlert('danger', `Unable to go ${next}.`);
   }
 }

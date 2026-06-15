@@ -5,6 +5,7 @@ import {
   genericSchema,
   rideAcceptSchema,
   rideAcceptPathSchema,
+  rideDeclinePathSchema,
   rideDriverCancelSchema,
   rideEstimateSchema,
   rideHistorySchema,
@@ -30,7 +31,9 @@ router.get('/:rideId', controller.detail);
 router.get('/:rideId/driver', controller.assignedDriver);
 router.post('/request', requireRole('rider'), validateBody(rideRequestSchema), controller.request);
 router.post('/:rideId/accept', requireRole('driver'), validateBody(rideAcceptPathSchema), controller.accept);
+router.post('/:rideId/decline', requireRole('driver'), validateBody(rideDeclinePathSchema), controller.decline);
 router.post('/:rideId/share', requireRole('rider', 'admin'), validateBody(genericSchema), controller.createShareLink);
+router.patch('/:rideId/status', requireRole('driver', 'rider', 'admin'), validateBody(rideStatusUpdateSchema), controller.updateStatus);
 router.put('/:rideId/status', requireRole('driver', 'rider', 'admin'), validateBody(rideStatusUpdateSchema), controller.updateStatus);
 router.post('/:rideId/rate', requireRole('driver', 'rider'), validateBody(rideRatePathSchema), controller.submitRating);
 router.post('/history', requireRole('rider'), validateBody(rideHistorySchema), controller.history);

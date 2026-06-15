@@ -12,6 +12,7 @@ export async function driverRideRequests(req: any, res: any) {
   return res.json(payload);
 }
 export async function accept(req: any, res: any) { res.json(await service.accept({ ...req.body, actor: req.user }, req.params, req.query)); }
+export async function decline(req: any, res: any) { res.json(await service.decline({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function updateStatus(req: any, res: any) { res.json(await service.updateStatus({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function arrive(req: any, res: any) { res.json(await service.arrive({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function start(req: any, res: any) { res.json(await service.start({ ...req.body, actor: req.user }, req.params, req.query)); }

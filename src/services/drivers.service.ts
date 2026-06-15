@@ -39,6 +39,7 @@ function canManageDriver(actor: any, targetDriverId: string) {
 }
 
 function createDefaultDriverProfile(userId: string): DriverProfile {
+  const createdAt = timestamp();
   return {
     userId,
     vehicleIds: [],
@@ -46,6 +47,8 @@ function createDefaultDriverProfile(userId: string): DriverProfile {
     verificationState: 'documents_pending',
     availabilityStatus: 'offline',
     available: false,
+    isOnline: false,
+    lastStatusChangeAt: createdAt,
     rating: 5,
     acceptanceRate: 1,
     cancellationRate: 0,
@@ -174,11 +177,13 @@ function sanitizeDriverVehicleProfile(vehicle: any, fallbackPlate?: string): Dri
   }
 
   return {
+    vehicleId: vehicle?.vehicleId,
     make,
     model,
     year,
     color,
     plateNumber,
+    licensePlate: plateNumber,
     type,
     photoUrl: photoUrl || undefined,
     lastUpdated: timestamp()
@@ -193,11 +198,13 @@ function buildDriverVehicleProfile(driverId: string) {
   const activeVehicle = getActiveDriverVehicle(driverId);
   if (!activeVehicle) return null;
   return {
+    vehicleId: activeVehicle.vehicleId,
     make: activeVehicle.make,
     model: activeVehicle.model,
     year: activeVehicle.year,
     color: activeVehicle.color,
     plateNumber: activeVehicle.licensePlate,
+    licensePlate: activeVehicle.licensePlate,
     type: activeVehicle.vehicleType === 'xl' ? 'suv' : activeVehicle.vehicleType,
     lastUpdated: activeVehicle.createdAt
   };
@@ -304,6 +311,8 @@ function syncProfileState(profile: any) {
   }
 
   profile.available = profile.availabilityStatus === 'online';
+  profile.isOnline = profile.availabilityStatus === 'online' || profile.availabilityStatus === 'assigned';
+  if (!profile.lastStatusChangeAt) profile.lastStatusChangeAt = timestamp();
 }
 
 function setAvailability(profile: any, next: 'offline' | 'online' | 'assigned' | 'unavailable') {
@@ -315,6 +324,14 @@ function setAvailability(profile: any, next: 'offline' | 'online' | 'assigned' |
   }
   profile.availabilityStatus = next;
   profile.available = next === 'online';
+  profile.isOnline = next === 'online' || next === 'assigned';
+  profile.lastStatusChangeAt = timestamp();
+  if (next === 'offline' || next === 'unavailable') {
+    const activeRide = profile.currentTripId ? store.rides.get(profile.currentTripId) : null;
+    if (!activeRide || !['accepted', 'arrived_at_pickup', 'started'].includes(activeRide.status)) {
+      profile.currentTripId = undefined;
+    }
+  }
   return { ok: true };
 }
 
@@ -398,6 +415,8 @@ export async function apply(body: any, _params?: any, _query?: any) {
     verificationState: 'documents_pending' as const,
     availabilityStatus: 'offline' as const,
     available: false,
+    isOnline: false,
+    lastStatusChangeAt: timestamp(),
     lat: body?.lat,
     lng: body?.lng,
     rating: 5,
@@ -641,7 +660,13 @@ export async function availability(body: any, _params?: any, _query?: any) {
   if ('error' in result) return { module: 'drivers', action: 'availability', error: result.error };
   markStoreDirty();
   publishDriverStatusChanged(userId);
-  return { module: 'drivers', action: 'availability', ok: true, profile };
+  if (requestedState === 'online') {
+    console.log(`[DRIVER] Driver ${userId} is now ONLINE`);
+  }
+  if (requestedState === 'offline') {
+    console.log(`[DRIVER] Driver ${userId} is now OFFLINE`);
+  }
+  return { module: 'drivers', action: 'availability', ok: true, success: true, profile };
 }
 
 export async function availabilityById(body: any, params?: any, query?: any) {
@@ -649,6 +674,14 @@ export async function availabilityById(body: any, params?: any, query?: any) {
   if (!driverId) return { module: 'drivers', action: 'availability', error: 'driverId is required' };
   if (!canManageDriver(body?.actor, driverId)) return { module: 'drivers', action: 'availability', error: 'forbidden' };
   return availability({ ...body, userId: driverId }, params, query);
+}
+
+export async function online(body: any, params?: any, query?: any) {
+  return availabilityById({ ...body, status: 'online' }, params, query);
+}
+
+export async function offline(body: any, params?: any, query?: any) {
+  return availabilityById({ ...body, status: 'offline' }, params, query);
 }
 
 export async function location(body: any, _params?: any, _query?: any) {
@@ -679,7 +712,8 @@ export async function location(body: any, _params?: any, _query?: any) {
   }
   markStoreDirty();
   publishDriverRealtimeLocation(userId);
-  return { module: 'drivers', action: 'location', ok: true, profile };
+  console.log(`[DRIVER] Location updated: ${lat}, ${lng}`);
+  return { module: 'drivers', action: 'location', ok: true, success: true, profile };
 }
 
 export async function locationById(body: any, params?: any, query?: any) {

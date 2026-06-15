@@ -3,10 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 import { pushWalletTx, store, timestamp, type Ride, type RideRequest } from '../src/database/data.store';
 import {
+  publishDispatchAssignmentConfirmed,
   getDriverRealtimeDispatchSnapshot,
+  publishDispatchRideAssigned,
   publishDispatchRequestExpired,
   publishDispatchRequestRejected,
   publishDispatchRideRequest,
+  publishDriverRequestRejected,
   publishRideRealtimeUpdate,
   registerRealtimeDispatchServer
 } from '../src/services/realtime-dispatch.service';
@@ -195,12 +198,17 @@ test('realtime dispatch emits assignment and request lifecycle websocket events'
   };
 
   publishRideRealtimeUpdate(ride, 'accepted');
+  publishDispatchAssignmentConfirmed(ride.riderId, { rideId: ride.id, status: 'ASSIGNED' });
+  publishDispatchRideAssigned(ride.driverId!, { rideId: ride.id, status: 'ASSIGNED' });
   publishDispatchRideRequest(ride.driverId!, { rideId: ride.id, status: 'requested' });
+  publishDriverRequestRejected(ride.driverId!, { rideId: ride.id, message: 'Request declined' });
   publishDispatchRequestExpired(ride.driverId!, { rideId: ride.id, status: 'expired' });
   publishDispatchRequestRejected(ride.riderId, { rideId: ride.id, reason: 'request_expired' });
 
   assert.equal(emitted.some(item => item.room === `user:${ride.riderId}` && item.event === 'dispatch:assignment_confirmed'), true);
+  assert.equal(emitted.some(item => item.room === `driver:${ride.driverId}` && item.event === 'dispatch:ride_assigned'), true);
   assert.equal(emitted.some(item => item.room === `driver:${ride.driverId}` && item.event === 'dispatch:ride_request'), true);
+  assert.equal(emitted.some(item => item.room === `driver:${ride.driverId}` && item.event === 'dispatch:request_rejected'), true);
   assert.equal(emitted.some(item => item.room === `driver:${ride.driverId}` && item.event === 'dispatch:request_expired'), true);
   assert.equal(emitted.some(item => item.room === `user:${ride.riderId}` && item.event === 'dispatch:request_rejected'), true);
 });
