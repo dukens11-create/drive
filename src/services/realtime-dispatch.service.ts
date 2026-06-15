@@ -392,3 +392,8 @@ export function publishRiderRatingSubmitted(ride: Ride) {
     ratedAt: ride.ratedAt
   }, [`ride:${ride.id}`, `user:${ride.riderId}`, ...(ride.driverId ? [`driver:${ride.driverId}`, `user:${ride.driverId}`] : [])], ride.id);
 }
+
+export function publishAdminSosAlert(payload: Record<string, unknown>) {
+  emitToRoom('admin', 'admin:sos_alert', payload);
+  console.log('[DISPATCH] admin:sos_alert broadcast', payload);
+}

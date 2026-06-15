@@ -18,6 +18,7 @@ import {
   type RiderProfile,
   type RideRequest,
   type RideRequestResponse,
+  type SafetyIncident,
   type VehicleType
 } from '../database/data.store';
 import { env } from '../config/env';
@@ -36,7 +37,8 @@ import {
   publishDriverEarningsUpdate,
   publishDriverRealtimeEarnings,
   publishRideRealtimeUpdate,
-  publishRiderRatingSubmitted
+  publishRiderRatingSubmitted,
+  publishAdminSosAlert
 } from './realtime-dispatch.service';
 import { logger } from '../utils/logger';
 import { notificationTemplates } from '../utils/fcm-templates';
@@ -1885,4 +1887,40 @@ export async function message(body: any, _params?: any, _query?: any) {
   }
   publishRideRealtimeUpdate(ride, 'chat_message');
   return { module: 'rides', action: 'message', ok: true, message: event, rideId: ride.id };
+}
+
+export async function rideSos(body: any, params?: any, _query?: any) {
+  const rideId = params?.rideId || body?.rideId;
+  if (!rideId) return { module: 'rides', action: 'sos', error: 'rideId is required' };
+  const ride = getRide(rideId);
+  if (!ride) return { module: 'rides', action: 'sos', error: 'ride not found' };
+
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'rides', action: 'sos', error: 'actor ID is required' };
+  const incident: SafetyIncident = {
+    id: makeId('sos'),
+    userId,
+    rideId: ride.id,
+    type: 'sos',
+    lat: body?.lat,
+    lng: body?.lng,
+    level: 'high',
+    status: 'open',
+    createdAt: timestamp()
+  };
+  store.safetyIncidents.push(incident);
+  console.log(`[DRIVER] SOS triggered for ride ${ride.id} by user ${userId}`);
+
+  publishAdminSosAlert({
+    incidentId: incident.id,
+    rideId: ride.id,
+    driverId: ride.driverId,
+    riderId: ride.riderId,
+    lat: body?.lat,
+    lng: body?.lng,
+    type: body?.type || 'sos',
+    createdAt: incident.createdAt
+  });
+
+  return { module: 'rides', action: 'sos', ok: true, incident };
 }

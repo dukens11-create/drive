@@ -47,3 +47,4 @@ export async function sharedRide(req: any, res: any) {
   }
   return res.json(payload);
 }
+export async function rideSos(req: any, res: any) { res.json(await service.rideSos({ ...req.body, actor: req.user }, req.params, req.query)); }
