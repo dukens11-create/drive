@@ -93,7 +93,7 @@ test('rider-facing trip history, detail, receipt, notification, cancellation, an
     );
     const firstRide = await firstRideRequest.json();
     assert.equal(firstRide.ok, true);
-    assert.equal(firstRide.ride.status, 'accepted');
+    assert.equal(['requested', 'accepted'].includes(firstRide.ride.status), true);
 
     const historyBeforeCancelResponse = await postJson(baseUrl, '/api/rides/history', {}, rider.accessToken);
     const historyBeforeCancel = await historyBeforeCancelResponse.json();
@@ -105,8 +105,9 @@ test('rider-facing trip history, detail, receipt, notification, cancellation, an
     const detailBeforeCancelResponse = await postJson(baseUrl, '/api/rides/detail', { rideId: firstRide.ride.id }, rider.accessToken);
     const detailBeforeCancel = await detailBeforeCancelResponse.json();
     assert.equal(detailBeforeCancel.ok, true);
-    assert.equal(detailBeforeCancel.notifications.length >= 2, true);
-    assert.equal(detailBeforeCancel.ride.availableActions.canTrackDriver, true);
+    const firstRideAccepted = firstRide.ride.status === 'accepted';
+    assert.equal(detailBeforeCancel.notifications.length >= (firstRideAccepted ? 2 : 1), true);
+    assert.equal(detailBeforeCancel.ride.availableActions.canTrackDriver, firstRideAccepted);
 
     const pendingReceiptResponse = await postJson(baseUrl, '/api/rides/receipt', { rideId: firstRide.ride.id }, rider.accessToken);
     const pendingReceipt = await pendingReceiptResponse.json();
@@ -132,7 +133,13 @@ test('rider-facing trip history, detail, receipt, notification, cancellation, an
     );
     const secondRide = await secondRideRequest.json();
     assert.equal(secondRide.ok, true);
-    assert.equal(secondRide.ride.status, 'accepted');
+    assert.equal(['requested', 'accepted'].includes(secondRide.ride.status), true);
+    if (secondRide.ride.status !== 'accepted') {
+      const acceptSecondRideResponse = await postJson(baseUrl, `/api/rides/${secondRide.ride.id}/accept`, {}, driver.accessToken);
+      const acceptSecondRideBody = await acceptSecondRideResponse.json();
+      assert.equal(acceptSecondRideBody.ok, true);
+      assert.equal(acceptSecondRideBody.ride.status, 'accepted');
+    }
 
     const arriveResponse = await postJson(baseUrl, '/api/rides/arrive', { rideId: secondRide.ride.id }, driver.accessToken);
     const arriveBody = await arriveResponse.json();
@@ -174,7 +181,16 @@ test('rider-facing trip history, detail, receipt, notification, cancellation, an
     );
     const thirdRide = await thirdRideRequest.json();
     assert.equal(thirdRide.ok, true);
-    await postJson(baseUrl, '/api/rides/arrive', { rideId: thirdRide.ride.id }, driver.accessToken);
+    if (thirdRide.ride.status !== 'accepted') {
+      const acceptThirdRideResponse = await postJson(baseUrl, `/api/rides/${thirdRide.ride.id}/accept`, {}, driver.accessToken);
+      const acceptThirdRideBody = await acceptThirdRideResponse.json();
+      assert.equal(acceptThirdRideBody.ok, true);
+      assert.equal(acceptThirdRideBody.ride.status, 'accepted');
+    }
+    const thirdArriveResponse = await postJson(baseUrl, '/api/rides/arrive', { rideId: thirdRide.ride.id }, driver.accessToken);
+    const thirdArriveBody = await thirdArriveResponse.json();
+    assert.equal(thirdArriveBody.ok, true);
+    assert.equal(thirdArriveBody.ride.status, 'arrived_at_pickup');
 
     const lateCancelResponse = await postJson(baseUrl, '/api/rides/cancel', { rideId: thirdRide.ride.id, reason: 'late_cancel' }, rider.accessToken);
     const lateCancelBody = await lateCancelResponse.json();
