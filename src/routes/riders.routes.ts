@@ -7,8 +7,21 @@ import { signupSchema } from '../schemas/auth.schemas';
 import { z } from 'zod';
 
 const router = Router();
+const placeSchema = z.object({
+  id: z.string().trim().min(1),
+  type: z.enum(['home', 'work', 'favorite']),
+  label: z.string().trim().min(1),
+  address: z.string().trim().min(1),
+  coordinates: z.object({
+    lat: z.number().finite(),
+    lng: z.number().finite()
+  }).optional(),
+  notes: z.string().optional(),
+  createdAt: z.string().optional(),
+  lastUsed: z.string().optional()
+});
 const placesSchema = z.object({
-  places: z.array(z.object({}).passthrough()).max(10)
+  places: z.array(placeSchema).max(10)
 }).passthrough();
 
 router.get('/health', controller.health);
