@@ -1284,16 +1284,15 @@ async function requestRide(pickup, destination) {
   });
 
   if (accessToken) {
+    const destinationAddress = destinationLocation?.label || document.getElementById('destination-input')?.value.trim() || '';
+    const scheduledTime = scheduleState.isScheduled && scheduleState.scheduledDateTime ? scheduleState.scheduledDateTime : undefined;
     const requestBody = {
       pickupLat: pickup.lat,
       pickupLng: pickup.lng,
       dropoffLat: destination.lat,
       dropoffLng: destination.lng,
-      destinationLat: destination.lat,
-      destinationLng: destination.lng,
       pickupAddress: pickupLocation?.label || document.getElementById('pickup-input')?.value.trim() || '',
-      dropoffAddress: destinationLocation?.label || document.getElementById('destination-input')?.value.trim() || '',
-      destinationAddress: destinationLocation?.label || document.getElementById('destination-input')?.value.trim() || '',
+      dropoffAddress: destinationAddress,
       rideType: normalizedRideType,
       fareEstimate: estimate.fareEstimate,
       distance: estimate.route.distanceMiles,
@@ -1303,7 +1302,7 @@ async function requestRide(pickup, destination) {
       riderId: currentUser.id,
       ...(appliedPromo ? { promoCode: appliedPromo.code, discountAmount, finalFare } : {}),
       paymentMethod: selectedPaymentMethod,
-      ...(scheduleState.isScheduled && scheduleState.scheduledDateTime ? { scheduledAt: scheduleState.scheduledDateTime, scheduledTime: scheduleState.scheduledDateTime } : {})
+      ...(scheduledTime ? { scheduledAt: scheduledTime, scheduledTime } : {})
     };
     try {
       console.log('[Ride Booking] Payload:', requestBody);

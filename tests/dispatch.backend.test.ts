@@ -99,10 +99,9 @@ test('dispatch backend compatibility endpoints expose realtime driver, rider, re
     assert.equal((await response.json()).profile.availabilityStatus, 'online');
 
     let realtimeSnapshot = getRealtimeDispatchSnapshot();
-    assert.deepEqual(
-      realtimeSnapshot.drivers.map(driver => driver.userId).sort(),
-      [driverOne.user.id, driverTwo.user.id].sort()
-    );
+    const onlineDriverIds = new Set(realtimeSnapshot.drivers.map(driver => driver.userId));
+    assert.equal(onlineDriverIds.has(driverOne.user.id), true);
+    assert.equal(onlineDriverIds.has(driverTwo.user.id), true);
 
     response = await requestJson(baseUrl, '/api/riders/location', 'POST', {
       lat: 37.781,

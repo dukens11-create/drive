@@ -40,6 +40,9 @@ const DEFAULT_NO_SHOW_FEE_CENTS = 500;
 const RIDE_REQUEST_EXPIRY_MS = 30_000;
 const MAX_FAVORITE_LOCATIONS = 10;
 const SHARED_RIDE_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+const ETA_MINUTES_PER_MILE = 3.5;
+// Rider-facing fallback when a precise live distance isn't available yet.
+const DEFAULT_DISTANCE_AWAY_LABEL = '0.8 mi';
 
 type SharedRideTokenRecord = {
   rideId: string;
@@ -380,7 +383,7 @@ function toRiderRideSummary(ride: Ride) {
   const riderPhone = store.users.get(ride.riderId)?.phone;
   const driverPhone = ride.driverId ? store.users.get(ride.driverId)?.phone : undefined;
   const driver = buildAssignedDriverDetails(ride);
-  const driverProfile: any = ride.driverId ? store.drivers.get(ride.driverId) : undefined;
+  const driverProfile = ride.driverId ? store.drivers.get(ride.driverId) : undefined;
   const driverLat = Number(driverProfile?.lat);
   const driverLng = Number(driverProfile?.lng);
   const pickupLat = Number(ride.pickupLat);
@@ -391,7 +394,7 @@ function toRiderRideSummary(ride: Ride) {
     ? estimateRouteDistanceMiles(driverLat, driverLng, pickupLat, pickupLng)
     : undefined;
   const etaMinutes = Number.isFinite(distanceMiles)
-    ? Math.max(1, Math.round((distanceMiles as number) * 3.5))
+    ? Math.max(1, Math.round((distanceMiles as number) * ETA_MINUTES_PER_MILE))
     : Math.max(1, Math.round(Number(ride.minutes || 0)));
   return {
     ...ride,
@@ -473,10 +476,33 @@ function toAssignedRideDispatchSummary(ride: Ride) {
     color: 'White',
     plate: 'FLP-123'
   };
-  const summary = toRiderRideSummary(ride) as any;
-  const driverProfile: any = ride.driverId ? store.drivers.get(ride.driverId) : undefined;
-  const sourceVehicle = summary?.driver?.vehicle || driverProfile?.vehicle || {};
-  const sourceDriver = summary?.driver || {};
+  const summary = toRiderRideSummary(ride);
+  const driverProfile = ride.driverId ? store.drivers.get(ride.driverId) : undefined;
+  const sourceDriver = (summary?.driver || {}) as Partial<{
+    name: string;
+    rating: number;
+    profilePhotoUrl: string;
+    photoUrl: string;
+    phone: string;
+    vehicle: {
+      make?: string;
+      model?: string;
+      year?: number | string;
+      color?: string;
+      plateNumber?: string;
+      plate?: string;
+      photoUrl?: string;
+    };
+  }>;
+  const sourceVehicle = (sourceDriver.vehicle || driverProfile?.vehicle || {}) as Partial<{
+    make: string;
+    model: string;
+    year: number | string;
+    color: string;
+    plateNumber: string;
+    plate: string;
+    photoUrl: string;
+  }>;
   const location = summary?.location || summary?.driverLocation || {
     lat: ride.pickupLat,
     lng: ride.pickupLng
@@ -505,7 +531,7 @@ function toAssignedRideDispatchSummary(ride: Ride) {
       lng: Number(location?.lng ?? ride.pickupLng ?? 0)
     },
     etaMinutes: Number(summary?.etaMinutes || ride.minutes || 4),
-    distanceAway: summary?.distanceAway != null ? `${Number(summary.distanceAway).toFixed(1)} mi` : '0.8 mi',
+    distanceAway: summary?.distanceAway != null ? `${Number(summary.distanceAway).toFixed(1)} mi` : DEFAULT_DISTANCE_AWAY_LABEL,
     riderId: riderSummary.riderId,
     pickupAddress: riderSummary.pickupAddress,
     destinationAddress: riderSummary.destinationAddress
@@ -614,11 +640,13 @@ function toSharedRideView(ride: Ride) {
 export async function estimate(body: any, _params?: any, _query?: any) {
   const miles = Number(body?.miles || body?.distanceMiles || 0);
   const minutes = Number(body?.minutes || body?.etaMinutes || 0);
+  const destinationLat = body?.dropoffLat ?? body?.destinationLat;
+  const destinationLng = body?.dropoffLng ?? body?.destinationLng;
   const route = await estimateRoute({
     pickupLat: body?.pickupLat,
     pickupLng: body?.pickupLng,
-    dropoffLat: body?.dropoffLat,
-    dropoffLng: body?.dropoffLng,
+    dropoffLat: destinationLat,
+    dropoffLng: destinationLng,
     distanceMiles: miles || undefined,
     etaMinutes: minutes || undefined
   });
@@ -697,9 +725,11 @@ export async function request(body: any, _params?: any, _query?: any) {
     pickupLat: body?.pickupLat,
     pickupLng: body?.pickupLng,
     pickupAddress: typeof body?.pickupAddress === 'string' ? body.pickupAddress.trim() : undefined,
-    dropoffLat: body?.dropoffLat,
-    dropoffLng: body?.dropoffLng,
-    dropoffAddress: typeof body?.dropoffAddress === 'string' ? body.dropoffAddress.trim() : undefined,
+    dropoffLat: body?.dropoffLat ?? body?.destinationLat,
+    dropoffLng: body?.dropoffLng ?? body?.destinationLng,
+    dropoffAddress: typeof body?.dropoffAddress === 'string'
+      ? body.dropoffAddress.trim()
+      : (typeof body?.destinationAddress === 'string' ? body.destinationAddress.trim() : undefined),
     miles: estimated.route.distanceMiles,
     minutes: estimated.route.etaMinutes,
     fareEstimate: estimated.fareEstimate,

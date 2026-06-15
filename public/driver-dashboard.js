@@ -3979,7 +3979,7 @@ async function acceptRideById(rawRideId, options = {}) {
         'Content-Type': 'application/json',
         Authorization: 'Bearer ' + accessToken
       },
-      body: JSON.stringify({ rideId, driverId: currentUser?.id })
+      body: JSON.stringify({ rideId })
     });
     if (!data?.ok) {
       console.log(`[DRIVER] Accept failed: ${data?.error || 'Unable to accept ride.'}`);
