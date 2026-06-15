@@ -1,11 +1,19 @@
 import * as authService from './auth.service';
-import { appendAuditLog, markStoreDirty, store, timestamp, type RiderProfile } from '../database/data.store';
+import {
+  appendAuditLog,
+  markStoreDirty,
+  store,
+  timestamp,
+  type RiderProfile,
+  type RiderSavedPlace
+} from '../database/data.store';
 import { publishRiderRealtimeLocation } from './realtime-dispatch.service';
 
 function createDefaultRiderProfile(userId: string): RiderProfile {
   return {
     userId,
     favoriteLocations: [],
+    savedPlaces: [],
     rating: 5,
     reviewCount: 0
   };
@@ -24,7 +32,45 @@ function getOrCreateProfile(userId: string, role?: string) {
 }
 
 function sanitizeRider(profile: RiderProfile) {
-  return { ...profile };
+  return {
+    ...profile,
+    favoriteLocations: Array.isArray(profile.favoriteLocations) ? profile.favoriteLocations : [],
+    savedPlaces: Array.isArray(profile.savedPlaces) ? profile.savedPlaces : []
+  };
+}
+
+function getSavedPlaces(profile: RiderProfile) {
+  if (!Array.isArray(profile.savedPlaces)) {
+    profile.savedPlaces = [];
+  }
+  return profile.savedPlaces;
+}
+
+function normalizeSavedPlace(place: any): RiderSavedPlace | null {
+  const id = String(place?.id || '').trim();
+  const type = String(place?.type || '').trim().toLowerCase();
+  const label = String(place?.label || '').trim();
+  const address = String(place?.address || '').trim();
+  if (!id || !label || !address) return null;
+  if (!['home', 'work', 'favorite'].includes(type)) return null;
+
+  const lat = Number(place?.coordinates?.lat);
+  const lng = Number(place?.coordinates?.lng);
+  const coordinates = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : undefined;
+  const notes = String(place?.notes || '').trim();
+  const createdAt = String(place?.createdAt || '').trim();
+  const lastUsed = String(place?.lastUsed || '').trim();
+
+  return {
+    id,
+    type: type as RiderSavedPlace['type'],
+    label,
+    address,
+    ...(coordinates ? { coordinates } : {}),
+    ...(notes ? { notes } : {}),
+    ...(createdAt ? { createdAt } : {}),
+    ...(lastUsed ? { lastUsed } : {})
+  };
 }
 
 function isValidPhone(phone: string) {
@@ -173,6 +219,13 @@ export async function updateProfile(body: any, _params?: any, _query?: any) {
       .slice(0, 10);
   }
 
+  if (Array.isArray(body?.savedPlaces)) {
+    profile.savedPlaces = body.savedPlaces
+      .map((place: any) => normalizeSavedPlace(place))
+      .filter(Boolean)
+      .slice(0, 10) as RiderSavedPlace[];
+  }
+
   profile.updatedAt = timestamp();
   store.users.set(userId, user);
   store.riders.set(userId, profile);
@@ -182,4 +235,33 @@ export async function updateProfile(body: any, _params?: any, _query?: any) {
   });
 
   return { module: 'riders', action: 'update-profile', ok: true, rider: sanitizeRider(profile) };
+}
+
+export async function getPlaces(body: any, _params?: any, _query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'riders', action: 'get-places', error: 'actor ID or userId is required' };
+  const profile = getOrCreateProfile(userId, body?.actor?.role);
+  if (!profile) return { module: 'riders', action: 'get-places', error: 'rider not found' };
+  return { module: 'riders', action: 'get-places', ok: true, places: getSavedPlaces(profile) };
+}
+
+export async function updatePlaces(body: any, _params?: any, _query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'riders', action: 'update-places', error: 'actor ID or userId is required' };
+  const profile = getOrCreateProfile(userId, body?.actor?.role);
+  if (!profile) return { module: 'riders', action: 'update-places', error: 'rider not found' };
+
+  const places = Array.isArray(body?.places) ? body.places : [];
+  profile.savedPlaces = places
+    .map((place: any) => normalizeSavedPlace(place))
+    .filter(Boolean)
+    .slice(0, 10) as RiderSavedPlace[];
+  profile.updatedAt = timestamp();
+  store.riders.set(userId, profile);
+  markStoreDirty();
+  appendAuditLog(userId, 'rider', 'rider_places_updated', userId, 'user', {
+    placeCount: profile.savedPlaces.length
+  });
+
+  return { module: 'riders', action: 'update-places', ok: true, places: profile.savedPlaces };
 }
