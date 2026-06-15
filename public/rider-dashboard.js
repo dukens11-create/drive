@@ -2864,7 +2864,7 @@ h1{font-size:1.4rem;margin-bottom:4px;}.sub{color:#64748b;font-size:.8rem;}
 <div class="footer">Thank you for riding with Drive.</div>
 </body></html>`;
 
-  const win = window.open('', '_blank', 'width=600,height=800');
+  const win = window.open('', '_blank', 'width=600,height=800,noopener,noreferrer');
   if (!win) { showToast('Allow pop-ups to download the receipt.', 'warning'); return; }
   win.document.write(printHtml);
   win.document.close();
