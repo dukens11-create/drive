@@ -2558,7 +2558,7 @@ function renderDriverCard(driver, etaMinutes) {
       vehicle: {
         label: String(driver.vehicle || '').trim(),
         plate: driver.plate || driver.plateNumber || '',
-        plateNumber: driver.plateNumber || driver.plate || ''
+        plateNumber: driver.plate || driver.plateNumber || ''
       }
     };
   renderDriverCardDetails(normalizedDriver, etaMinutes || 5);
