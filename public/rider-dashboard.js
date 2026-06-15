@@ -99,7 +99,6 @@ let estimateRetryCount = 0;
 let estimateRetryTimerId = null;
 let latestKnownRiderPosition = null;
 let isFareEstimateLoading = false;
-<<<<<<< HEAD
 
 // Phase 6: Voice / TTS state
 let voiceAlertsEnabled = localStorage.getItem('drive.voiceAlertsEnabled') !== 'false';
@@ -117,9 +116,7 @@ const voiceCommands = {
   cancel_ride: ['cancel my ride', 'cancel', 'i want to cancel'],
   call_driver: ['call my driver', 'call driver', 'contact driver']
 };
-=======
 const activeToasts = [];
->>>>>>> origin/main
 const geocodeDebounceTimers = {};
 const locationSuggestions = {
   'pickup-input': [],
@@ -245,12 +242,8 @@ function getDriverVehicleDisplay(vehicle = {}) {
   const color = String(vehicle.color || '').trim();
   const plateNumber = String(vehicle.plate || vehicle.plateNumber || vehicle.licensePlate || '').trim();
   const title = label || (make && model ? `${make} ${model}` : 'Vehicle details pending');
-<<<<<<< HEAD
-  const normalizedYear = Number.isInteger(year) && year > 1900 && year <= maxValidYear ? String(year) : '';
+  const normalizedYear = Number.isInteger(year) && year > MIN_VALID_VEHICLE_YEAR && year <= maxValidYear ? String(year) : '';
   const specs = [normalizedYear, color].filter(Boolean).join(' • ');
-=======
-  const specs = [Number.isInteger(year) && year > MIN_VALID_VEHICLE_YEAR ? String(year) : '', color].filter(Boolean).join(' • ');
->>>>>>> origin/main
   return {
     title,
     specs,
@@ -2564,26 +2557,17 @@ function renderDriverCard(driver, etaMinutes) {
       ...driver,
       vehicle: {
         label: String(driver.vehicle || '').trim(),
-<<<<<<< HEAD
-        plateNumber: driver.plate || driver.plateNumber || ''
-=======
-        plate: driver.plate || driver.plateNumber || ''
->>>>>>> origin/main
+        plate: driver.plate || driver.plateNumber || '',
+        plateNumber: driver.plateNumber || driver.plate || ''
       }
     };
   renderDriverCardDetails(normalizedDriver, etaMinutes || 5);
 
   // Online indicator
   card.querySelector('.driver-online-dot')?.classList.add('is-online');
-<<<<<<< HEAD
-  card.classList.remove('d-none');
-=======
-
-  // Trigger slide-in animation
   card.classList.remove('d-none');
   card.classList.remove('slide-up');
-  void card.offsetWidth; // force reflow so the animation restarts from scratch
->>>>>>> origin/main
+  void card.offsetWidth;
   card.classList.add('slide-up');
 }
 
@@ -3199,16 +3183,12 @@ window.addEventListener('load', async () => {
   if (!setupSession()) return;
   seedDefaultInputs();
   setupHandlers();
-<<<<<<< HEAD
   initializeVoiceRecognition();
-  // Restore voice preferences
   const toggle = document.getElementById('voice-alerts-toggle');
   if (toggle) toggle.checked = voiceAlertsEnabled;
   const slider = document.getElementById('voice-volume-slider');
   if (slider) slider.value = String(Math.round(voiceVolume * 100));
-=======
   initPaymentMethod();
->>>>>>> origin/main
   startSearchingDotsAnimation();
   clockIntervalId = window.setInterval(updateHeaderClock, 60000);
   await initializeMap();

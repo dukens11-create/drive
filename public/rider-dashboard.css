@@ -1547,17 +1547,12 @@ input {
 }
 
 .driver-action-btn {
-<<<<<<< HEAD
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-=======
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 8px 18px;
   border-radius: 999px;
->>>>>>> origin/main
   border: 1px solid rgba(27, 128, 255, 0.25);
   background: rgba(27, 128, 255, 0.08);
   color: var(--primary-dark);
