@@ -46,7 +46,12 @@ const MAX_DRIVER_ETA_MINUTES = 8;
 const DRIVER_START_POSITION_OFFSET = 0.04; // ~2–3 miles in lat/lng degrees
 const DRIVER_ASSIGN_DELAY_MIN_MS = 3000;
 const DRIVER_ASSIGN_DELAY_MAX_MS = 5000;
-const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'arrived_at_pickup', 'started'];
+const MIN_VALID_VEHICLE_YEAR = 1900;
+const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'assigned', 'arrived_at_pickup', 'started'];
+const DRIVER_VISIBLE_RIDE_STATUSES = ['assigned', 'arrived_at_pickup', 'started'];
+const DRIVER_APPROACH_RIDE_STATUSES = ['assigned', 'arrived_at_pickup'];
+const TERMINAL_RIDE_STATUSES = ['completed', 'canceled'];
+const TOAST_MAX_VISIBLE = 3;
 const LONG_DISTANCE_WARNING_MINUTES = 360;
 const SUPPORTED_COUNTRY = 'United States';
 const MAX_RIDE_DISTANCE_MILES = {
@@ -86,6 +91,7 @@ let currentUser = null;
 let accessToken = '';
 let refreshToken = '';
 let selectedRideType = 'ECONOMY';
+let selectedPaymentMethod = localStorage.getItem('drive.paymentMethod') || 'card';
 let rides = [];
 let currentRide = null;
 let riderLocationWatchId = null;
@@ -110,6 +116,7 @@ const scheduleState = {
   scheduledDateTime: null,
   scheduledRides: []
 };
+const activeToasts = [];
 const geocodeDebounceTimers = {};
 const locationSuggestions = {
   'pickup-input': [],
@@ -227,6 +234,19 @@ function sanitizePhoneForUri(value) {
   return normalized.replace(/\s+/g, '');
 }
 
+function normalizeRideStatus(status) {
+  const normalized = String(status || 'requested').trim().toLowerCase();
+  if (normalized === 'accepted') return 'assigned';
+  if (normalized === 'cancelled') return 'canceled';
+  return normalized;
+}
+
+function formatDistanceAway(value) {
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized) || normalized < 0) return '';
+  return `${normalized.toFixed(1)} mi away`;
+}
+
 function normalizeRideTypeForApi(rideType = selectedRideType) {
   const normalized = String(rideType || '').trim().toLowerCase();
   if (normalized === 'economy' || normalized === 'comfort' || normalized === 'premium' || normalized === 'xl') {
@@ -241,13 +261,18 @@ function getDriverVehicleDisplay(vehicle = {}) {
   const model = String(vehicle.model || '').trim();
   const year = Number(vehicle.year);
   const color = String(vehicle.color || '').trim();
-  const plateNumber = String(vehicle.plateNumber || '').trim();
+  const plateNumber = String(vehicle.plate || vehicle.plateNumber || vehicle.licensePlate || '').trim();
   const title = label || (make && model ? `${make} ${model}` : 'Vehicle details pending');
-  const specs = [Number.isInteger(year) ? String(year) : '', color].filter(Boolean).join(' • ');
+  const specs = [Number.isInteger(year) && year > MIN_VALID_VEHICLE_YEAR ? String(year) : '', color].filter(Boolean).join(' • ');
   return {
     title,
     specs,
-    plate: plateNumber ? `Plate: ${plateNumber}` : 'Plate: ___'
+    plate: plateNumber ? `Plate: ${plateNumber}` : 'Plate: ___',
+    make,
+    model,
+    year: Number.isInteger(year) && year > MIN_VALID_VEHICLE_YEAR ? year : null,
+    color,
+    plateNumber
   };
 }
 
@@ -258,21 +283,32 @@ function renderDriverCardDetails(driver = {}, etaMinutes = 0) {
     make: driver.vehicleMake,
     model: driver.vehicleModel,
     color: driver.vehicleColor,
-    plateNumber: driver.licensePlate || driver.vehiclePlate || driver.plateNumber,
+    plate: driver.licensePlate || driver.vehiclePlate || driver.plateNumber || driver.plate,
     photoUrl: driver.vehiclePhotoUrl || driver.vehicleImageUrl || driver.vehicleImage
   };
   const vehicle = driver.vehicle && typeof driver.vehicle === 'object'
     ? {
       ...driver.vehicle,
-      plateNumber: driver.vehicle.plateNumber || driver.vehicle.licensePlate || fallbackVehicle.plateNumber
+      plate: driver.vehicle.plate || driver.vehicle.plateNumber || driver.vehicle.licensePlate || fallbackVehicle.plate
     }
     : fallbackVehicle;
   const vehicleDisplay = getDriverVehicleDisplay(vehicle);
   safeSetText('driver-name', driver.name || currentRide?.driverName || currentRide?.driverId || '--');
   safeSetText('driver-vehicle', vehicleDisplay.title);
   safeSetText('driver-plate', vehicleDisplay.plate);
+  safeSetText('driver-plate-vehicle', vehicleDisplay.plate);
   safeSetText('driver-vehicle-specs', vehicleDisplay.specs);
   safeSetText('driver-rating', `${Number(driver.rating || 4.9).toFixed(2)} ⭐`);
+
+  const driverStatus = driver.driverStatus || (etaMinutes > 0 ? 'On the way' : 'Arrived');
+  safeSetText('driver-status-text', driverStatus);
+
+  const distanceAway = driver.distanceAway || currentRide?.distanceAway;
+  const distanceText = distanceAway
+    ? (typeof distanceAway === 'number' ? `${distanceAway.toFixed(1)} mi` : String(distanceAway))
+    : '--';
+  safeSetText('driver-distance-away', distanceText);
+
   if (!etaCountdownIntervalId) {
     animateNumericText('driver-eta', formatMinutes(etaMinutes || currentRide?.etaMinutes || currentRide?.minutes || 0));
     animateNumericText('driver-countdown', formatMinutes(etaMinutes || currentRide?.etaMinutes || currentRide?.minutes || 0));
@@ -554,6 +590,18 @@ function normalizeRide(ride = {}, index = 0) {
   const fallbackDropoffLat = Number.isFinite(Number(ride.dropoffLat)) ? Number(ride.dropoffLat) : fallbackPickupLat + DEFAULT_DROPOFF_OFFSET_DEGREES;
   const fallbackDropoffLng = Number.isFinite(Number(ride.dropoffLng)) ? Number(ride.dropoffLng) : fallbackPickupLng + DEFAULT_DROPOFF_OFFSET_DEGREES;
   const rideFareDetails = ride.fareDetails || ride.fareBreakdown || null;
+  const driverLocationPayload = ride.driverLocation && typeof ride.driverLocation === 'object'
+    ? ride.driverLocation
+    : ride.location && typeof ride.location === 'object'
+      ? ride.location
+      : {};
+  const driverLat = Number(driverLocationPayload.lat ?? driverLocationPayload.latitude ?? ride.driverLat ?? ride.driverLatitude ?? ride.latitude);
+  const driverLng = Number(driverLocationPayload.lng ?? driverLocationPayload.longitude ?? ride.driverLng ?? ride.driverLongitude ?? ride.longitude);
+  const driverHeading = Number(driverLocationPayload.heading ?? ride.heading ?? ride.driverHeading);
+  const driverSpeed = Number(driverLocationPayload.speed ?? ride.speed ?? ride.driverSpeed);
+  const normalizedStatus = normalizeRideStatus(ride.status);
+  const normalizedLifecycleState = normalizeRideStatus(ride.lifecycleState || ride.status);
+  const distanceAway = Number(ride.distanceAway ?? ride.driver?.distanceAway ?? driverLocationPayload.distanceAway);
   return {
     id: ride.id || `rider_local_${Date.now()}_${index}`,
     riderId: ride.riderId || ride.userId || currentUser?.id || 'rider',
@@ -570,23 +618,32 @@ function normalizeRide(ride = {}, index = 0) {
     minutes: Number(ride.minutes || 0),
     fareEstimate: Number(ride.fareEstimate || rideFareDetails?.fareEstimate || rideFareDetails?.total || 0),
     fareDetails: rideFareDetails,
-    status: String(ride.status || 'requested'),
-    lifecycleState: String(ride.lifecycleState || ride.status || 'requested'),
+    status: normalizedStatus,
+    lifecycleState: normalizedLifecycleState,
     driverId: ride.driverId || null,
     driverName: ride.driverName || ride.driver?.name || (ride.driverId ? `Driver ${String(ride.driverId).slice(0, 6)}` : null),
     driver: ride.driver && typeof ride.driver === 'object' ? ride.driver : null,
-    etaMinutes: Number(ride.etaMinutes || ride.minutes || 0),
+    etaMinutes: Number(ride.etaMinutes ?? ride.driver?.etaMinutes ?? ride.minutes ?? 0),
+    distanceAway: Number.isFinite(distanceAway) ? Math.max(0, distanceAway) : null,
+    driverStatus: String(ride.driverStatus || ride.statusLabel || driverLocationPayload.status || '').trim(),
     riderLocation: ride.riderLocation && Number.isFinite(Number(ride.riderLocation.lat)) && Number.isFinite(Number(ride.riderLocation.lng))
       ? { lat: Number(ride.riderLocation.lat), lng: Number(ride.riderLocation.lng), updatedAt: ride.riderLocation.updatedAt || new Date().toISOString() }
       : null,
-    driverLocation: ride.driverLocation && Number.isFinite(Number(ride.driverLocation.lat)) && Number.isFinite(Number(ride.driverLocation.lng))
-      ? { lat: Number(ride.driverLocation.lat), lng: Number(ride.driverLocation.lng), updatedAt: ride.driverLocation.updatedAt || new Date().toISOString() }
+    driverLocation: Number.isFinite(driverLat) && Number.isFinite(driverLng)
+      ? {
+        lat: driverLat,
+        lng: driverLng,
+        heading: Number.isFinite(driverHeading) ? normalizeHeading(driverHeading) : null,
+        speed: Number.isFinite(driverSpeed) ? Math.max(0, driverSpeed) : null,
+        updatedAt: driverLocationPayload.updatedAt || ride.updatedAt || new Date().toISOString()
+      }
       : null,
     events: Array.isArray(ride.events) ? ride.events : [],
     createdAt: ride.createdAt || new Date().toISOString(),
     updatedAt: ride.updatedAt || new Date().toISOString(),
     completedAt: ride.completedAt || null,
-    canceledAt: ride.canceledAt || null
+    canceledAt: ride.canceledAt || null,
+    distanceAway: ride.distanceAway != null ? Number(ride.distanceAway) : null
   };
 }
 
@@ -1167,6 +1224,7 @@ async function requestRide(pickup, destination) {
     lifecycleState: scheduleState.isScheduled ? 'scheduled' : 'requested',
     scheduledAt: scheduleState.isScheduled ? scheduleState.scheduledDateTime : null,
     etaMinutes: estimate.route.etaMinutes,
+    paymentMethod: selectedPaymentMethod,
     riderLocation: mapState.markers.rider
       ? { lat: mapState.markers.rider.getLngLat().lat, lng: mapState.markers.rider.getLngLat().lng, updatedAt: new Date().toISOString() }
       : null,
@@ -1196,10 +1254,12 @@ async function requestRide(pickup, destination) {
       miles: estimate.route.distanceMiles,
       minutes: estimate.route.etaMinutes,
       riderId: currentUser.id,
+      paymentMethod: selectedPaymentMethod,
       ...(scheduleState.isScheduled && scheduleState.scheduledDateTime ? { scheduledAt: scheduleState.scheduledDateTime } : {})
     };
     try {
       console.log('[Ride Booking] Payload:', requestBody);
+      console.log('[Payment] Selected method:', selectedPaymentMethod);
       if (scheduleState.isScheduled) {
         const scheduled = await fetchJson('/api/scheduled/book', {
           method: 'POST',
@@ -1278,9 +1338,9 @@ async function cancelRide(rideId) {
 }
 
 function getStatusViewModel(ride) {
-  const status = String(ride?.status || 'idle');
+  const status = normalizeRideStatus(ride?.status || 'idle');
   if (status === 'requested') return { pill: 'Searching', message: 'Searching for nearby drivers...', step: 'searching', headerStatus: 'Finding a driver' };
-  if (status === 'accepted') return { pill: 'Assigned', message: 'Your driver is on the way to pickup.', step: 'assigned', headerStatus: 'Driver assigned' };
+  if (status === 'assigned') return { pill: 'Assigned', message: 'Your driver is on the way to pickup.', step: 'assigned', headerStatus: 'Driver assigned' };
   if (status === 'arrived_at_pickup') return { pill: 'Arriving', message: 'Your driver has arrived at the pickup point.', step: 'arriving', headerStatus: 'Driver at pickup' };
   if (status === 'started') return { pill: 'In trip', message: 'You are on the way to your destination.', step: 'started', headerStatus: 'Ride in progress' };
   if (status === 'completed') return { pill: 'Completed', message: 'Ride completed successfully.', step: 'completed', headerStatus: 'Trip completed' };
@@ -1306,27 +1366,36 @@ function renderRideState() {
   updateTimeline(state.step);
   document.querySelector('.status-card')?.setAttribute('class', `card status-card status-${state.step || (currentRide?.status || 'idle')}`);
   document.getElementById('searching-status')?.classList.toggle('d-none', state.step !== 'searching');
-  setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(currentRide.status)));
+  setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(normalizeRideStatus(currentRide.status))));
   document.getElementById('ride-empty-state')?.classList.toggle('d-none', rides.some(ride => ride.riderId === currentUser?.id));
 
   const assignedCard = document.getElementById('driver-assigned-card');
-  const showDriverCard = Boolean(currentRide && ['accepted', 'arrived_at_pickup', 'started'].includes(currentRide.status));
+  const showDriverCard = Boolean(currentRide && DRIVER_VISIBLE_RIDE_STATUSES.includes(normalizeRideStatus(currentRide.status)));
+  const rideStatus = normalizeRideStatus(currentRide?.status || '');
+  const wasHidden = assignedCard?.classList.contains('d-none');
   if (assignedCard) assignedCard.classList.toggle('d-none', !showDriverCard);
   if (showDriverCard) {
+    if (wasHidden) {
+      assignedCard.classList.remove('slide-up');
+      void assignedCard.offsetWidth; // force reflow so the animation restarts from scratch
+      assignedCard.classList.add('slide-up');
+    }
     const activeDriver = currentRide.driver || assignedDriver || {};
     renderDriverCardDetails(activeDriver, currentRide.etaMinutes || currentRide.minutes || 0);
-    safeSetText('driver-location', currentRide.driverLocation
-      ? `${Number(currentRide.driverLocation.lat).toFixed(5)}, ${Number(currentRide.driverLocation.lng).toFixed(5)}`
-      : '--');
+    const statusText = String(currentRide.driverStatus || '').trim();
+    const distanceText = formatDistanceAway(currentRide.distanceAway);
+    safeSetText('driver-location', [distanceText, statusText].filter(Boolean).join(' • ') || '--');
+    if (distanceText) animateNumericText('driver-countdown', distanceText);
+    if (!etaCountdownIntervalId) animateNumericText('driver-eta', formatMinutes(currentRide.etaMinutes || currentRide.minutes || 0));
   }
 
   const cancelButton = document.getElementById('cancel-ride-button');
   const requestButton = document.getElementById('request-ride-button');
   const buttonGroup = document.querySelector('.button-group');
-  const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status));
+  const canCancelRide = Boolean(currentRide && ['requested', 'assigned', 'arrived_at_pickup'].includes(normalizeRideStatus(currentRide.status)));
   const showCancelButton = canCancelRide;
   if (requestButton) {
-    requestButton.classList.remove('d-none');
+    requestButton.classList.toggle('d-none', showCancelButton);
   }
   if (cancelButton) {
     cancelButton.disabled = !canCancelRide;
@@ -1340,15 +1409,66 @@ function renderRideState() {
 
   const previousStatus = mapState.lastRideStatus;
   mapState.lastRideStatus = currentRide?.status || 'idle';
+
+  if (previousStatus !== mapState.lastRideStatus) {
+    const driverName = currentRide?.driver?.name || currentRide?.driverName || assignedDriver?.name || 'Your driver';
+    const driverRating = currentRide?.driver?.rating || assignedDriver?.rating || '';
+    if (mapState.lastRideStatus === 'accepted') {
+      const ratingText = driverRating ? ` (⭐ ${driverRating})` : '';
+      showToast(`Driver found! ${driverName}${ratingText} is on the way`, 'success');
+    } else if (mapState.lastRideStatus === 'arrived_at_pickup') {
+      showToast(`${driverName} has arrived at your pickup location`, 'success');
+    } else if (mapState.lastRideStatus === 'started') {
+      showToast("You're on the way to your destination", 'info');
+    } else if (mapState.lastRideStatus === 'completed') {
+      showToast('Ride completed! Rate your experience', 'success', 6000);
+    } else if (mapState.lastRideStatus === 'canceled') {
+      showToast('Ride cancelled', 'info');
+    }
+  }
+
   renderMapState({ fitRoute: previousStatus !== mapState.lastRideStatus });
 }
 
+function showToast(message, type = 'info', duration = 4000) {
+  console.log('[Toast] Showing:', message, type);
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  while (activeToasts.length >= TOAST_MAX_VISIBLE) {
+    const oldest = activeToasts.shift();
+    oldest?.remove();
+  }
+
+  const iconMap = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
+  const iconLabel = { info: 'Info', success: 'Success', error: 'Error', warning: 'Warning' };
+  const toast = document.createElement('div');
+  toast.className = `toast-item toast-item--${type}`;
+  toast.setAttribute('role', 'status');
+  toast.innerHTML =
+    `<span class="toast-icon" role="img" aria-label="${iconLabel[type] || 'Info'}">${iconMap[type] || 'ℹ️'}</span>` +
+    `<span class="toast-message">${message}</span>` +
+    `<button class="toast-close" aria-label="Dismiss notification" type="button">×</button>`;
+
+  const dismiss = () => {
+    if (!toast.isConnected) return;
+    toast.classList.add('toast-item--leaving');
+    window.setTimeout(() => {
+      toast.remove();
+      const idx = activeToasts.indexOf(toast);
+      if (idx !== -1) activeToasts.splice(idx, 1);
+    }, 320);
+  };
+
+  toast.querySelector('.toast-close')?.addEventListener('click', dismiss);
+  container.appendChild(toast);
+  activeToasts.push(toast);
+
+  if (duration > 0) window.setTimeout(dismiss, duration);
+}
+
 function showPopup(message) {
-  const popup = document.getElementById('ride-popup');
-  if (!popup) return;
-  popup.textContent = message;
-  popup.classList.remove('d-none');
-  window.setTimeout(() => popup.classList.add('d-none'), POPUP_DISPLAY_DURATION_MS);
+  showToast(message, 'info', POPUP_DISPLAY_DURATION_MS);
 }
 
 function setFareLoading(isLoading) {
@@ -1501,7 +1621,7 @@ function renderInputMessages(validation) {
 function updateRequestRideButtonState() {
   const requestButton = document.getElementById('request-ride-button');
   if (!requestButton) return;
-  const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status));
+  const canCancelRide = Boolean(currentRide && ['requested', 'assigned', 'arrived_at_pickup'].includes(normalizeRideStatus(currentRide.status)));
   const disabledReason = canCancelRide ? 'You already have an active ride.' : rideValidationState.disabledReason;
   requestButton.disabled = canCancelRide || Boolean(disabledReason);
   requestButton.title = disabledReason || 'Request your ride';
@@ -1532,6 +1652,74 @@ function setCancelModalOpen(isOpen) {
   const modal = document.getElementById('cancel-modal');
   if (!modal) return;
   modal.classList.toggle('d-none', !isOpen);
+}
+
+const PAYMENT_METHOD_OPTIONS = [
+  { id: 'card', label: 'Card', icon: '💳' },
+  { id: 'apple_pay', label: 'Apple Pay', icon: '🍎' },
+  { id: 'google_pay', label: 'Google Pay', icon: '🔵' },
+  { id: 'cash', label: 'Cash', icon: '💵' }
+];
+
+function renderPaymentMethodPill() {
+  const method = PAYMENT_METHOD_OPTIONS.find(m => m.id === selectedPaymentMethod) || PAYMENT_METHOD_OPTIONS[0];
+  const iconEl = document.getElementById('payment-method-icon');
+  const textEl = document.getElementById('payment-method-text');
+  if (iconEl) iconEl.textContent = method.icon;
+  if (textEl) textEl.textContent = method.label;
+}
+
+function setPaymentMethod(methodId) {
+  selectedPaymentMethod = methodId;
+  localStorage.setItem('drive.paymentMethod', methodId);
+  console.log('[Payment] Selected method:', selectedPaymentMethod);
+  renderPaymentMethodPill();
+  document.querySelectorAll('[data-payment-method]').forEach(btn => {
+    const isSelected = btn.getAttribute('data-payment-method') === methodId;
+    btn.classList.toggle('is-selected', isSelected);
+    btn.setAttribute('aria-selected', String(isSelected));
+  });
+}
+
+function togglePaymentDropdown() {
+  const pill = document.getElementById('payment-method-pill');
+  const dropdown = document.getElementById('payment-method-dropdown');
+  if (!pill || !dropdown) return;
+  const isOpen = !dropdown.classList.contains('d-none');
+  dropdown.classList.toggle('d-none', isOpen);
+  pill.setAttribute('aria-expanded', String(!isOpen));
+}
+
+function closePaymentDropdown() {
+  const pill = document.getElementById('payment-method-pill');
+  const dropdown = document.getElementById('payment-method-dropdown');
+  if (!dropdown || dropdown.classList.contains('d-none')) return;
+  dropdown.classList.add('d-none');
+  if (pill) pill.setAttribute('aria-expanded', 'false');
+}
+
+function initPaymentMethod() {
+  const ua = navigator.userAgent;
+  const applePayOpt = document.getElementById('payment-opt-apple-pay');
+  const googlePayOpt = document.getElementById('payment-opt-google-pay');
+  const isIOS = /iPhone|iPad/i.test(ua);
+  const isAndroid = /Android/i.test(ua);
+  if (applePayOpt) applePayOpt.style.display = isIOS ? '' : 'none';
+  if (googlePayOpt) googlePayOpt.style.display = isAndroid ? '' : 'none';
+
+  const validMethods = PAYMENT_METHOD_OPTIONS.filter(m => {
+    if (m.id === 'apple_pay') return isIOS;
+    if (m.id === 'google_pay') return isAndroid;
+    return true;
+  }).map(m => m.id);
+
+  if (!validMethods.includes(selectedPaymentMethod)) {
+    selectedPaymentMethod = 'card';
+    localStorage.setItem('drive.paymentMethod', 'card');
+  }
+
+  renderPaymentMethodPill();
+  setPaymentMethod(selectedPaymentMethod);
 }
 
 function startSearchingDotsAnimation() {
@@ -1673,6 +1861,7 @@ function createRouteMarkerElement(kind) {
 function createDriverMarkerElement() {
   const element = document.createElement('div');
   element.className = 'driver-marker';
+  element.setAttribute('aria-label', 'Driver vehicle marker');
 
   const speedBadge = document.createElement('div');
   speedBadge.className = 'driver-marker-speed';
@@ -1681,11 +1870,11 @@ function createDriverMarkerElement() {
   const body = document.createElement('div');
   body.className = 'driver-marker-body';
 
-  const arrow = document.createElement('span');
-  arrow.className = 'driver-marker-arrow';
-  arrow.textContent = '▲';
+  const vehicle = document.createElement('i');
+  vehicle.className = 'bi bi-car-front-fill driver-marker-vehicle';
+  vehicle.setAttribute('aria-hidden', 'true');
 
-  body.appendChild(arrow);
+  body.appendChild(vehicle);
   element.append(speedBadge, body);
   return element;
 }
@@ -1700,13 +1889,16 @@ function createRiderMarkerElement() {
 function updateDriverMarkerVisuals(position) {
   const markerElement = mapState.markers.driver?.getElement?.();
   if (!markerElement || !position) return;
-  const arrow = markerElement.querySelector('.driver-marker-arrow');
+  const body = markerElement.querySelector('.driver-marker-body');
   const speedBadge = markerElement.querySelector('.driver-marker-speed');
-  if (arrow) {
-    arrow.style.transform = `rotate(${normalizeHeading(position.heading ?? mapState.driverHeading)}deg)`;
+  if (body) {
+    body.style.transform = `rotate(${normalizeHeading(position.heading ?? mapState.driverHeading)}deg)`;
   }
   if (speedBadge) {
-    speedBadge.textContent = currentRide?.driverName || 'Driver';
+    const speedMph = Number(currentRide?.driverLocation?.speed);
+    speedBadge.textContent = Number.isFinite(speedMph) && speedMph > 0
+      ? `${Math.round(speedMph)} mph`
+      : (currentRide?.driverName || 'Driver');
   }
 }
 
@@ -1958,12 +2150,18 @@ function syncMapMarkers(pickup, destination) {
     mapState.markers.rider.remove();
   }
 
+  const normalizedRideStatus = normalizeRideStatus(currentRide?.status);
+  const shouldDisplayDriverMarker = Boolean(currentRide?.driverLocation)
+    && ACTIVE_RIDE_STATUSES.includes(normalizedRideStatus)
+    && !TERMINAL_RIDE_STATUSES.includes(normalizedRideStatus);
   const driverLocation = currentRide?.driverLocation;
-  if (driverLocation && Number.isFinite(Number(driverLocation.lat)) && Number.isFinite(Number(driverLocation.lng))) {
+  if (shouldDisplayDriverMarker && driverLocation && Number.isFinite(Number(driverLocation.lat)) && Number.isFinite(Number(driverLocation.lng))) {
     if (!mapState.markers.driver) {
       mapState.markers.driver = new window.mapboxgl.Marker({ element: createDriverMarkerElement() });
     }
-    if (mapState.lastDriverPosition) {
+    if (Number.isFinite(Number(driverLocation.heading))) {
+      mapState.driverHeading = normalizeHeading(Number(driverLocation.heading));
+    } else if (mapState.lastDriverPosition) {
       mapState.driverHeading = calculateHeading(
         mapState.lastDriverPosition.lat,
         mapState.lastDriverPosition.lng,
@@ -1992,14 +2190,31 @@ function syncMapMarkers(pickup, destination) {
 async function refreshMapRoute(options = {}) {
   const { fitRoute = false, force = false } = options;
   const { pickup, destination } = getPickupAndDestination({ allowFallback: true });
-  const nextRouteKey = [pickup.lat, pickup.lng, destination.lat, destination.lng].map(value => Number(value).toFixed(5)).join(':');
+  const normalizedRideStatus = normalizeRideStatus(currentRide?.status);
+  const hasDriverLocation = Boolean(
+    currentRide?.driverLocation
+    && Number.isFinite(Number(currentRide.driverLocation.lat))
+    && Number.isFinite(Number(currentRide.driverLocation.lng))
+  );
+  const useDriverApproachRoute = hasDriverLocation && DRIVER_APPROACH_RIDE_STATUSES.includes(normalizedRideStatus);
+  const routeStart = useDriverApproachRoute
+    ? { lat: Number(currentRide.driverLocation.lat), lng: Number(currentRide.driverLocation.lng) }
+    : pickup;
+  const routeEnd = useDriverApproachRoute ? pickup : destination;
+  const nextRouteKey = [
+    Number(routeStart.lat).toFixed(5),
+    Number(routeStart.lng).toFixed(5),
+    Number(routeEnd.lat).toFixed(5),
+    Number(routeEnd.lng).toFixed(5),
+    normalizedRideStatus
+  ].join(':');
   mapState.lastRouteKey = nextRouteKey;
   if (!force && mapState.lastFetchedRouteKey === nextRouteKey) {
-    if (fitRoute || !mapState.hasFittedScene) fitMapToScene(pickup, destination);
+    if (fitRoute || !mapState.hasFittedScene || useDriverApproachRoute) fitMapToScene(pickup, destination);
     return;
   }
 
-  const route = await fetchDirectionsRoute(pickup, destination);
+  const route = await fetchDirectionsRoute(routeStart, routeEnd);
   if (nextRouteKey !== mapState.lastRouteKey) return;
   mapState.lastFetchedRouteKey = nextRouteKey;
   mapState.routeGeojson = {
@@ -2014,15 +2229,22 @@ async function refreshMapRoute(options = {}) {
     }]
   };
   mapState.routeInstructions = route.instructions;
-  mapState.routeSourceLabel = route.sourceLabel;
+  mapState.routeSourceLabel = useDriverApproachRoute ? 'Driver to pickup route' : route.sourceLabel;
   mapState.routeTrafficLabel = route.trafficLabel || 'Clear route';
   updateRouteSource();
   renderRouteInstructions(route.instructions);
-  safeSetText('route-source-badge', route.sourceLabel);
+  safeSetText('route-source-badge', mapState.routeSourceLabel);
   safeSetText('map-route-traffic', mapState.routeTrafficLabel);
 
   // Use actual Mapbox distance/duration to refresh fare estimate if data is valid
   if (Number.isFinite(route.distanceMiles) && Number.isFinite(route.etaMinutes) && route.distanceMiles > 0) {
+    if (useDriverApproachRoute) {
+    safeSetText('map-route-distance', formatMiles(route.distanceMiles));
+    animateNumericText('map-route-duration', formatMinutes(route.etaMinutes));
+    safeSetText('map-route-overview', `Driver to pickup • ${formatMiles(route.distanceMiles)} • ${formatMinutes(route.etaMinutes)}`);
+    animateNumericText('map-route-arrival', formatArrivalTimeFromMinutes(route.etaMinutes));
+    if (!etaCountdownIntervalId) animateNumericText('driver-eta', formatMinutes(route.etaMinutes));
+    } else {
     const mapboxRoute = { distanceMiles: route.distanceMiles, etaMinutes: route.etaMinutes };
     const updatedEstimate = {
       ok: true,
@@ -2032,9 +2254,10 @@ async function refreshMapRoute(options = {}) {
       ...buildEstimateFromRoute(mapboxRoute, selectedRideType)
     };
     renderFareEstimate(updatedEstimate);
+    }
   }
 
-  if (fitRoute || !mapState.hasFittedScene) fitMapToScene(pickup, destination);
+  if (fitRoute || !mapState.hasFittedScene || useDriverApproachRoute) fitMapToScene(pickup, destination);
 }
 
 function renderMapState(options = {}) {
@@ -2049,7 +2272,11 @@ function renderMapState(options = {}) {
   }
   flyToPrimaryLocation(pickup, destination);
   syncMapMarkers(pickup, destination);
-  refreshMapRoute({ fitRoute }).catch(() => {
+  const shouldTrackDriver = Boolean(
+    currentRide?.driverLocation
+    && DRIVER_APPROACH_RIDE_STATUSES.includes(normalizeRideStatus(currentRide?.status))
+  );
+  refreshMapRoute({ fitRoute: fitRoute || shouldTrackDriver }).catch(() => {
     const fallbackDirections = buildFallbackDirections(pickup, destination);
     renderRouteInstructions(fallbackDirections.instructions);
     safeSetText('route-source-badge', fallbackDirections.sourceLabel);
@@ -2157,7 +2384,7 @@ async function syncRides() {
   } catch (_error) {
     backendRides = [];
   } finally {
-    setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(currentRide.status)));
+    setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(normalizeRideStatus(currentRide?.status))));
   }
   rides = mergeRides(backendRides, readSharedRideStore().rides);
   writeSharedRideStore({ rides });
@@ -2223,6 +2450,7 @@ async function handleRequestRide() {
         requestButton.classList.remove('is-success');
       }, REQUEST_SUCCESS_ANIMATION_MS);
     }
+    showToast('Searching for nearby drivers...', 'info');
 
     // Only simulate driver for immediate (non-scheduled) rides
     if (!scheduleState.isScheduled && currentRide?.id) {
@@ -2245,19 +2473,27 @@ async function handleRequestRide() {
 
 async function handleCancelRide() {
   if (!currentRide?.id) return;
+  const rideId = currentRide.id;
+  console.log('[Cancel Ride] Cancelling ride:', rideId);
   setCancelModalOpen(false);
   stopStatusProgression();
   stopEtaCountdown();
   assignedDriver = null;
   setButtonLoading('cancel-ride-button', true);
   try {
-    const canceledRide = await cancelRide(currentRide.id);
+    const canceledRide = await cancelRide(rideId);
     if (canceledRide) {
-      currentRide = normalizeRide(canceledRide);
-      rides = mergeRides([currentRide], readSharedRideStore().rides);
+      console.log('[Cancel Ride] Ride cancelled:', rideId);
+      updateSharedRide(rideId, { status: 'canceled', lifecycleState: 'canceled', canceledAt: new Date().toISOString() });
+      currentRide = null;
+      rides = rides.filter(r => r.id !== rideId);
       renderRideState();
-      showPopup('Ride canceled.');
+      showToast('Ride cancelled', 'info');
     }
+  } catch (err) {
+    const errorMsg = (err instanceof Error && err.message) || 'Failed to cancel ride. Please try again.';
+    console.error('[Cancel Ride] Error cancelling ride:', rideId, err);
+    showToast(errorMsg, 'error');
   } finally {
     setButtonLoading('cancel-ride-button', false);
     renderRideState();
@@ -2285,7 +2521,7 @@ function startRiderLocationSync() {
     latestKnownRiderPosition = { lat, lng };
     if (Date.now() - lastLocationPushAt < MIN_LOCATION_PUSH_INTERVAL_MS) return;
     lastLocationPushAt = Date.now();
-    if (currentRide?.id && ACTIVE_RIDE_STATUSES.includes(currentRide.status)) {
+    if (currentRide?.id && ACTIVE_RIDE_STATUSES.includes(normalizeRideStatus(currentRide.status))) {
       const updated = updateSharedRide(currentRide.id, {
         riderLocation: { lat, lng, updatedAt: new Date().toISOString() }
       });
@@ -2440,13 +2676,18 @@ function renderDriverCard(driver, etaMinutes) {
       ...driver,
       vehicle: {
         label: String(driver.vehicle || '').trim(),
-        plateNumber: driver.plate || ''
+        plate: driver.plate || driver.plateNumber || ''
       }
     };
   renderDriverCardDetails(normalizedDriver, etaMinutes || 5);
 
   // Online indicator
   card.querySelector('.driver-online-dot')?.classList.add('is-online');
+
+  // Trigger slide-in animation
+  card.classList.remove('d-none');
+  card.classList.remove('slide-up');
+  void card.offsetWidth; // force reflow so the animation restarts from scratch
   card.classList.add('slide-up');
 }
 
@@ -2484,18 +2725,34 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
     assignedDriver = driver;
     const assignedDriverId = `driver_${Date.now()}`;
     const driverEta = MIN_DRIVER_ETA_MINUTES + Math.floor(Math.random() * (MAX_DRIVER_ETA_MINUTES - MIN_DRIVER_ETA_MINUTES));
+    const driverDistance = (0.3 + Math.random() * 2.5).toFixed(1);
+
+    const vehicleLabel = String(driver.vehicle || '').trim();
+    const yearMatch = vehicleLabel.match(/\b(19\d{2}|20\d{2})\b/);
+    const vehicleYear = yearMatch ? Number(yearMatch[1]) : null;
+    const vehicleWithoutYear = vehicleLabel.replace(/\s*\b\d{4}\b\s*/, ' ').trim();
+    const vehicleParts = vehicleWithoutYear.split(/\s+/).filter(Boolean);
+    const vehicleMake = vehicleParts[0] || '';
+    const vehicleModel = vehicleParts.length > 1 ? vehicleParts.slice(1).join(' ') : '';
 
     applyRideStatusUpdate(rideId, {
-      status: 'accepted',
+      status: 'assigned',
       driverId: assignedDriverId,
       driverName: driver.name,
+      distanceAway: Number(driverDistance),
       driver: {
         id: assignedDriverId,
         name: driver.name,
         rating: driver.rating,
+        photoUrl: driver.photoUrl || null,
+        distanceAway: Number(driverDistance),
         vehicle: {
-          label: String(driver.vehicle || '').trim(),
-          plateNumber: driver.plate || ''
+          make: vehicleMake,
+          model: vehicleModel,
+          year: vehicleYear && vehicleYear > MIN_VALID_VEHICLE_YEAR ? vehicleYear : null,
+          color: driver.color || '',
+          plate: driver.plate || '',
+          photoUrl: driver.vehiclePhotoUrl || null
         }
       },
       etaMinutes: driverEta,
@@ -2514,7 +2771,6 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
     renderDriverCard(driver, driverEta);
     startEtaCountdown(driverEta);
     simulateDriverMovementOnMap(pickupLat, pickupLng);
-    showPopup(`${driver.name} is on the way!`);
 
     // Simulate driver arriving
     statusProgressionTimerId = window.setTimeout(() => {
@@ -2522,7 +2778,6 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
       stopEtaCountdown();
       animateNumericText('driver-eta', 'Here now');
       animateNumericText('driver-countdown', 'Here now');
-      showPopup('Your driver has arrived at pickup!');
     }, driverEta * 60 * 1000);
   }, delay);
 }
@@ -3079,7 +3334,7 @@ function setupHandlers() {
     handleCancelRideClick();
   });
   document.getElementById('cancel-modal-confirm')?.addEventListener('click', () => {
-    handleCancelRide().catch(() => showPopup('Unable to cancel ride.'));
+    handleCancelRide().catch(err => showToast((err instanceof Error && err.message) || 'Unable to cancel ride.', 'error'));
   });
   document.getElementById('cancel-modal-keep')?.addEventListener('click', () => {
     setCancelModalOpen(false);
@@ -3318,6 +3573,21 @@ function setupHandlers() {
     }
   });
 
+  document.getElementById('payment-method-pill')?.addEventListener('click', togglePaymentDropdown);
+
+  document.querySelectorAll('[data-payment-method]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const methodId = btn.getAttribute('data-payment-method');
+      if (methodId) setPaymentMethod(methodId);
+      closePaymentDropdown();
+    });
+  });
+
+  document.addEventListener('click', event => {
+    const section = document.getElementById('payment-method-section');
+    if (section && !section.contains(event.target)) closePaymentDropdown();
+  });
+
   if (!mapState.resizeHandlerBound) {
     mapState.resizeHandlerBound = true;
     window.addEventListener('resize', () => resizeMapNow(50));
@@ -3339,6 +3609,7 @@ window.addEventListener('load', async () => {
   if (!setupSession()) return;
   seedDefaultInputs();
   setupHandlers();
+  initPaymentMethod();
   startSearchingDotsAnimation();
   clockIntervalId = window.setInterval(updateHeaderClock, 60000);
   await initializeMap();

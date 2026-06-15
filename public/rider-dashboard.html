@@ -411,6 +411,73 @@
               </div>
             </div>
 
+            <div id="driver-assigned-card" class="driver-assignment-section card d-none" aria-live="polite">
+              <div class="driver-card-heading">
+                <p class="card-eyebrow">Driver assigned</p>
+                <h2 class="card-title">Your Driver</h2>
+              </div>
+              <div class="driver-card-header">
+                <div class="driver-avatar-wrap">
+                  <div class="driver-avatar-circle">
+                    <img id="driver-avatar" class="driver-avatar-image d-none" alt="Driver profile photo">
+                    <span class="driver-avatar-initial">?</span>
+                  </div>
+                  <span class="driver-online-dot" aria-label="Driver online"></span>
+                </div>
+                <div class="driver-info-col">
+                  <div class="driver-info-name" id="driver-name">--</div>
+                  <div class="driver-rating-inline">
+                    <span class="driver-rating-badge"><span id="driver-rating">-- ⭐</span></span>
+                    <span class="driver-status-text" id="driver-status-text">--</span>
+                  </div>
+                  <div class="driver-info-plate">
+                    <i class="bi bi-credit-card-2-front" aria-hidden="true"></i>
+                    <span id="driver-plate">--</span>
+                  </div>
+                </div>
+                <div class="driver-eta-col">
+                  <div class="driver-countdown" id="driver-countdown">--</div>
+                  <div class="driver-eta-label">away</div>
+                </div>
+              </div>
+              <div class="driver-vehicle-row">
+                <div class="driver-vehicle-photo-wrap">
+                  <img id="driver-vehicle-photo" class="driver-vehicle-photo d-none" alt="Driver vehicle">
+                  <span id="driver-vehicle-icon" class="driver-vehicle-icon">🚗</span>
+                </div>
+                <div class="driver-vehicle-details">
+                  <div class="driver-info-vehicle" id="driver-vehicle">--</div>
+                  <div class="driver-vehicle-specs" id="driver-vehicle-specs"></div>
+                  <div class="driver-info-plate driver-vehicle-plate-row">
+                    <i class="bi bi-credit-card-2-front" aria-hidden="true"></i>
+                    <span id="driver-plate-vehicle">--</span>
+                  </div>
+                </div>
+              </div>
+              <div class="driver-trip-row">
+                <div class="driver-trip-chip">
+                  <i class="bi bi-clock" aria-hidden="true"></i>
+                  <span class="driver-trip-label">ETA</span>
+                  <strong id="driver-eta">--</strong>
+                </div>
+                <div class="driver-trip-chip">
+                  <i class="bi bi-geo-alt" aria-hidden="true"></i>
+                  <span class="driver-trip-label">Distance</span>
+                  <strong id="driver-distance-away">--</strong>
+                </div>
+              </div>
+              <div class="driver-actions-row">
+                <button id="btn-call-driver" type="button" class="driver-action-btn" aria-label="Call driver" title="Call driver">
+                  <i class="bi bi-telephone-fill"></i>
+                  <span>Call</span>
+                </button>
+                <button id="btn-message-driver" type="button" class="driver-action-btn" aria-label="Message driver" title="Message driver">
+                  <i class="bi bi-chat-dots-fill"></i>
+                  <span>Message</span>
+                </button>
+              </div>
+            </div>
+
             <div class="status-section">
               <div class="card status-card">
                 <div class="status-header">
@@ -431,6 +498,35 @@
 
                 <div id="booking-error-message" class="booking-error d-none" role="alert" aria-live="assertive"></div>
 
+                <div class="payment-method-section" id="payment-method-section">
+                  <div class="payment-method-header">
+                    <span class="payment-method-label">Pay with</span>
+                    <button type="button" class="payment-pill" id="payment-method-pill" aria-expanded="false" aria-controls="payment-method-dropdown" aria-haspopup="listbox">
+                      <span id="payment-method-icon" aria-hidden="true">💳</span>
+                      <span id="payment-method-text">Card</span>
+                      <i class="bi bi-chevron-down payment-pill-chevron" aria-hidden="true"></i>
+                    </button>
+                  </div>
+                  <div id="payment-method-dropdown" class="payment-method-dropdown d-none" role="listbox" aria-label="Select payment method">
+                    <button type="button" class="payment-option is-selected" data-payment-method="card" role="option" aria-selected="true">
+                      <span class="payment-option-icon" aria-hidden="true">💳</span>
+                      <span>Card</span>
+                    </button>
+                    <button type="button" class="payment-option" data-payment-method="apple_pay" role="option" aria-selected="false" id="payment-opt-apple-pay">
+                      <span class="payment-option-icon" aria-hidden="true">🍎</span>
+                      <span>Apple Pay</span>
+                    </button>
+                    <button type="button" class="payment-option" data-payment-method="google_pay" role="option" aria-selected="false" id="payment-opt-google-pay">
+                      <span class="payment-option-icon" aria-hidden="true">🔵</span>
+                      <span>Google Pay</span>
+                    </button>
+                    <button type="button" class="payment-option" data-payment-method="cash" role="option" aria-selected="false">
+                      <span class="payment-option-icon" aria-hidden="true">💵</span>
+                      <span>Cash</span>
+                    </button>
+                  </div>
+                </div>
+
                 <div class="button-group">
                   <button id="request-ride-button" type="button" class="btn btn-primary btn-block btn-lg" title="Enter a valid pickup and destination.">
                     <span class="btn-spinner" aria-hidden="true"></span>
@@ -442,54 +538,6 @@
                     <i class="bi bi-x-circle btn-icon"></i>
                     <span class="btn-label">Cancel Ride</span>
                   </button>
-                </div>
-
-                <div id="driver-assigned-card" class="driver-card d-none" aria-live="polite">
-                  <div class="driver-card-header">
-                    <div class="driver-avatar-wrap">
-                      <div class="driver-avatar-circle">
-                        <img id="driver-avatar" class="driver-avatar-image d-none" alt="Driver profile photo">
-                        <span class="driver-avatar-initial">?</span>
-                      </div>
-                      <span class="driver-online-dot" aria-label="Driver online"></span>
-                    </div>
-                    <div class="driver-info-col">
-                      <div class="driver-info-name" id="driver-name">--</div>
-                      <div class="driver-info-vehicle" id="driver-vehicle">--</div>
-                      <div class="driver-info-plate">
-                        <i class="bi bi-credit-card-2-front" aria-hidden="true"></i>
-                        <span id="driver-plate">--</span>
-                      </div>
-                    </div>
-                    <div class="driver-eta-col">
-                      <div class="driver-countdown" id="driver-countdown">--</div>
-                      <div class="driver-eta-label">away</div>
-                    </div>
-                  </div>
-                  <div class="driver-vehicle-row">
-                    <div class="driver-vehicle-photo-wrap">
-                      <img id="driver-vehicle-photo" class="driver-vehicle-photo d-none" alt="Driver vehicle">
-                      <span id="driver-vehicle-icon" class="driver-vehicle-icon">🚗</span>
-                    </div>
-                    <div class="driver-vehicle-details">
-                      <div class="driver-vehicle-specs" id="driver-vehicle-specs"></div>
-                    </div>
-                  </div>
-                  <div class="driver-meta-row">
-                    <span class="driver-rating-badge">
-                      <span id="driver-rating">-- ⭐</span>
-                    </span>
-                    <span class="driver-location-text" id="driver-location">--</span>
-                  </div>
-                  <div class="driver-actions-row">
-                    <button id="btn-call-driver" type="button" class="driver-action-btn" aria-label="Call driver" title="Call driver">
-                      <i class="bi bi-telephone-fill"></i>
-                    </button>
-                    <button id="btn-message-driver" type="button" class="driver-action-btn" aria-label="Message driver" title="Message driver">
-                      <i class="bi bi-chat-dots-fill"></i>
-                    </button>
-                    <span class="driver-eta-chip">ETA: <span id="driver-eta">--</span></span>
-                  </div>
                 </div>
 
                 <ol id="trip-timeline" class="trip-timeline" aria-label="Trip progress timeline">
@@ -541,7 +589,7 @@
     </main>
   </div>
 
-  <div id="ride-popup" class="toast d-none" role="status" aria-live="polite"></div>
+  <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
   <div id="cancel-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="cancel-modal-title" aria-describedby="cancel-modal-description">
     <div class="modal-card">
       <h3 id="cancel-modal-title">Cancel this ride?</h3>
