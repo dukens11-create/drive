@@ -1291,7 +1291,7 @@ function renderRideState() {
   if (showDriverCard) {
     if (wasHidden) {
       assignedCard.classList.remove('slide-up');
-      void assignedCard.offsetWidth;
+      void assignedCard.offsetWidth; // force reflow so the animation restarts from scratch
       assignedCard.classList.add('slide-up');
     }
     const activeDriver = currentRide.driver || assignedDriver || {};
@@ -2405,7 +2405,7 @@ function renderDriverCard(driver, etaMinutes) {
   // Trigger slide-in animation
   card.classList.remove('d-none');
   card.classList.remove('slide-up');
-  void card.offsetWidth;
+  void card.offsetWidth; // force reflow so the animation restarts from scratch
   card.classList.add('slide-up');
 }
 
@@ -2446,7 +2446,7 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
     const driverDistance = (0.3 + Math.random() * 2.5).toFixed(1);
 
     const vehicleLabel = String(driver.vehicle || '').trim();
-    const yearMatch = vehicleLabel.match(/\b(\d{4})\b/);
+    const yearMatch = vehicleLabel.match(/\b(19\d{2}|20\d{2})\b/);
     const vehicleYear = yearMatch ? Number(yearMatch[1]) : null;
     const vehicleWithoutYear = vehicleLabel.replace(/\s*\b\d{4}\b\s*/, ' ').trim();
     const vehicleParts = vehicleWithoutYear.split(/\s+/).filter(Boolean);
