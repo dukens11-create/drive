@@ -2482,6 +2482,26 @@
                 <button id="cancel-trip-button" class="secondary-action" type="button"><i class="bi bi-x-octagon-fill"></i> Cancel Trip</button>
                 <button id="pickup-directions-button" class="secondary-action" type="button"><i class="bi bi-sign-turn-right"></i> Navigate to Pickup</button>
                 <button id="dropoff-directions-button" class="primary-action" type="button"><i class="bi bi-geo"></i> Navigate to Dropoff</button>
+                <button id="sos-button" class="secondary-action" type="button" style="background:#dc3545;color:#fff;border-color:#dc3545"><i class="bi bi-exclamation-triangle-fill"></i> SOS Emergency</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="sos-modal" class="modal-lite" aria-hidden="true">
+        <div class="modal-lite-body" role="dialog" aria-modal="true" aria-labelledby="sos-modal-title">
+            <div class="modal-lite-header">
+                <h5 id="sos-modal-title" class="mb-0" style="color:#dc3545"><i class="bi bi-exclamation-triangle-fill"></i> Emergency SOS</h5>
+                <button id="close-sos-modal" type="button" class="icon-button" aria-label="Close SOS">&times;</button>
+            </div>
+            <div class="modal-lite-content">
+                <p class="text-muted">Select the type of emergency. Dispatch and admin will be alerted immediately.</p>
+                <div class="d-grid gap-2">
+                    <button class="secondary-action sos-type-btn" data-sos-type="unsafe_passenger" type="button"><i class="bi bi-person-exclamation"></i> Unsafe Passenger</button>
+                    <button class="secondary-action sos-type-btn" data-sos-type="accident" type="button"><i class="bi bi-car-front-fill"></i> Accident</button>
+                    <button class="secondary-action sos-type-btn" data-sos-type="medical" type="button"><i class="bi bi-heart-pulse-fill"></i> Medical Emergency</button>
+                    <button class="secondary-action sos-type-btn" data-sos-type="sos" type="button" style="background:#dc3545;color:#fff;border-color:#dc3545"><i class="bi bi-exclamation-octagon-fill"></i> General SOS</button>
+                </div>
+                <div id="sos-confirmation" class="mt-3 d-none alert alert-danger" role="alert"></div>
             </div>
         </div>
     </div>

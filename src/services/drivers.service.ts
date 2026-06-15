@@ -4,6 +4,7 @@ import path from 'path';
 import * as authService from './auth.service';
 import { getWalletBalanceCents, makeId, markStoreDirty, store, timestamp, type BankAccount, type DriverProfile, type DriverVehicleProfile, type DriverVerificationDocument, type Vehicle, type VehicleType } from '../database/data.store';
 import { publishDriverRealtimeLocation, publishDriverStatusChanged } from './realtime-dispatch.service';
+import * as walletService from './wallet.service';
 import { findNearbyDrivers, rankDrivers } from '../utils/dispatch.engine';
 import { sendEmail } from './email.service';
 import { emailTemplates } from '../utils/email-templates';
@@ -1035,6 +1036,29 @@ export async function earningsWeek(body: any, _params?: any, _query?: any) {
   return { module: 'drivers', action: 'earnings-week', ok: true, totalCents, count: entries.length, dailyBreakdown: daily };
 }
 
+export async function earningsMonth(body: any, _params?: any, _query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'drivers', action: 'earnings-month', error: 'actor ID is required' };
+  const profile = getProfile(userId);
+  if (!profile) return { module: 'drivers', action: 'earnings-month', error: 'driver not found' };
+
+  const monthStart = startOfMonth(new Date());
+  const entries = store.driverEarnings.filter(e => e.driverId === userId && new Date(e.createdAt) >= monthStart);
+  const totalCents = entries.reduce((sum, e) => sum + e.amountCents, 0);
+  return { module: 'drivers', action: 'earnings-month', ok: true, totalCents, count: entries.length };
+}
+
+export async function earningsLifetime(body: any, _params?: any, _query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'drivers', action: 'earnings-lifetime', error: 'actor ID is required' };
+  const profile = getProfile(userId);
+  if (!profile) return { module: 'drivers', action: 'earnings-lifetime', error: 'driver not found' };
+
+  const entries = store.driverEarnings.filter(e => e.driverId === userId);
+  const totalCents = entries.reduce((sum, e) => sum + e.amountCents, 0);
+  return { module: 'drivers', action: 'earnings-lifetime', ok: true, totalCents, count: entries.length };
+}
+
 export async function wallet(body: any, _params?: any, _query?: any) {
   const userId = body?.actor?.id || body?.userId;
   if (!userId) return { module: 'drivers', action: 'wallet', error: 'actor ID is required' };
@@ -1096,6 +1120,13 @@ export async function transactions(body: any, _params?: any, query?: any) {
   const page = entries.slice(offset, offset + limit);
 
   return { module: 'drivers', action: 'transactions', ok: true, total, limit, offset, entries: page };
+}
+
+export async function walletWithdraw(body: any, _params?: any, _query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'drivers', action: 'wallet-withdraw', error: 'actor ID is required' };
+  console.log(`[DRIVER] Wallet withdraw requested by driver ${userId}`);
+  return walletService.withdraw({ ...body, userId });
 }
 
 export async function trips(body: any, _params?: any, query?: any) {

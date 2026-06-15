@@ -14,6 +14,7 @@ import { initializeFCM } from './services/fcm.service';
 import { stripeWebhookHandler } from './webhooks/stripe.webhook';
 import { requireAuth, requireRole } from './middleware/auth.middleware';
 import * as ridesController from './controllers/rides.controller';
+import { store } from './database/data.store';
 
 export function createApp() {
   try {
@@ -107,6 +108,38 @@ export function createApp() {
       requireAuth,
       requireRole('driver'),
       (req, res, next) => ridesController.driverRideRequests(req, res).catch(next)
+    );
+    app.get(
+      '/api/dispatch/heatmap',
+      requireAuth,
+      (req, res) => {
+        const now = Date.now();
+        const windowMs = 30 * 60 * 1000; // 30-minute window
+        // Build demand zones from active ride requests in SEARCHING status
+        const activeRequests = Array.from((store.rides as Map<string, any>).values())
+          .filter((ride: any) => ride.status === 'searching' || ride.status === 'SEARCHING')
+          .filter((ride: any) => ride.pickupLat && ride.pickupLng);
+        const zones = activeRequests.map((ride: any) => ({
+          lat: Number(ride.pickupLat),
+          lng: Number(ride.pickupLng),
+          demand: 1,
+          surgeMultiplier: Number(ride.fareDetails?.surgeMultiplier || 1),
+          zoneType: ride.vehicleType === 'premium' ? 'premium' : 'standard'
+        }));
+        // Include driver location hotspots from location history (last 30 min)
+        const recentMs = now - windowMs;
+        const locationPoints = ((store.locationHistory || []) as any[])
+          .filter((p: any) => new Date(p.recordedAt || 0).getTime() > recentMs && p.lat && p.lng);
+        const hotspots = locationPoints.slice(-100).map((p: any) => ({
+          lat: Number(p.lat),
+          lng: Number(p.lng),
+          demand: 0.5,
+          surgeMultiplier: 1,
+          zoneType: 'driver'
+        }));
+        console.log(`[DISPATCH] Heatmap requested: ${zones.length} demand zones, ${hotspots.length} driver hotspots`);
+        res.json({ ok: true, zones: [...zones, ...hotspots], updatedAt: new Date().toISOString() });
+      }
     );
 
     const routers = [

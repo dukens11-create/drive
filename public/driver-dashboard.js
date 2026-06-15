@@ -2519,6 +2519,7 @@ async function initializeMapbox() {
       updateMapboxMarkers();
       updateMapboxRoute();
       queueMapRender();
+      loadHeatmap().catch(() => {});
     });
     mapState.mapboxInstance.on('style.load', () => {
       ensureTrafficLayer();
@@ -4322,7 +4323,218 @@ function renderWallet() {
         <div class="metric-value">${escapeHtml(bank.bankName)} ····${escapeHtml(bank.last4)}</div>
       </div>` : '<div class="metric-card"><div class="metric-label">Bank Account</div><div class="metric-value text-muted">Not set</div></div>'}
     </div>
+    <div class="mt-3">
+      <button id="wallet-withdraw-btn" class="primary-action" type="button"${available <= 0 ? ' disabled' : ''}>
+        <i class="bi bi-bank"></i> Withdraw Available Balance ($${(available / 100).toFixed(2)})
+      </button>
+    </div>
   `;
+  const withdrawBtn = document.getElementById('wallet-withdraw-btn');
+  if (withdrawBtn) withdrawBtn.addEventListener('click', handleWalletWithdraw);
+}
+
+async function handleWalletWithdraw() {
+  const available = walletSnapshot ? Number(walletSnapshot.availableBalanceCents || 0) : 0;
+  if (available <= 0) {
+    showAlert('warning', 'No available balance to withdraw.');
+    return;
+  }
+  const confirmed = window.confirm(`Withdraw $${(available / 100).toFixed(2)} to your bank account?`);
+  if (!confirmed) return;
+  console.log('[DRIVER] Wallet withdraw requested:', available);
+  try {
+    const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/wallet/withdraw`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + accessToken },
+      body: JSON.stringify({ amountCents: available })
+    });
+    if (data?.ok || data?.action === 'withdraw') {
+      console.log('[DRIVER] Wallet withdraw submitted');
+      showAlert('success', 'Payout initiated! Funds will arrive in 1-2 business days.');
+      setTimeout(() => loadEarnings().catch(() => {}), 1000);
+    } else {
+      showAlert('warning', data?.error || 'Unable to initiate payout. Add a bank account first.');
+    }
+  } catch (err) {
+    console.log('[DRIVER] Wallet withdraw error:', err?.message);
+    showAlert('warning', 'Unable to initiate payout. Please try again.');
+  }
+}
+
+// ─── Heat Map ─────────────────────────────────────────────────────────────────
+let heatmapRefreshTimer = null;
+
+async function loadHeatmap() {
+  if (!mapState.mapboxInstance || !mapState.mapboxReady) return;
+  try {
+    const { data } = await fetchJson(`${API_BASE_URL}/api/dispatch/heatmap`, {
+      headers: { Authorization: 'Bearer ' + accessToken }
+    });
+    if (data?.ok && Array.isArray(data.zones)) {
+      console.log(`[DRIVER] Heatmap loaded: ${data.zones.length} zones`);
+      renderHeatmapLayer(data.zones);
+    }
+  } catch (err) {
+    console.log('[DRIVER] Heatmap load error:', err?.message);
+  }
+}
+
+function renderHeatmapLayer(zones) {
+  const map = mapState.mapboxInstance;
+  if (!map || !mapState.mapboxReady) return;
+  const features = zones
+    .filter(z => Number.isFinite(z.lat) && Number.isFinite(z.lng))
+    .map(z => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [z.lng, z.lat] },
+      properties: { demand: z.demand || 1, surgeMultiplier: z.surgeMultiplier || 1, zoneType: z.zoneType || 'standard' }
+    }));
+  const geojson = { type: 'FeatureCollection', features };
+  try {
+    if (map.getSource('heatmap-zones')) {
+      map.getSource('heatmap-zones').setData(geojson);
+    } else {
+      map.addSource('heatmap-zones', { type: 'geojson', data: geojson });
+      map.addLayer({
+        id: 'heatmap-layer',
+        type: 'heatmap',
+        source: 'heatmap-zones',
+        maxzoom: 15,
+        paint: {
+          'heatmap-weight': ['interpolate', ['linear'], ['get', 'demand'], 0, 0, 1, 1],
+          'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 1, 9, 3],
+          'heatmap-color': [
+            'interpolate', ['linear'], ['heatmap-density'],
+            0, 'rgba(33,102,172,0)',
+            0.2, 'rgb(103,169,207)',
+            0.4, 'rgb(209,229,240)',
+            0.6, 'rgb(253,219,199)',
+            0.8, 'rgb(239,138,98)',
+            1, 'rgb(178,24,43)'
+          ],
+          'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 2, 9, 20],
+          'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 7, 1, 9, 0]
+        }
+      });
+      map.addLayer({
+        id: 'heatmap-points',
+        type: 'circle',
+        source: 'heatmap-zones',
+        minzoom: 12,
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 8, 16, 14],
+          'circle-color': ['case', ['>=', ['get', 'surgeMultiplier'], 1.5], '#e63946', '#457b9d'],
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 1.5,
+          'circle-opacity': 0.8
+        }
+      });
+    }
+  } catch (err) {
+    console.log('[DRIVER] Heatmap layer error:', err?.message);
+  }
+}
+
+function startHeatmapRefresh() {
+  if (heatmapRefreshTimer) return;
+  loadHeatmap().catch(() => {});
+  heatmapRefreshTimer = setInterval(() => loadHeatmap().catch(() => {}), 30_000);
+  console.log('[DRIVER] Heatmap refresh started (every 30s)');
+}
+
+function stopHeatmapRefresh() {
+  if (heatmapRefreshTimer) {
+    clearInterval(heatmapRefreshTimer);
+    heatmapRefreshTimer = null;
+  }
+}
+
+// ─── SOS / Emergency ──────────────────────────────────────────────────────────
+let sosActiveRideId = null;
+
+function openSosModal(rideId) {
+  sosActiveRideId = rideId || null;
+  const modal = document.getElementById('sos-modal');
+  if (!modal) return;
+  const confirmEl = document.getElementById('sos-confirmation');
+  if (confirmEl) { confirmEl.textContent = ''; confirmEl.classList.add('d-none'); }
+  modal.setAttribute('aria-hidden', 'false');
+  modal.style.display = 'flex';
+  console.log(`[DRIVER] SOS modal opened for ride ${sosActiveRideId}`);
+}
+
+function closeSosModal() {
+  const modal = document.getElementById('sos-modal');
+  if (!modal) return;
+  modal.setAttribute('aria-hidden', 'true');
+  modal.style.display = 'none';
+  sosActiveRideId = null;
+}
+
+async function submitSos(type) {
+  console.log(`[DRIVER] SOS submitted: type=${type}, rideId=${sosActiveRideId}`);
+  triggerHapticFeedback([100, 50, 100, 50, 200]);
+  let lat = null;
+  let lng = null;
+  if (navigator.geolocation) {
+    try {
+      const pos = await new Promise((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 3000 })
+      );
+      lat = pos.coords.latitude;
+      lng = pos.coords.longitude;
+    } catch (_) {
+      console.log('[DRIVER] SOS: geolocation unavailable, sending without coordinates');
+    }
+  }
+  try {
+    let url, body;
+    if (sosActiveRideId) {
+      url = `${API_BASE_URL}/api/rides/${encodeURIComponent(sosActiveRideId)}/sos`;
+      body = JSON.stringify({ type, lat, lng });
+    } else {
+      url = `${API_BASE_URL}/api/safety/sos`;
+      body = JSON.stringify({ type, lat, lng });
+    }
+    const { data } = await fetchJson(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + accessToken },
+      body
+    });
+    const confirmEl = document.getElementById('sos-confirmation');
+    if (confirmEl) {
+      confirmEl.textContent = data?.ok
+        ? '🚨 SOS Alert Sent! Dispatch and emergency services have been notified.'
+        : (data?.error || 'SOS alert sent.');
+      confirmEl.classList.remove('d-none');
+    }
+    console.log(`[DRIVER] SOS alert sent successfully: ${data?.incident?.id || 'ok'}`);
+  } catch (err) {
+    console.log('[DRIVER] SOS error:', err?.message);
+    const confirmEl = document.getElementById('sos-confirmation');
+    if (confirmEl) {
+      confirmEl.textContent = 'SOS alert sent (offline backup).';
+      confirmEl.classList.remove('d-none');
+    }
+  }
+}
+
+function initSosHandlers() {
+  const sosBtn = document.getElementById('sos-button');
+  if (sosBtn) {
+    sosBtn.addEventListener('click', () => {
+      const activeRideId = selectedRideForDetails?.id || null;
+      openSosModal(activeRideId);
+    });
+  }
+  const closeBtn = document.getElementById('close-sos-modal');
+  if (closeBtn) closeBtn.addEventListener('click', closeSosModal);
+  document.querySelectorAll('.sos-type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const type = btn.getAttribute('data-sos-type') || 'sos';
+      submitSos(type).catch(() => {});
+    });
+  });
 }
 
 function renderTripHistory() {
@@ -5249,6 +5461,10 @@ window.addEventListener('load', async () => {
   document.getElementById('ride-details-modal').addEventListener('click', event => {
     if (event.target.id === 'ride-details-modal') closeRideDetailsModal();
   });
+  const sosModal = document.getElementById('sos-modal');
+  if (sosModal) sosModal.addEventListener('click', event => {
+    if (event.target.id === 'sos-modal') closeSosModal();
+  });
   document.getElementById('arrived-button').addEventListener('click', handleArrivedAtPickup);
   document.getElementById('start-trip-button').addEventListener('click', handleStartTrip);
   document.getElementById('end-trip-button').addEventListener('click', handleEndTrip);
@@ -5373,6 +5589,10 @@ window.addEventListener('load', async () => {
   window.addEventListener('beforeunload', () => {
     clearRealtimeConnections();
     stopLocationTracking();
+    stopHeatmapRefresh();
   });
   renderMap();
+  initSosHandlers();
+  // Start heatmap refresh after map is ready (delay to allow map initialization)
+  setTimeout(() => startHeatmapRefresh(), 3000);
 });

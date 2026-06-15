@@ -14,8 +14,11 @@ export async function currentTrip(req:any,res:any){res.json(await service.curren
 export async function earnings(req:any,res:any){res.json(await service.earnings({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function earningsToday(req:any,res:any){res.json(await service.earningsToday({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function earningsWeek(req:any,res:any){res.json(await service.earningsWeek({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function earningsMonth(req:any,res:any){res.json(await service.earningsMonth({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function earningsLifetime(req:any,res:any){res.json(await service.earningsLifetime({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function wallet(req:any,res:any){res.json(await service.wallet({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function transactions(req:any,res:any){res.json(await service.transactions({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function walletWithdraw(req:any,res:any){res.json(await service.walletWithdraw({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function trips(req:any,res:any){res.json(await service.trips({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function tripReceipt(req:any,res:any){res.json(await service.tripReceipt({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function payouts(req:any,res:any){res.json(await service.payouts({ ...req.body, actor: req.user }, req.params, req.query));}
