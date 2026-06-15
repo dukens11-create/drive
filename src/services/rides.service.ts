@@ -45,6 +45,7 @@ const DEFAULT_WAIT_TIMEOUT_SECONDS = 5 * 60;
 const DEFAULT_CANCELLATION_FEE_CENTS = 400;
 const DEFAULT_NO_SHOW_FEE_CENTS = 500;
 const RIDE_REQUEST_EXPIRY_MS = 30_000;
+const RIDE_REQUEST_EXPIRY_DELAY_BUFFER_MS = 20;
 const MAX_FAVORITE_LOCATIONS = 10;
 const SHARED_RIDE_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const ETA_MINUTES_PER_MILE = 3.5;
@@ -107,7 +108,7 @@ function scheduleRideRequestExpiry(request: RideRequest) {
       });
       publishRideRealtimeUpdate(ride, 'ride_request_expired');
     }
-  }, expiresInMs + 20);
+  }, expiresInMs + RIDE_REQUEST_EXPIRY_DELAY_BUFFER_MS);
   rideRequestExpiryTimers.set(request.id, timer);
 }
 
@@ -853,7 +854,7 @@ export async function request(body: any, _params?: any, _query?: any) {
     updatedAt: now
   };
   store.rideRequests.set(rideRequest.id, rideRequest);
-  const riderUser = store.users.get(ride.riderId);
+  const riderDisplayName = 'Rider';
   for (const candidate of dispatch.candidates) {
     const requestTemplate = notificationTemplates.RIDE_REQUEST({
       rideId: ride.id,
@@ -878,8 +879,8 @@ export async function request(body: any, _params?: any, _query?: any) {
         id: ride.id,
         rideId: ride.id,
         riderId: ride.riderId,
-        riderName: riderUser?.email?.split('@')[0] || 'Rider',
-        passengerName: riderUser?.email?.split('@')[0] || 'Rider',
+        riderName: riderDisplayName,
+        passengerName: riderDisplayName,
         pickupAddress: ride.pickupAddress || '',
         destinationAddress: ride.dropoffAddress || '',
         pickupLat: ride.pickupLat,

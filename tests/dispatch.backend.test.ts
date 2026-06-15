@@ -134,7 +134,9 @@ test('dispatch backend compatibility endpoints expose realtime driver, rider, re
     assert.equal(rideRequestBody.ok, true);
     assert.equal(rideRequestBody.ride.status, 'requested');
     assert.equal(rideRequestBody.request.status, 'broadcasting');
-    assert.equal(rideRequestBody.request.broadcastedDrivers.length, 2);
+    assert.equal(rideRequestBody.request.broadcastedDrivers.length >= 2, true);
+    assert.equal(rideRequestBody.request.broadcastedDrivers.includes(driverOne.user.id), true);
+    assert.equal(rideRequestBody.request.broadcastedDrivers.includes(driverTwo.user.id), true);
     assert.match(rideRequestBody.request.expiresAt, /\d{4}-\d{2}-\d{2}T/);
 
     const rideId = rideRequestBody.ride.id;

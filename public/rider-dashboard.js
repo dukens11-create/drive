@@ -50,6 +50,8 @@ const DRIVER_ASSIGN_DELAY_MIN_MS = 3000;
 const DRIVER_ASSIGN_DELAY_MAX_MS = 5000;
 const DRIVER_LOCATION_UPDATE_INTERVAL_MS = 2500;
 const MILES_PER_LAT_DEGREE = 69; // approximate miles per degree of latitude at mid-latitudes
+const KM_TO_MILES = 0.621371;
+// Fallback ETA conversion for live socket updates when no fresh routing ETA is available yet.
 const ETA_MINUTES_PER_MILE = 3.5;
 const MIN_VALID_VEHICLE_YEAR = 1900;
 const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'assigned', 'arrived_at_pickup', 'started'];
@@ -2715,7 +2717,7 @@ function applyRealtimeDriverLocation(payload) {
   const heading = Number.isFinite(Number(payload?.heading))
     ? normalizeHeading(Number(payload.heading))
     : (Number.isFinite(Number(previousLocation.heading)) ? Number(previousLocation.heading) : null);
-  const distanceMiles = calculateDistanceKm(lat, lng, Number(baseRide.pickupLat), Number(baseRide.pickupLng)) * 0.621371;
+  const distanceMiles = calculateDistanceKm(lat, lng, Number(baseRide.pickupLat), Number(baseRide.pickupLng)) * KM_TO_MILES;
   const etaMinutes = Math.max(1, Math.round(distanceMiles * ETA_MINUTES_PER_MILE));
   applyRealtimeRideUpdate({
     ...baseRide,
