@@ -149,7 +149,12 @@ test('dispatch backend compatibility endpoints expose realtime driver, rider, re
     const acceptBody = await response.json();
     assert.equal(acceptBody.ok, true);
     assert.equal(acceptBody.ride.status, 'accepted');
+    assert.equal(typeof acceptBody.ride.assignedAt, 'string');
     assert.equal(acceptBody.request.acceptedDriverId, driverOne.user.id);
+    assert.equal(
+      acceptBody.request.responses.some((item: { driverId: string; status: string }) => item.driverId === driverTwo.user.id && item.status === 'ignored'),
+      true
+    );
 
     realtimeSnapshot = getRealtimeDispatchSnapshot();
     assert.equal(realtimeSnapshot.drivers.some(driver => driver.userId === driverOne.user.id), false);

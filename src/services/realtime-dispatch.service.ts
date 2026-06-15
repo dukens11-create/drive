@@ -293,6 +293,13 @@ export function publishRideRealtimeUpdate(ride: Ride, reason = 'trip_update') {
     updatedAt
   });
   emitToRoom(`user:${ride.riderId}`, 'dispatch:trip_update', tripUpdatePayload);
+  if (reason === 'accepted') {
+    emitToRoom(`user:${ride.riderId}`, 'dispatch:assignment_confirmed', {
+      reason,
+      ride: normalizedRide,
+      updatedAt
+    });
+  }
   const eventTypeMap: Record<string, string> = {
     ride_requested: 'ride_requested',
     accepted: 'ride_accepted',
@@ -329,6 +336,18 @@ export function publishRideRealtimeUpdate(ride: Ride, reason = 'trip_update') {
   });
 
   return tripUpdatePayload;
+}
+
+export function publishDispatchRideRequest(driverId: string, payload: Record<string, unknown>) {
+  emitToRoom(`driver:${driverId}`, 'dispatch:ride_request', payload);
+}
+
+export function publishDispatchRequestExpired(driverId: string, payload: Record<string, unknown>) {
+  emitToRoom(`driver:${driverId}`, 'dispatch:request_expired', payload);
+}
+
+export function publishDispatchRequestRejected(riderId: string, payload: Record<string, unknown>) {
+  emitToRoom(`user:${riderId}`, 'dispatch:request_rejected', payload);
 }
 
 export function publishRiderRatingSubmitted(ride: Ride) {

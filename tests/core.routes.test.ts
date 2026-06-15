@@ -326,6 +326,7 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
     const body = await response.text();
     [
       'Drive Rider Dashboard',
+      '<script src="/socket.io/socket.io.js"></script>',
       '<script src="/rider-dashboard.js"></script>',
       '<link rel="stylesheet" href="/rider-dashboard.css" />',
       'id="mapbox"',
@@ -343,7 +344,7 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
       'id="destination-suggestions"',
       'id="destination-input-message"',
       'id="request-ride-button"',
-      'id="cancel-ride-button"',
+      'id="btn-cancel-ride"',
       'id="fare-base"',
       'id="fare-surge"',
       'id="location-error"',
@@ -358,13 +359,10 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
       'Driver',
       'Rider',
       'Admin',
-      'btn-voice-command',
-      'btn-mute-alerts',
-      'voice-feedback',
-      'voice-alerts-toggle',
-      'voice-volume-slider',
-      'Spoken alerts',
-      'Estimated time of arrival'
+      'id="btn-call-driver"',
+      'id="btn-message-driver"',
+      'id="btn-share-trip"',
+      'id="btn-cancel-ride"'
     ].forEach(token => {
       assert.match(body, new RegExp(token));
     });
@@ -406,6 +404,10 @@ test('GET /rider-dashboard.js includes Mapbox route rendering and fare breakdown
       'SpeechRecognition',
       'voice-alerts-toggle',
       'btn-voice-command',
+      'dispatch:trip_update',
+      'dispatch:assignment_confirmed',
+      'ride:driver_location',
+      'startRideRealtimeSync',
       'MIN_VOICE_COMMAND_CONFIDENCE',
       'CANCELLATION_CONFIRMATION_RESPONSES',
       'triggerSpokenAlert(spokenAlertState)',

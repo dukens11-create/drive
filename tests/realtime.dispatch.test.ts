@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 import { pushWalletTx, store, timestamp, type Ride, type RideRequest } from '../src/database/data.store';
-import { getDriverRealtimeDispatchSnapshot } from '../src/services/realtime-dispatch.service';
+import {
+  getDriverRealtimeDispatchSnapshot,
+  publishDispatchRequestExpired,
+  publishDispatchRequestRejected,
+  publishDispatchRideRequest,
+  publishRideRealtimeUpdate,
+  registerRealtimeDispatchServer
+} from '../src/services/realtime-dispatch.service';
 
 test('driver realtime dispatch snapshot includes live location, rides, and earnings', () => {
   const driverId = `driver_rt_${randomUUID()}`;
@@ -155,4 +162,45 @@ test('driver realtime dispatch snapshot includes broadcasted nearby ride request
 
   assert.equal(matchedSnapshot.rides.some(entry => entry.id === ride.id && entry.status === 'requested'), true);
   assert.equal(otherSnapshot.rides.some(entry => entry.id === ride.id), false);
+});
+
+test('realtime dispatch emits assignment and request lifecycle websocket events', () => {
+  const emitted: Array<{ room: string; event: string; payload: Record<string, unknown> }> = [];
+  registerRealtimeDispatchServer({
+    to(room: string) {
+      return {
+        emit(event: string, payload: Record<string, unknown>) {
+          emitted.push({ room, event, payload });
+        }
+      };
+    },
+    emit() {}
+  } as any);
+
+  const ride: Ride = {
+    id: `ride_rt_${randomUUID()}`,
+    riderId: `rider_rt_${randomUUID()}`,
+    driverId: `driver_rt_${randomUUID()}`,
+    pickupLat: 37.78,
+    pickupLng: -122.41,
+    dropoffLat: 37.79,
+    dropoffLng: -122.4,
+    miles: 3,
+    minutes: 10,
+    fareEstimate: 20,
+    status: 'accepted',
+    events: [],
+    createdAt: timestamp(),
+    updatedAt: timestamp()
+  };
+
+  publishRideRealtimeUpdate(ride, 'accepted');
+  publishDispatchRideRequest(ride.driverId!, { rideId: ride.id, status: 'requested' });
+  publishDispatchRequestExpired(ride.driverId!, { rideId: ride.id, status: 'expired' });
+  publishDispatchRequestRejected(ride.riderId, { rideId: ride.id, reason: 'request_expired' });
+
+  assert.equal(emitted.some(item => item.room === `user:${ride.riderId}` && item.event === 'dispatch:assignment_confirmed'), true);
+  assert.equal(emitted.some(item => item.room === `driver:${ride.driverId}` && item.event === 'dispatch:ride_request'), true);
+  assert.equal(emitted.some(item => item.room === `driver:${ride.driverId}` && item.event === 'dispatch:request_expired'), true);
+  assert.equal(emitted.some(item => item.room === `user:${ride.riderId}` && item.event === 'dispatch:request_rejected'), true);
 });
