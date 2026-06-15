@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" />
   <link rel="stylesheet" href="/rider-dashboard.css" />
   <link rel="stylesheet" href="/rider-dashboard-map-fix.css" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.js"></script>
   <script src="https://js.stripe.com/v3/"></script>
 </head>
 <body>
@@ -108,7 +109,6 @@
                 <h2 class="card-title">Where to next?</h2>
               </div>
 
-              <!-- Schedule Toggle -->
               <div class="schedule-toggle-group" role="group" aria-label="Ride timing">
                 <button id="ride-now-btn" type="button" class="schedule-toggle-btn is-active" aria-pressed="true">
                   <i class="bi bi-lightning-charge-fill"></i>
@@ -120,7 +120,6 @@
                 </button>
               </div>
 
-              <!-- Schedule Picker (hidden until Schedule Later selected) -->
               <div id="schedule-picker-section" class="schedule-picker-section d-none" aria-live="polite">
                 <div class="schedule-quick-options">
                   <button type="button" class="schedule-quick-btn" data-offset="0">Today</button>
@@ -355,7 +354,6 @@
               </div>
             </div>
 
-            <!-- Saved Places Card -->
             <div class="card saved-places-card" id="saved-places-card">
               <div class="saved-places-header">
                 <div>
@@ -455,61 +453,70 @@
               </div>
             </div>
 
-            <div id="driver-assigned-card" class="driver-assignment-section card d-none" aria-live="polite">
+            <!-- DRIVER ASSIGNMENT CARD - Hidden by default, shows when ASSIGNED -->
+            <div id="driver-card" class="card driver-assignment-card d-none" aria-live="polite" aria-labelledby="driver-card-title">
               <div class="driver-card-heading">
-                <p class="card-eyebrow">Driver assigned</p>
-                <h2 class="card-title">Your Driver</h2>
+                <p class="card-eyebrow">Trip assigned</p>
+                <h2 class="card-title" id="driver-card-title">Your Driver</h2>
               </div>
-              <div class="driver-card-header">
-                <div class="driver-avatar-wrap">
-                  <div class="driver-avatar-circle">
-                    <img id="driver-avatar" class="driver-avatar-image d-none" alt="Driver profile photo">
-                    <span class="driver-avatar-initial">?</span>
+
+              <!-- Driver Info Section -->
+              <div class="driver-info-section">
+                <div class="driver-profile-row">
+                  <div class="driver-avatar-wrap">
+                    <div class="driver-avatar-circle">
+                      <img id="driver-photo" class="driver-avatar-image d-none" alt="Driver profile" />
+                      <span class="driver-avatar-initial" id="driver-initial">?</span>
+                    </div>
+                    <span class="driver-online-indicator" aria-label="Driver online"></span>
                   </div>
-                  <span class="driver-online-dot" aria-label="Driver online"></span>
-                </div>
-                <div class="driver-info-col">
-                  <div class="driver-info-name" id="driver-name">--</div>
-                  <div class="driver-rating-inline">
-                    <span class="driver-rating-badge"><span id="driver-rating">-- ⭐</span></span>
-                    <span class="driver-status-text" id="driver-status-text">--</span>
+                  <div class="driver-profile-info">
+                    <div class="driver-name" id="driver-full-name">--</div>
+                    <div class="driver-rating">
+                      <span class="rating-badge"><span id="driver-rating-text">--</span> ⭐</span>
+                      <span class="driver-status" id="driver-status">--</span>
+                    </div>
                   </div>
-                  <div class="driver-info-plate">
-                    <i class="bi bi-credit-card-2-front" aria-hidden="true"></i>
-                    <span id="driver-plate">--</span>
-                  </div>
-                </div>
-                <div class="driver-eta-col">
-                  <div class="driver-countdown" id="driver-countdown">--</div>
-                  <div class="driver-eta-label">away</div>
-                </div>
-              </div>
-              <div class="driver-vehicle-row">
-                <div class="driver-vehicle-photo-wrap">
-                  <img id="driver-vehicle-photo" class="driver-vehicle-photo d-none" alt="Driver vehicle">
-                  <span id="driver-vehicle-icon" class="driver-vehicle-icon">🚗</span>
-                </div>
-                <div class="driver-vehicle-details">
-                  <div class="driver-info-vehicle" id="driver-vehicle">--</div>
-                  <div class="driver-vehicle-specs" id="driver-vehicle-specs"></div>
-                  <div class="driver-info-plate driver-vehicle-plate-row">
-                    <i class="bi bi-credit-card-2-front" aria-hidden="true"></i>
-                    <span id="driver-plate-vehicle">--</span>
+                  <div class="driver-eta-badge">
+                    <div class="eta-time" id="driver-eta-time">--</div>
+                    <div class="eta-label">away</div>
                   </div>
                 </div>
               </div>
-              <div class="driver-trip-row">
-                <div class="driver-trip-chip">
-                  <i class="bi bi-clock" aria-hidden="true"></i>
-                  <span class="driver-trip-label">ETA</span>
-                  <strong id="driver-eta" aria-label="Estimated time of arrival">--</strong>
-                </div>
-                <div class="driver-trip-chip">
-                  <i class="bi bi-geo-alt" aria-hidden="true"></i>
-                  <span class="driver-trip-label">Distance</span>
-                  <strong id="driver-distance-away">--</strong>
+
+              <!-- Vehicle Info Section -->
+              <div class="vehicle-info-section">
+                <div class="vehicle-photo-row">
+                  <div class="vehicle-photo-wrap">
+                    <img id="vehicle-photo" class="vehicle-photo d-none" alt="Vehicle" />
+                    <span class="vehicle-icon" id="vehicle-icon">🚗</span>
+                  </div>
+                  <div class="vehicle-details">
+                    <div class="vehicle-make-model" id="vehicle-make-model">--</div>
+                    <div class="vehicle-color" id="vehicle-color">--</div>
+                    <div class="vehicle-plate-row">
+                      <i class="bi bi-credit-card-2-front" aria-hidden="true"></i>
+                      <span id="vehicle-plate">--</span>
+                    </div>
+                  </div>
                 </div>
               </div>
+
+              <!-- Trip Details -->
+              <div class="trip-details-row">
+                <div class="trip-detail-chip">
+                  <i class="bi bi-clock-fill" aria-hidden="true"></i>
+                  <span class="detail-label">ETA</span>
+                  <strong id="trip-eta">--</strong>
+                </div>
+                <div class="trip-detail-chip">
+                  <i class="bi bi-geo-alt-fill" aria-hidden="true"></i>
+                  <span class="detail-label">Distance</span>
+                  <strong id="trip-distance">--</strong>
+                </div>
+              </div>
+
+              <!-- Action Buttons -->
               <div class="driver-actions-row">
                 <button id="btn-call-driver" type="button" class="driver-action-btn" aria-label="Call driver" title="Call driver">
                   <i class="bi bi-telephone-fill"></i>
@@ -519,42 +526,14 @@
                   <i class="bi bi-chat-dots-fill"></i>
                   <span>Message</span>
                 </button>
-                <button id="btn-share-trip" type="button" class="driver-action-btn" aria-label="Share your trip" title="Share your trip">
+                <button id="btn-share-trip" type="button" class="driver-action-btn" aria-label="Share trip" title="Share trip">
                   <i class="bi bi-share-fill"></i>
-                  <span>Share Trip</span>
+                  <span>Share</span>
                 </button>
-                <button id="btn-cancel-ride-from-card" type="button" class="driver-action-btn driver-action-btn--danger" aria-label="Cancel ride" title="Cancel ride">
-                  <i class="bi bi-x-circle-fill"></i>
-                  <span>Cancel Ride</span>
+                <button id="btn-cancel-ride" type="button" class="driver-action-btn btn-danger" aria-label="Cancel ride" title="Cancel ride">
+                  <i class="bi bi-x-circle"></i>
+                  <span>Cancel</span>
                 </button>
-              </div>
-              <div class="safety-actions-row d-none" id="safety-actions-row">
-                <button id="btn-sos" type="button" class="safety-btn safety-btn--sos" aria-label="Emergency SOS" title="Emergency SOS">
-                  <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
-                  <span>SOS</span>
-                </button>
-              </div>
-              <div id="voice-feedback" class="voice-feedback d-none" aria-live="polite">
-                <span class="voice-feedback-icon"><i class="bi bi-mic-fill"></i></span>
-                <span id="voice-feedback-text" class="voice-feedback-text">Listening…</span>
-              </div>
-              <div class="voice-controls-row" id="voice-controls-row">
-                <button id="btn-voice-command" type="button" class="driver-action-btn voice-btn" aria-label="Voice command" title="Voice command">
-                  <i class="bi bi-mic-fill"></i>
-                  <span>Voice</span>
-                </button>
-                <button id="btn-mute-alerts" type="button" class="driver-action-btn mute-btn" aria-label="Mute spoken alerts" title="Mute spoken alerts">
-                  <i class="bi bi-volume-up-fill"></i>
-                  <span>Alerts</span>
-                </button>
-                <label class="voice-volume-label" for="voice-volume-slider">
-                  <i class="bi bi-speaker-fill"></i> Alerts volume
-                </label>
-                <input type="range" id="voice-volume-slider" class="voice-volume-slider" min="0" max="100" value="80" aria-label="Alert volume">
-                <label class="voice-toggle-label">
-                  <input type="checkbox" id="voice-alerts-toggle" checked aria-label="Enable spoken alerts">
-                  Spoken alerts
-                </label>
               </div>
             </div>
 
@@ -592,11 +571,11 @@
                       <span class="payment-option-icon" aria-hidden="true">💳</span>
                       <span>Card</span>
                     </button>
-                    <button type="button" class="payment-option" data-payment-method="apple_pay" role="option" aria-selected="false" id="payment-opt-apple-pay">
+                    <button type="button" class="payment-option" data-payment-method="apple_pay" role="option" aria-selected="false">
                       <span class="payment-option-icon" aria-hidden="true">🍎</span>
                       <span>Apple Pay</span>
                     </button>
-                    <button type="button" class="payment-option" data-payment-method="google_pay" role="option" aria-selected="false" id="payment-opt-google-pay">
+                    <button type="button" class="payment-option" data-payment-method="google_pay" role="option" aria-selected="false">
                       <span class="payment-option-icon" aria-hidden="true">🔵</span>
                       <span>Google Pay</span>
                     </button>
@@ -621,13 +600,7 @@
                     <i class="bi bi-lightning-charge-fill btn-icon"></i>
                     <span class="btn-label">Book a ride</span>
                   </button>
-                  <button id="cancel-ride-button" type="button" class="btn btn-danger btn-block btn-lg d-none" disabled>
-                    <span class="btn-spinner" aria-hidden="true"></span>
-                    <i class="bi bi-x-circle btn-icon"></i>
-                    <span class="btn-label">Cancel Ride</span>
-                  </button>
                 </div>
-
 
                 <ol id="trip-timeline" class="trip-timeline" aria-label="Trip progress timeline">
                   <li data-step="searching" class="timeline-step">
@@ -657,7 +630,6 @@
               </div>
             </div>
 
-            <!-- Scheduled Rides Section -->
             <div class="card scheduled-rides-card" id="scheduled-rides-card">
               <div class="scheduled-rides-header">
                 <div>
@@ -679,6 +651,7 @@
   </div>
 
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
+  
   <div id="cancel-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="cancel-modal-title" aria-describedby="cancel-modal-description">
     <div class="modal-card">
       <h3 id="cancel-modal-title">Cancel this ride?</h3>
@@ -772,7 +745,6 @@
     </div>
   </div>
 
-  <!-- Place Add/Edit Modal -->
   <div id="place-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="place-modal-title">
     <div class="modal-card place-modal-card">
       <h3 id="place-modal-title">Add Place</h3>
@@ -805,7 +777,6 @@
     </div>
   </div>
 
-  <!-- Cancel Scheduled Ride Modal -->
   <div id="cancel-scheduled-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="cancel-scheduled-title">
     <div class="modal-card">
       <h3 id="cancel-scheduled-title">Cancel scheduled ride?</h3>
@@ -817,7 +788,6 @@
     </div>
   </div>
 
-  <!-- Delete Place Confirmation Modal -->
   <div id="delete-place-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="delete-place-title">
     <div class="modal-card">
       <h3 id="delete-place-title">Delete saved place?</h3>
@@ -829,7 +799,6 @@
     </div>
   </div>
 
-  <script src="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.js"></script>
   <script src="/rider-dashboard.js"></script>
 </body>
 </html>
