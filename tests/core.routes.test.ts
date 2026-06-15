@@ -555,6 +555,56 @@ test('rider profile endpoints allow reading and updating rider profile data', as
   });
 });
 
+test('rider saved places endpoints persist dashboard places', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+
+    const initialPlacesResponse = await getJson(baseUrl, '/api/riders/places', rider.accessToken);
+    assert.equal(initialPlacesResponse.status, 200);
+    const initialPlacesBody = await initialPlacesResponse.json();
+    assert.deepEqual(initialPlacesBody.places, []);
+
+    const places = [
+      {
+        id: 'place_home_1',
+        type: 'home',
+        label: 'Home',
+        address: '1 Market St, San Francisco, CA',
+        coordinates: { lat: 37.7936, lng: -122.3958 },
+        notes: 'Front door',
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: 'place_favorite_1',
+        type: 'favorite',
+        label: 'Gym',
+        address: '2 Embarcadero Center, San Francisco, CA',
+        createdAt: new Date().toISOString()
+      }
+    ];
+
+    const updatePlacesResponse = await fetch(`${baseUrl}/api/riders/places`, {
+      method: 'PUT',
+      headers: {
+        authorization: 'Bearer ' + rider.accessToken,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ places })
+    });
+    assert.equal(updatePlacesResponse.status, 200);
+    const updatePlacesBody = await updatePlacesResponse.json();
+    assert.equal(updatePlacesBody.ok, true);
+    assert.equal(updatePlacesBody.places.length, 2);
+    assert.deepEqual(updatePlacesBody.places[0].coordinates, places[0].coordinates);
+
+    const savedPlacesResponse = await getJson(baseUrl, '/api/riders/places', rider.accessToken);
+    assert.equal(savedPlacesResponse.status, 200);
+    const savedPlacesBody = await savedPlacesResponse.json();
+    assert.equal(savedPlacesBody.places.length, 2);
+    assert.equal(savedPlacesBody.places[1].label, 'Gym');
+  });
+});
+
 test('POST /api/auth/signup rejects weak passwords', async () => {
   await withServer(async baseUrl => {
     const response = await postJson(baseUrl, '/api/auth/signup', {

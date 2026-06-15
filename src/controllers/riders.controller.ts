@@ -6,3 +6,5 @@ export async function me(req: any, res: any) { res.json(await service.me({ ...re
 export async function location(req: any, res: any) { res.json(await service.location({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function profile(req: any, res: any) { res.json(await service.profile({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function update_profile(req: any, res: any) { res.json(await service.updateProfile({ ...req.body, actor: req.user }, req.params, req.query)); }
+export async function get_places(req: any, res: any) { res.json(await service.getPlaces({ ...req.body, actor: req.user }, req.params, req.query)); }
+export async function update_places(req: any, res: any) { res.json(await service.updatePlaces({ ...req.body, actor: req.user }, req.params, req.query)); }
