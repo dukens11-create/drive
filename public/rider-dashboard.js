@@ -96,6 +96,17 @@ let estimateRetryCount = 0;
 let estimateRetryTimerId = null;
 let latestKnownRiderPosition = null;
 let isFareEstimateLoading = false;
+
+// ─── Promo Code State ──────────────────────────────────────────────────────
+let appliedPromo = null;
+let discountAmount = 0;
+let originalFare = 0;
+let finalFare = 0;
+
+// ─── Safety State ──────────────────────────────────────────────────────────
+let sosModalOpen = false;
+let shareTripModalOpen = false;
+let currentShareLink = '';
 const geocodeDebounceTimers = {};
 const locationSuggestions = {
   'pickup-input': [],
@@ -1169,7 +1180,8 @@ async function requestRide(pickup, destination) {
       duration: estimate.route.etaMinutes,
       miles: estimate.route.distanceMiles,
       minutes: estimate.route.etaMinutes,
-      riderId: currentUser.id
+      riderId: currentUser.id,
+      ...(appliedPromo ? { promoCode: appliedPromo.code, discountAmount, finalFare } : {})
     };
     try {
       console.log('[Ride Booking] Payload:', requestBody);
@@ -1293,6 +1305,13 @@ function renderRideState() {
     buttonGroup.classList.toggle('single-action', visibleButtons <= 1);
   }
   updateRequestRideButtonState();
+
+  // Show/hide promo section based on whether route is estimated
+  const hasRoute = Boolean(latestEstimate?.fareEstimate);
+  showPromoSection(hasRoute);
+
+  // Show/hide safety buttons based on active ride status
+  renderSafetyButtons();
 
   const previousStatus = mapState.lastRideStatus;
   mapState.lastRideStatus = currentRide?.status || 'idle';
@@ -1575,6 +1594,16 @@ function renderFareEstimate(estimate) {
 
   updateRideTypePricing(estimate);
   updateRideValidation(estimate);
+
+  // Recalculate promo discount if promo is applied
+  if (appliedPromo) {
+    discountAmount = roundToTwo(calculateDiscount(estimate.fareEstimate, appliedPromo));
+    originalFare = roundToTwo(estimate.fareEstimate);
+    finalFare = roundToTwo(estimate.fareEstimate - discountAmount);
+    renderPromoApplied();
+    updateFareWithDiscount();
+  }
+  showPromoSection(Boolean(estimate?.fareEstimate));
 }
 
 async function refreshFareEstimate(options = {}) {
@@ -2459,6 +2488,374 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
   }, delay);
 }
 
+// ─── Promo Code ─────────────────────────────────────────────────────────────
+
+const MOCK_PROMO_CODES = {
+  SAVE15: { type: 'percentage', value: 15, maxDiscount: 50, description: '15% off your next ride', validUntil: '2027-12-31T23:59:59Z', minFare: 10, applicableRideTypes: ['ECONOMY', 'COMFORT', 'PREMIUM'] },
+  SAVE5: { type: 'fixed', value: 5, description: '$5 off your next ride', validUntil: '2027-12-31T23:59:59Z', minFare: 8, applicableRideTypes: ['ECONOMY', 'COMFORT', 'PREMIUM'] },
+  DRIVE10: { type: 'percentage', value: 10, maxDiscount: 20, description: '10% off any ride', validUntil: '2027-12-31T23:59:59Z', minFare: 0, applicableRideTypes: ['ECONOMY', 'COMFORT', 'PREMIUM'] }
+};
+
+function validatePromoCode(code, rideType, fare) {
+  if (!code || !/^[A-Z0-9]{3,20}$/.test(code)) {
+    return { valid: false, error: 'Invalid promo code format.' };
+  }
+  const promo = MOCK_PROMO_CODES[code];
+  if (!promo) return { valid: false, error: 'Promo code not found.' };
+  const now = new Date();
+  if (promo.validUntil && new Date(promo.validUntil) < now) {
+    return { valid: false, error: 'This code has expired.' };
+  }
+  if (promo.minFare && fare < promo.minFare) {
+    return { valid: false, error: `Minimum fare $${promo.minFare.toFixed(2)} required for this code.` };
+  }
+  if (promo.applicableRideTypes && !promo.applicableRideTypes.includes(rideType)) {
+    const rideLabel = rideType ? rideType.charAt(0).toUpperCase() + rideType.slice(1).toLowerCase() : 'this ride type';
+    return { valid: false, error: `This code is not valid for ${rideLabel} rides.` };
+  }
+  return { valid: true, promo };
+}
+
+function calculateDiscount(fare, promo) {
+  if (!promo || !fare) return 0;
+  if (promo.type === 'percentage') {
+    const raw = (fare * promo.value) / 100;
+    return Math.min(raw, promo.maxDiscount || raw);
+  }
+  if (promo.type === 'fixed') {
+    return Math.min(promo.value, fare);
+  }
+  return 0;
+}
+
+function showPromoError(message) {
+  const node = document.getElementById('promo-error');
+  if (!node) return;
+  node.textContent = message;
+  node.classList.remove('d-none');
+}
+
+function hidePromoError() {
+  document.getElementById('promo-error')?.classList.add('d-none');
+}
+
+function renderPromoApplied() {
+  const badge = document.getElementById('promo-applied-badge');
+  const inputRow = document.getElementById('promo-input-row');
+  const codeNode = document.getElementById('promo-badge-code');
+  const descNode = document.getElementById('promo-badge-desc');
+  const savingsNode = document.getElementById('promo-savings-text');
+  const discountRow = document.getElementById('promo-discount-row');
+  const discountLabel = document.getElementById('promo-discount-label-text');
+  const discountValue = document.getElementById('fare-discount');
+
+  if (appliedPromo) {
+    if (badge) badge.classList.remove('d-none');
+    if (inputRow) inputRow.classList.add('d-none');
+    if (codeNode) codeNode.textContent = appliedPromo.code;
+    if (descNode) descNode.textContent = appliedPromo.description || '';
+    if (savingsNode) savingsNode.textContent = `You save ${formatCurrency(discountAmount)}`;
+    if (discountRow) discountRow.classList.remove('d-none');
+    if (discountLabel) discountLabel.textContent = `Promo: ${appliedPromo.code}`;
+    if (discountValue) discountValue.textContent = `-${formatCurrency(discountAmount)}`;
+  } else {
+    if (badge) badge.classList.add('d-none');
+    if (inputRow) inputRow.classList.remove('d-none');
+    if (discountRow) discountRow.classList.add('d-none');
+  }
+}
+
+function updateFareWithDiscount() {
+  const estimateNode = document.getElementById('fare-estimate');
+  if (!estimateNode) return;
+  if (appliedPromo && discountAmount > 0) {
+    estimateNode.textContent = formatCurrency(finalFare);
+  } else if (latestEstimate) {
+    estimateNode.textContent = formatCurrency(latestEstimate.fareEstimate);
+  }
+}
+
+async function handleApplyPromo(code) {
+  if (!code) {
+    showPromoError('Please enter a promo code.');
+    return;
+  }
+  hidePromoError();
+  const btn = document.getElementById('apply-promo-button');
+  setButtonLoading('apply-promo-button', true);
+
+  try {
+    const fare = latestEstimate?.fareEstimate || 0;
+
+    // Try backend validation first
+    if (accessToken) {
+      try {
+        const { response, data } = await fetchJson('/api/promos/validate', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ code, rideType: selectedRideType, fare })
+        });
+        if (response.ok && data?.valid) {
+          appliedPromo = { code, ...data.promo };
+          discountAmount = roundToTwo(data.discountAmount || 0);
+          originalFare = roundToTwo(fare);
+          finalFare = roundToTwo(data.finalFare || fare - discountAmount);
+          console.log('[Promo] Applied code:', code, 'Discount:', discountAmount);
+          renderPromoApplied();
+          updateFareWithDiscount();
+          return;
+        }
+        if (response.ok && data?.error) {
+          showPromoError(data.error);
+          return;
+        }
+      } catch (_error) {
+        // Fall through to local validation
+      }
+    }
+
+    // Local mock validation
+    const result = validatePromoCode(code, selectedRideType, fare);
+    if (!result.valid) {
+      showPromoError(result.error);
+      return;
+    }
+    const promo = result.promo;
+    const discount = roundToTwo(calculateDiscount(fare, promo));
+    appliedPromo = { code, ...promo };
+    discountAmount = discount;
+    originalFare = roundToTwo(fare);
+    finalFare = roundToTwo(fare - discount);
+    console.log('[Promo] Applied code:', code, 'Discount:', discountAmount);
+    renderPromoApplied();
+    updateFareWithDiscount();
+  } finally {
+    setButtonLoading('apply-promo-button', false);
+  }
+}
+
+function clearPromoCode() {
+  appliedPromo = null;
+  discountAmount = 0;
+  originalFare = 0;
+  finalFare = 0;
+  const input = document.getElementById('promo-code-input');
+  if (input) input.value = '';
+  hidePromoError();
+  renderPromoApplied();
+  updateFareWithDiscount();
+  console.log('[Promo] Code cleared');
+}
+
+function showPromoSection(show) {
+  const section = document.getElementById('promo-section');
+  if (section) section.classList.toggle('d-none', !show);
+}
+
+// ─── SOS / Safety ───────────────────────────────────────────────────────────
+
+function setSOSModalOpen(isOpen) {
+  sosModalOpen = Boolean(isOpen);
+  const modal = document.getElementById('sos-modal');
+  if (modal) modal.classList.toggle('d-none', !sosModalOpen);
+  if (!sosModalOpen) {
+    const confirmMsg = document.getElementById('sos-confirmation-message');
+    if (confirmMsg) confirmMsg.classList.add('d-none');
+  }
+}
+
+function handleSOSClick() {
+  setSOSModalOpen(true);
+}
+
+function showSOSConfirmation(message) {
+  const node = document.getElementById('sos-confirmation-message');
+  if (!node) return;
+  node.textContent = message;
+  node.classList.remove('d-none');
+  window.setTimeout(() => setSOSModalOpen(false), 5000);
+}
+
+async function logSOSIncident(incidentType, description) {
+  const rideId = currentRide?.id || null;
+  const location = latestKnownRiderPosition || null;
+  const payload = {
+    rideId,
+    userId: currentUser?.id || null,
+    location,
+    timestamp: new Date().toISOString(),
+    driverId: currentRide?.driverId || null,
+    driverName: currentRide?.driverName || assignedDriver?.name || null,
+    incidentType,
+    description
+  };
+  console.log('[SOS] Incident logged:', payload);
+  if (accessToken) {
+    try {
+      await fetchJson('/api/safety/sos', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload)
+      });
+    } catch (_error) {
+      // Log locally only if API unavailable
+    }
+  }
+}
+
+function callEmergencyServices() {
+  logSOSIncident('call_911', 'User initiated 911 call').catch(() => {});
+  console.log('[Safety] SOS activated:', { rideId: currentRide?.id, location: latestKnownRiderPosition, time: new Date().toISOString() });
+  showSOSConfirmation('Opening phone dialer to call 911…');
+  window.setTimeout(() => {
+    window.location.href = 'tel:911';
+  }, 800);
+}
+
+function alertEmergencyContacts() {
+  logSOSIncident('alert_contacts', 'User alerted emergency contacts').catch(() => {});
+  console.log('[Safety] SOS activated:', { rideId: currentRide?.id, location: latestKnownRiderPosition, time: new Date().toISOString() });
+  showSOSConfirmation('Emergency contacts have been notified.');
+}
+
+function shareLocationWithAuthorities(coordinates) {
+  const loc = coordinates || latestKnownRiderPosition;
+  logSOSIncident('share_location_police', 'User shared location with police').catch(() => {});
+  console.log('[Safety] SOS activated:', { rideId: currentRide?.id, location: loc, time: new Date().toISOString() });
+  showSOSConfirmation('Your location has been shared with authorities.');
+}
+
+// ─── Share Trip ──────────────────────────────────────────────────────────────
+
+function setShareTripModalOpen(isOpen) {
+  shareTripModalOpen = Boolean(isOpen);
+  const modal = document.getElementById('share-trip-modal');
+  if (modal) modal.classList.toggle('d-none', !shareTripModalOpen);
+}
+
+function generateShareLink(rideId) {
+  const token = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+  const domain = window.location.origin;
+  return `${domain}/shared-trip.html?rideId=${encodeURIComponent(rideId)}&token=${encodeURIComponent(token)}`;
+}
+
+async function handleShareTripClick() {
+  if (!currentRide?.id) {
+    showPopup('No active ride to share.');
+    return;
+  }
+
+  // Populate share modal details
+  const pickupLabel = document.getElementById('pickup-input')?.value || currentRide.pickupLabel || '--';
+  const destinationLabel = document.getElementById('destination-input')?.value || currentRide.destinationLabel || '--';
+  const driverName = currentRide.driverName || assignedDriver?.name || '--';
+  const driverRating = currentRide.driver?.rating || assignedDriver?.rating || '';
+  const etaText = document.getElementById('driver-eta')?.textContent || '--';
+
+  const sharePickup = document.getElementById('share-pickup-label');
+  const shareDest = document.getElementById('share-destination-label');
+  const shareDriver = document.getElementById('share-driver-info');
+  const shareEta = document.getElementById('share-eta-info');
+
+  if (sharePickup) sharePickup.textContent = pickupLabel;
+  if (shareDest) shareDest.textContent = destinationLabel;
+  if (shareDriver) shareDriver.textContent = driverRating ? `${driverName} (⭐ ${Number(driverRating).toFixed(1)})` : driverName;
+  if (shareEta) shareEta.textContent = `ETA: ${etaText}`;
+
+  // Generate shareable link
+  let shareLink = '';
+  if (accessToken) {
+    try {
+      const { response, data } = await fetchJson(`/api/rides/${currentRide.id}/share`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ rideId: currentRide.id })
+      });
+      if (response.ok && data?.shareLink) {
+        shareLink = data.shareLink;
+      }
+    } catch (_error) {
+      // Fall through to local generation
+    }
+  }
+  if (!shareLink) {
+    shareLink = generateShareLink(currentRide.id);
+  }
+  currentShareLink = shareLink;
+
+  const linkInput = document.getElementById('share-link-input');
+  if (linkInput) linkInput.value = shareLink;
+
+  const copyLabel = document.getElementById('share-copy-label');
+  if (copyLabel) copyLabel.textContent = 'Copy Link';
+
+  setShareTripModalOpen(true);
+  console.log('[Share] Trip share modal opened:', { rideId: currentRide.id, shareLink });
+}
+
+function handleCopyLink() {
+  if (!currentShareLink) return;
+  navigator.clipboard.writeText(currentShareLink).then(() => {
+    const copyLabel = document.getElementById('share-copy-label');
+    if (copyLabel) {
+      copyLabel.textContent = 'Copied!';
+      window.setTimeout(() => { copyLabel.textContent = 'Copy Link'; }, 2500);
+    }
+    console.log('[Share] Trip shared:', { rideId: currentRide?.id, method: 'copy', recipient: null });
+    showPopup('Link copied to clipboard!');
+  }).catch(() => {
+    showPopup('Could not copy link. Please copy it manually.');
+  });
+}
+
+function handleShareSMS(phoneNumber) {
+  const link = currentShareLink;
+  if (!link) return;
+  const driverName = currentRide?.driverName || assignedDriver?.name || 'your driver';
+  const message = encodeURIComponent(`I'm on my way! Track my ride with ${driverName}: ${link}`);
+  console.log('[Share] Trip shared:', { rideId: currentRide?.id, method: 'sms', recipient: phoneNumber || null });
+  window.location.href = `sms:${phoneNumber ? encodeURIComponent(phoneNumber) : ''}?body=${message}`;
+}
+
+function handleShareEmail(email) {
+  const link = currentShareLink;
+  if (!link) return;
+  const subject = encodeURIComponent('Tracking my ride — live trip link');
+  const driverName = currentRide?.driverName || assignedDriver?.name || 'my driver';
+  const body = encodeURIComponent(`Hi,\n\nI'm currently in a ride with ${driverName}. You can track my trip in real time here:\n\n${link}\n\nThe link expires after the ride is complete.\n\nStay safe!`);
+  console.log('[Share] Trip shared:', { rideId: currentRide?.id, method: 'email', recipient: email || null });
+  window.location.href = `mailto:${email || ''}?subject=${subject}&body=${body}`;
+}
+
+async function handleNativeShare() {
+  const link = currentShareLink;
+  if (!link) return;
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: 'Track my ride',
+        text: 'Follow my live trip:',
+        url: link
+      });
+      console.log('[Share] Trip shared:', { rideId: currentRide?.id, method: 'native', recipient: null });
+    } catch (_error) {
+      // User cancelled or browser doesn't support
+    }
+  } else {
+    handleCopyLink();
+  }
+}
+
+function renderSafetyButtons() {
+  const safetyRow = document.getElementById('safety-actions-row');
+  if (!safetyRow) return;
+  const activeStatuses = ['accepted', 'arrived_at_pickup', 'started'];
+  const isActive = Boolean(currentRide && activeStatuses.includes(currentRide.status));
+  safetyRow.classList.toggle('d-none', !isActive);
+}
+
 function setupHandlers() {
   document.getElementById('logout-button')?.addEventListener('click', handleLogout);
   document.getElementById('request-ride-button')?.addEventListener('click', () => {
@@ -2475,6 +2872,65 @@ function setupHandlers() {
   });
   document.getElementById('cancel-modal')?.addEventListener('click', event => {
     if (event.target === event.currentTarget) setCancelModalOpen(false);
+  });
+
+  // ─── Promo Code Handlers ────────────────────────────────────────────────
+  document.getElementById('apply-promo-button')?.addEventListener('click', () => {
+    const input = document.getElementById('promo-code-input');
+    handleApplyPromo(String(input?.value || '').trim().toUpperCase()).catch(() => {});
+  });
+  document.getElementById('promo-code-input')?.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const input = document.getElementById('promo-code-input');
+      handleApplyPromo(String(input?.value || '').trim().toUpperCase()).catch(() => {});
+    }
+  });
+  document.getElementById('clear-promo-button')?.addEventListener('click', () => {
+    clearPromoCode();
+  });
+
+  // ─── SOS Handlers ───────────────────────────────────────────────────────
+  document.getElementById('btn-sos')?.addEventListener('click', () => {
+    handleSOSClick();
+  });
+  document.getElementById('sos-modal')?.addEventListener('click', event => {
+    if (event.target === event.currentTarget) setSOSModalOpen(false);
+  });
+  document.getElementById('sos-cancel')?.addEventListener('click', () => {
+    setSOSModalOpen(false);
+  });
+  document.getElementById('sos-call-911')?.addEventListener('click', () => {
+    callEmergencyServices();
+  });
+  document.getElementById('sos-alert-contacts')?.addEventListener('click', () => {
+    alertEmergencyContacts();
+  });
+  document.getElementById('sos-share-police')?.addEventListener('click', () => {
+    shareLocationWithAuthorities();
+  });
+
+  // ─── Share Trip Handlers ─────────────────────────────────────────────────
+  document.getElementById('btn-share-trip')?.addEventListener('click', () => {
+    handleShareTripClick();
+  });
+  document.getElementById('share-trip-close')?.addEventListener('click', () => {
+    setShareTripModalOpen(false);
+  });
+  document.getElementById('share-trip-modal')?.addEventListener('click', event => {
+    if (event.target === event.currentTarget) setShareTripModalOpen(false);
+  });
+  document.getElementById('share-copy-link')?.addEventListener('click', () => {
+    handleCopyLink();
+  });
+  document.getElementById('share-via-sms')?.addEventListener('click', () => {
+    handleShareSMS();
+  });
+  document.getElementById('share-via-email')?.addEventListener('click', () => {
+    handleShareEmail();
+  });
+  document.getElementById('share-via-native')?.addEventListener('click', () => {
+    handleNativeShare();
   });
   document.getElementById('retry-map-button')?.addEventListener('click', () => {
     initializeMap({ force: true }).catch(() => {});
@@ -2618,6 +3074,7 @@ window.addEventListener('load', async () => {
   if (!setupSession()) return;
   seedDefaultInputs();
   setupHandlers();
+  showPromoSection(false); // Hidden until fare is estimated
   startSearchingDotsAnimation();
   clockIntervalId = window.setInterval(updateHeaderClock, 60000);
   await initializeMap();

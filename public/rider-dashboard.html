@@ -262,10 +262,53 @@
                   <span class="fare-label">Taxes</span>
                   <span class="fare-value" id="fare-taxes">$0.00</span>
                 </div>
+                <div class="fare-row promo-discount-row d-none" id="promo-discount-row">
+                  <span class="fare-label promo-discount-label">
+                    <i class="bi bi-tag-fill" aria-hidden="true"></i>
+                    <span id="promo-discount-label-text">Promo discount</span>
+                  </span>
+                  <span class="fare-value promo-discount-value" id="fare-discount">-$0.00</span>
+                </div>
                 <div class="fare-divider"></div>
                 <div class="fare-row fare-total">
                   <span class="fare-label">Total estimate</span>
                   <span class="fare-value" id="fare-estimate">$0.00</span>
+                </div>
+              </div>
+
+              <div class="promo-section" id="promo-section">
+                <div class="promo-input-row" id="promo-input-row">
+                  <div class="promo-input-wrapper">
+                    <i class="bi bi-ticket-perforated promo-input-icon" aria-hidden="true"></i>
+                    <input
+                      id="promo-code-input"
+                      type="text"
+                      class="promo-input"
+                      placeholder="Enter promo code"
+                      maxlength="20"
+                      autocomplete="off"
+                      aria-label="Promo code"
+                    />
+                  </div>
+                  <button id="apply-promo-button" type="button" class="btn btn-secondary btn-sm promo-apply-btn">
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                    <span class="btn-label">Apply</span>
+                  </button>
+                </div>
+                <div id="promo-error" class="promo-error d-none" role="alert" aria-live="assertive"></div>
+                <div id="promo-applied-badge" class="promo-applied-badge d-none" role="status" aria-live="polite">
+                  <div class="promo-badge-inner">
+                    <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
+                    <span id="promo-badge-code" class="promo-badge-code">SAVE15</span>
+                    <span id="promo-badge-desc" class="promo-badge-desc"></span>
+                  </div>
+                  <div class="promo-savings-line">
+                    <span id="promo-savings-text">You save $0.00</span>
+                  </div>
+                  <button id="clear-promo-button" type="button" class="promo-clear-btn" aria-label="Remove promo code">
+                    <i class="bi bi-x-circle-fill" aria-hidden="true"></i>
+                    <span>Clear</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -430,6 +473,16 @@
                     </button>
                     <span class="driver-eta-chip">ETA: <span id="driver-eta">--</span></span>
                   </div>
+                  <div class="safety-actions-row" id="safety-actions-row">
+                    <button id="btn-sos" type="button" class="safety-btn safety-btn--sos" aria-label="Emergency SOS" title="Emergency SOS">
+                      <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
+                      <span>SOS</span>
+                    </button>
+                    <button id="btn-share-trip" type="button" class="safety-btn safety-btn--share" aria-label="Share your trip" title="Share your trip">
+                      <i class="bi bi-share-fill" aria-hidden="true"></i>
+                      <span>Share Trip</span>
+                    </button>
+                  </div>
                 </div>
 
                 <ol id="trip-timeline" class="trip-timeline" aria-label="Trip progress timeline">
@@ -473,6 +526,88 @@
       <div class="modal-actions">
         <button id="cancel-modal-confirm" type="button" class="btn btn-danger btn-sm">Cancel Ride</button>
         <button id="cancel-modal-keep" type="button" class="btn btn-secondary btn-sm">Keep Ride</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="sos-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="sos-modal-title">
+    <div class="modal-card modal-card--sos">
+      <div class="sos-modal-header">
+        <span class="sos-modal-icon" aria-hidden="true">🆘</span>
+        <h3 id="sos-modal-title">Emergency — Are you safe?</h3>
+        <p class="sos-modal-subtitle">Select an action below. Help is available 24/7.</p>
+      </div>
+      <div class="sos-modal-actions">
+        <button id="sos-call-911" type="button" class="sos-option-btn sos-option-btn--danger">
+          <i class="bi bi-telephone-fill" aria-hidden="true"></i>
+          <span>Call 911</span>
+        </button>
+        <button id="sos-alert-contacts" type="button" class="sos-option-btn">
+          <i class="bi bi-people-fill" aria-hidden="true"></i>
+          <span>Alert Emergency Contacts</span>
+        </button>
+        <button id="sos-share-police" type="button" class="sos-option-btn">
+          <i class="bi bi-geo-fill" aria-hidden="true"></i>
+          <span>Share Location with Police</span>
+        </button>
+        <button id="sos-cancel" type="button" class="sos-option-btn sos-option-btn--cancel">
+          <i class="bi bi-x-lg" aria-hidden="true"></i>
+          <span>Cancel</span>
+        </button>
+      </div>
+      <p id="sos-confirmation-message" class="sos-confirmation-message d-none" role="status" aria-live="assertive"></p>
+    </div>
+  </div>
+
+  <div id="share-trip-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="share-trip-modal-title">
+    <div class="modal-card modal-card--share">
+      <div class="share-modal-header">
+        <h3 id="share-trip-modal-title">
+          <i class="bi bi-share-fill" aria-hidden="true"></i>
+          Share Your Trip
+        </h3>
+        <button id="share-trip-close" type="button" class="modal-close-btn" aria-label="Close share modal">
+          <i class="bi bi-x-lg" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div id="share-trip-details" class="share-trip-details">
+        <div class="share-trip-detail-row">
+          <i class="bi bi-geo-alt-fill" aria-hidden="true"></i>
+          <span id="share-pickup-label">--</span>
+        </div>
+        <div class="share-trip-detail-row">
+          <i class="bi bi-flag-fill" aria-hidden="true"></i>
+          <span id="share-destination-label">--</span>
+        </div>
+        <div class="share-trip-detail-row">
+          <i class="bi bi-person-fill" aria-hidden="true"></i>
+          <span id="share-driver-info">--</span>
+        </div>
+        <div class="share-trip-detail-row">
+          <i class="bi bi-clock-fill" aria-hidden="true"></i>
+          <span id="share-eta-info">--</span>
+        </div>
+      </div>
+      <div class="share-link-row">
+        <input id="share-link-input" type="text" class="share-link-field" readonly aria-label="Shareable trip link" />
+        <button id="share-copy-link" type="button" class="btn btn-secondary btn-sm share-copy-btn">
+          <i class="bi bi-clipboard" aria-hidden="true"></i>
+          <span id="share-copy-label">Copy Link</span>
+        </button>
+      </div>
+      <div class="share-options-grid">
+        <button id="share-via-sms" type="button" class="share-option-btn">
+          <i class="bi bi-chat-fill" aria-hidden="true"></i>
+          <span>SMS</span>
+        </button>
+        <button id="share-via-email" type="button" class="share-option-btn">
+          <i class="bi bi-envelope-fill" aria-hidden="true"></i>
+          <span>Email</span>
+        </button>
+        <button id="share-via-native" type="button" class="share-option-btn">
+          <i class="bi bi-box-arrow-up" aria-hidden="true"></i>
+          <span>Share</span>
+        </button>
       </div>
     </div>
   </div>

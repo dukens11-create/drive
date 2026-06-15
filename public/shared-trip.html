@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
+  <title>Live Trip Share — Drive</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" />
+  <link rel="stylesheet" href="/rider-dashboard.css" />
+  <style>
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 24px 16px;
+    }
+
+    .shared-trip-container {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .shared-trip-header {
+      text-align: center;
+      padding: 20px;
+    }
+
+    .shared-trip-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 14px;
+      border-radius: 999px;
+      background: rgba(38, 208, 124, 0.12);
+      border: 1px solid rgba(38, 208, 124, 0.30);
+      color: #15803d;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .shared-trip-title {
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: #172033;
+      margin-bottom: 4px;
+    }
+
+    .shared-trip-subtitle {
+      font-size: 0.875rem;
+      color: #64748b;
+    }
+
+    .shared-card {
+      background: rgba(255, 255, 255, 0.96);
+      border: 1px solid rgba(226, 232, 240, 0.78);
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+
+    .shared-card-title {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #94a3b8;
+      margin-bottom: 10px;
+    }
+
+    .shared-status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+
+    .shared-status-pill.status-accepted,
+    .shared-status-pill.status-arrived_at_pickup {
+      background: rgba(27, 128, 255, 0.10);
+      color: #1b80ff;
+      border: 1px solid rgba(27, 128, 255, 0.25);
+    }
+
+    .shared-status-pill.status-started {
+      background: rgba(38, 208, 124, 0.10);
+      color: #15803d;
+      border: 1px solid rgba(38, 208, 124, 0.28);
+    }
+
+    .shared-status-pill.status-completed {
+      background: rgba(38, 208, 124, 0.08);
+      color: #15803d;
+      border: 1px solid rgba(38, 208, 124, 0.22);
+    }
+
+    .shared-route-row {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .shared-route-point {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .shared-route-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      font-size: 0.85rem;
+    }
+
+    .shared-route-icon--pickup {
+      background: rgba(38, 208, 124, 0.12);
+      color: #15803d;
+    }
+
+    .shared-route-icon--destination {
+      background: rgba(27, 128, 255, 0.12);
+      color: #1b80ff;
+    }
+
+    .shared-route-label {
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: #172033;
+      line-height: 1.3;
+    }
+
+    .shared-route-divider {
+      width: 2px;
+      height: 14px;
+      background: rgba(148, 163, 184, 0.4);
+      margin-left: 15px;
+    }
+
+    .driver-info-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .driver-avatar-shared {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #1b80ff 0%, #0d60cc 100%);
+      display: grid;
+      place-items: center;
+      color: white;
+      font-size: 1.3rem;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+
+    .driver-info-details {
+      flex: 1;
+    }
+
+    .driver-info-name-shared {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #172033;
+    }
+
+    .driver-info-vehicle-shared {
+      font-size: 0.82rem;
+      color: #64748b;
+      margin-top: 2px;
+    }
+
+    .driver-info-rating-shared {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #172033;
+    }
+
+    .eta-display {
+      text-align: center;
+      padding: 16px;
+    }
+
+    .eta-value {
+      font-size: 2.4rem;
+      font-weight: 800;
+      color: #172033;
+      line-height: 1;
+    }
+
+    .eta-label {
+      font-size: 0.8rem;
+      color: #64748b;
+      margin-top: 4px;
+    }
+
+    .shared-trip-footer {
+      text-align: center;
+      padding: 12px;
+      color: #94a3b8;
+      font-size: 0.75rem;
+    }
+
+    .shared-loading {
+      text-align: center;
+      padding: 40px 20px;
+    }
+
+    .shared-loading-spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid rgba(38, 208, 124, 0.2);
+      border-top-color: #26d07c;
+      border-radius: 50%;
+      animation: spin 0.85s linear infinite;
+      margin: 0 auto 14px;
+    }
+
+    .shared-error {
+      text-align: center;
+      padding: 40px 20px;
+    }
+
+    .shared-error-icon {
+      font-size: 2.4rem;
+      margin-bottom: 12px;
+    }
+
+    .shared-error-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #172033;
+      margin-bottom: 6px;
+    }
+
+    .shared-error-detail {
+      font-size: 0.85rem;
+      color: #64748b;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="shared-trip-container">
+    <div class="shared-trip-header">
+      <div class="shared-trip-badge">
+        <i class="bi bi-broadcast" aria-hidden="true"></i>
+        Live Trip Share
+      </div>
+      <h1 class="shared-trip-title">Track this ride</h1>
+      <p class="shared-trip-subtitle">You're viewing a live trip share. This link expires after the ride completes.</p>
+    </div>
+
+    <div id="shared-loading" class="shared-card shared-loading">
+      <div class="shared-loading-spinner" aria-hidden="true"></div>
+      <p>Loading trip details…</p>
+    </div>
+
+    <div id="shared-error" class="shared-card shared-error d-none">
+      <div class="shared-error-icon" aria-hidden="true">🔗</div>
+      <div class="shared-error-title">Trip not found</div>
+      <div class="shared-error-detail" id="shared-error-detail">This link may have expired or is no longer valid.</div>
+    </div>
+
+    <div id="shared-content" class="d-none" style="display: contents;">
+      <!-- Status -->
+      <div class="shared-card">
+        <div class="shared-card-title">Trip Status</div>
+        <span id="shared-status-pill" class="shared-status-pill">Loading…</span>
+        <div class="eta-display">
+          <div class="eta-value" id="shared-eta">--</div>
+          <div class="eta-label">estimated arrival</div>
+        </div>
+      </div>
+
+      <!-- Route -->
+      <div class="shared-card">
+        <div class="shared-card-title">Route</div>
+        <div class="shared-route-row">
+          <div class="shared-route-point">
+            <div class="shared-route-icon shared-route-icon--pickup">
+              <i class="bi bi-geo-alt-fill" aria-hidden="true"></i>
+            </div>
+            <div class="shared-route-label" id="shared-pickup-text">--</div>
+          </div>
+          <div class="shared-route-divider" aria-hidden="true"></div>
+          <div class="shared-route-point">
+            <div class="shared-route-icon shared-route-icon--destination">
+              <i class="bi bi-flag-fill" aria-hidden="true"></i>
+            </div>
+            <div class="shared-route-label" id="shared-destination-text">--</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Driver Info -->
+      <div class="shared-card">
+        <div class="shared-card-title">Your Driver</div>
+        <div class="driver-info-row">
+          <div class="driver-avatar-shared" id="shared-driver-initial" aria-hidden="true">?</div>
+          <div class="driver-info-details">
+            <div class="driver-info-name-shared" id="shared-driver-name">--</div>
+            <div class="driver-info-vehicle-shared" id="shared-driver-vehicle">--</div>
+            <div class="driver-info-rating-shared" id="shared-driver-rating">--</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="shared-trip-footer">
+      Powered by Drive · View-only link · Link expires 24h after ride completion
+    </div>
+  </div>
+
+  <script src="/shared-trip.js"></script>
+</body>
+</html>
