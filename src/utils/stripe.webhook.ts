@@ -22,6 +22,18 @@ export async function handleStripeWebhook(event: any) {
       payment.status = 'captured';
       payment.capturedAt = timestamp();
       payment.updatedAt = timestamp();
+      const ride = payment.rideId ? store.rides.get(payment.rideId) : undefined;
+      const object = event?.data?.object || {};
+      const chargeId = typeof object.latest_charge === 'string'
+        ? object.latest_charge
+        : object?.charges?.data?.[0]?.id;
+      if (ride) {
+        ride.paymentStatus = 'paid';
+        ride.paymentIntentId = payment.providerIntentId;
+        if (chargeId) ride.chargeId = chargeId;
+        ride.updatedAt = payment.updatedAt;
+      }
+      if (chargeId) payment.stripeChargeId = chargeId;
       applyCaptureLedger(payment);
       markStoreDirty();
       return { handled: true, action: 'mark_payment_captured', payment };
@@ -44,6 +56,12 @@ export async function handleStripeWebhook(event: any) {
       if (payment.status === 'captured' || payment.status === 'refunded') return { handled: true, action: 'ignore_failed_after_capture', payment };
       payment.status = 'failed';
       payment.updatedAt = timestamp();
+      const ride = payment.rideId ? store.rides.get(payment.rideId) : undefined;
+      if (ride) {
+        ride.paymentStatus = 'failed';
+        ride.paymentIntentId = payment.providerIntentId;
+        ride.updatedAt = payment.updatedAt;
+      }
       markStoreDirty();
       return { handled: true, action: 'mark_payment_failed', payment };
     }
