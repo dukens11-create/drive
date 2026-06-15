@@ -97,7 +97,8 @@ export function createApp() {
     app.get('/livez', (_, res) => res.json({ ok: true }));
     app.get('/readyz', (_, res) => res.json({ ok: true, uptimeSeconds: parseFloat(process.uptime().toFixed(3)) }));
     app.get('/api/config', (_, res) => res.json({
-      stripePublishableKey: env.stripePublishableKey || ''
+      stripePublishableKey: env.stripePublishableKey || '',
+      ok: true
     }));
 
     const routers = [

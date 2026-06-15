@@ -112,6 +112,7 @@ test('GET /api/config exposes stripe publishable key field', async () => {
     const response = await fetch(`${baseUrl}/api/config`);
     assert.equal(response.status, 200);
     const payload = await response.json();
+    assert.equal(payload.ok, true);
     assert.equal(Object.prototype.hasOwnProperty.call(payload, 'stripePublishableKey'), true);
     assert.equal(typeof payload.stripePublishableKey, 'string');
   });
