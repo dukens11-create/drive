@@ -101,49 +101,22 @@
       <div class="dashboard-grid">
         <div class="content-grid">
           <section class="left-panel" aria-label="Booking controls">
+            <div class="panel-tabs" role="tablist" aria-label="Dashboard sections">
+              <button type="button" class="panel-tab is-active" data-tab="ride-now" role="tab" aria-selected="true" id="tab-btn-ride-now">
+                <i class="bi bi-lightning-charge-fill" aria-hidden="true"></i>
+                <span>Ride Now</span>
+              </button>
+              <button type="button" class="panel-tab" data-tab="trips" role="tab" aria-selected="false" id="tab-btn-trips">
+                <i class="bi bi-clock-history" aria-hidden="true"></i>
+                <span>Trips</span>
+              </button>
+            </div>
+
+            <div id="panel-ride-now" role="tabpanel" aria-labelledby="tab-btn-ride-now">
             <div class="card trip-card">
               <div class="card-heading">
                 <p class="card-eyebrow">Trip planner</p>
                 <h2 class="card-title">Where to next?</h2>
-              </div>
-
-              <!-- Schedule Toggle -->
-              <div class="schedule-toggle-group" role="group" aria-label="Ride timing">
-                <button id="ride-now-btn" type="button" class="schedule-toggle-btn is-active" aria-pressed="true">
-                  <i class="bi bi-lightning-charge-fill"></i>
-                  <span>Ride Now</span>
-                </button>
-                <button id="schedule-later-btn" type="button" class="schedule-toggle-btn" aria-pressed="false">
-                  <i class="bi bi-calendar-event-fill"></i>
-                  <span>Schedule Later</span>
-                </button>
-              </div>
-
-              <!-- Schedule Picker (hidden until Schedule Later selected) -->
-              <div id="schedule-picker-section" class="schedule-picker-section d-none" aria-live="polite">
-                <div class="schedule-quick-options">
-                  <button type="button" class="schedule-quick-btn" data-offset="0">Today</button>
-                  <button type="button" class="schedule-quick-btn" data-offset="1">Tomorrow</button>
-                  <button type="button" class="schedule-quick-btn" data-offset="2" id="schedule-quick-next-day">Next Day</button>
-                </div>
-                <div class="schedule-inputs-row">
-                  <div class="schedule-field">
-                    <label for="schedule-date" class="form-label">Date</label>
-                    <input id="schedule-date" type="date" class="form-input schedule-date-input" />
-                  </div>
-                  <div class="schedule-field">
-                    <label for="schedule-time" class="form-label">Time</label>
-                    <input id="schedule-time" type="time" class="form-input schedule-time-input" />
-                  </div>
-                </div>
-                <div id="schedule-preview" class="schedule-preview d-none" aria-live="polite">
-                  <i class="bi bi-calendar-check-fill"></i>
-                  <span id="schedule-preview-text">--</span>
-                </div>
-                <div id="schedule-validation-msg" class="schedule-validation-msg d-none" aria-live="assertive">
-                  <i class="bi bi-exclamation-circle-fill"></i>
-                  <span id="schedule-validation-text"></span>
-                </div>
               </div>
 
               <div class="form-group">
@@ -168,7 +141,6 @@
                   <span class="input-message-icon" aria-hidden="true">ⓘ</span>
                   <span id="pickup-input-message-text"></span>
                 </div>
-                <div id="pickup-quick-places" class="quick-places-row d-none" aria-label="Saved pickup places"></div>
               </div>
 
               <div class="form-group">
@@ -193,7 +165,6 @@
                   <span class="input-message-icon" aria-hidden="true">ⓘ</span>
                   <span id="destination-input-message-text"></span>
                 </div>
-                <div id="destination-quick-places" class="quick-places-row d-none" aria-label="Saved destination places"></div>
               </div>
 
               <button id="current-location-button" type="button" class="btn btn-secondary btn-block">
@@ -310,25 +281,32 @@
                 </div>
               </div>
             </div>
+            </div><!-- /#panel-ride-now -->
 
-            <!-- Saved Places Card -->
-            <div class="card saved-places-card" id="saved-places-card">
-              <div class="saved-places-header">
-                <div>
-                  <p class="card-eyebrow">Quick access</p>
-                  <h2 class="card-title">My Places</h2>
+            <div id="panel-trips" class="d-none" role="tabpanel" aria-labelledby="tab-btn-trips">
+              <div class="card history-card">
+                <div class="card-heading">
+                  <p class="card-eyebrow">Your trips</p>
+                  <h2 class="card-title">Trip History</h2>
                 </div>
-                <button id="add-place-btn" type="button" class="btn btn-secondary btn-sm">
-                  <i class="bi bi-plus-lg"></i>
-                  <span>Add Place</span>
+                <div id="history-loading" class="history-state d-none" aria-live="polite">
+                  <span class="history-spinner" aria-hidden="true"></span>
+                  <span>Loading trips…</span>
+                </div>
+                <div id="history-error" class="history-state history-state--error d-none" role="alert" aria-live="polite">
+                  <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                  <span id="history-error-text">Unable to load trip history.</span>
+                </div>
+                <div id="history-empty" class="history-state d-none">
+                  <i class="bi bi-journal-x" aria-hidden="true"></i>
+                  <span>No completed rides yet.</span>
+                </div>
+                <ul id="history-list" class="history-list" aria-label="Completed trips"></ul>
+                <button id="history-load-more" type="button" class="btn btn-secondary btn-block d-none">
+                  Load more
                 </button>
               </div>
-              <div id="saved-places-list" class="saved-places-list"></div>
-              <div id="saved-places-empty" class="saved-places-empty">
-                <i class="bi bi-geo-alt"></i>
-                <p>No saved places yet. Add Home or Work for quick access.</p>
-              </div>
-            </div>
+            </div><!-- /#panel-trips -->
 
           </section>
 
@@ -568,6 +546,10 @@
                     <i class="bi bi-x-circle btn-icon"></i>
                     <span class="btn-label">Cancel Ride</span>
                   </button>
+                  <button id="view-receipt-button" type="button" class="btn btn-secondary btn-block d-none">
+                    <i class="bi bi-receipt btn-icon"></i>
+                    <span class="btn-label">View Receipt</span>
+                  </button>
                 </div>
 
                 <ol id="trip-timeline" class="trip-timeline" aria-label="Trip progress timeline">
@@ -597,22 +579,6 @@
                 </div>
               </div>
             </div>
-
-            <!-- Scheduled Rides Section -->
-            <div class="card scheduled-rides-card" id="scheduled-rides-card">
-              <div class="scheduled-rides-header">
-                <div>
-                  <p class="card-eyebrow">Upcoming trips</p>
-                  <h2 class="card-title">Scheduled Rides</h2>
-                </div>
-                <span id="scheduled-rides-count" class="scheduled-count-badge d-none">0</span>
-              </div>
-              <div id="scheduled-rides-list" class="scheduled-rides-list"></div>
-              <div id="scheduled-rides-empty" class="scheduled-rides-empty">
-                <i class="bi bi-calendar-x"></i>
-                <p>No scheduled rides. Toggle "Schedule Later" to plan ahead.</p>
-              </div>
-            </div>
           </section>
         </div>
       </div>
@@ -631,59 +597,150 @@
     </div>
   </div>
 
-  <!-- Place Add/Edit Modal -->
-  <div id="place-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="place-modal-title">
-    <div class="modal-card place-modal-card">
-      <h3 id="place-modal-title">Add Place</h3>
-      <div class="form-group">
-        <label for="place-type-select" class="form-label">Place type</label>
-        <select id="place-type-select" class="form-input place-type-select">
-          <option value="home">🏠 Home</option>
-          <option value="work">💼 Work</option>
-          <option value="favorite">⭐ Favorite</option>
-        </select>
+  <!-- Trip Receipt Modal -->
+  <div id="receipt-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="receipt-modal-title">
+    <div class="modal-card receipt-card" id="receipt-printable">
+      <div class="receipt-header">
+        <div class="receipt-brand">
+          <span class="receipt-brand-icon"><i class="bi bi-car-front-fill" aria-hidden="true"></i></span>
+          <div>
+            <div class="receipt-brand-name">Drive</div>
+            <div class="receipt-brand-tagline">Trip Receipt</div>
+          </div>
+        </div>
+        <div class="receipt-status-badge">Completed</div>
       </div>
-      <div class="form-group" id="place-label-group">
-        <label for="place-label-input" class="form-label">Label</label>
-        <input id="place-label-input" type="text" class="form-input" placeholder="e.g. Gym, Mom's House" maxlength="32" />
+      <h3 id="receipt-modal-title" class="receipt-title">Your Trip Summary</h3>
+      <div class="receipt-meta">
+        <span id="receipt-date">--</span>
+        <span class="receipt-id" id="receipt-ride-id">--</span>
       </div>
-      <div class="form-group">
-        <label for="place-address-input" class="form-label">Address</label>
-        <input id="place-address-input" type="text" class="form-input" placeholder="Enter full address" autocomplete="off" />
-        <div id="place-address-suggestions" class="autocomplete-suggestions d-none" role="listbox" aria-label="Address suggestions"></div>
+
+      <div class="receipt-section">
+        <div class="receipt-route">
+          <div class="receipt-route-row">
+            <span class="receipt-dot receipt-dot--pickup" aria-label="Pickup"></span>
+            <span id="receipt-pickup">--</span>
+          </div>
+          <div class="receipt-route-line" aria-hidden="true"></div>
+          <div class="receipt-route-row">
+            <span class="receipt-dot receipt-dot--destination" aria-label="Destination"></span>
+            <span id="receipt-destination">--</span>
+          </div>
+        </div>
       </div>
-      <div class="form-group">
-        <label for="place-notes-input" class="form-label">Notes (optional)</label>
-        <input id="place-notes-input" type="text" class="form-input" placeholder="e.g. Main entrance, Suite 200" maxlength="100" />
+
+      <div class="receipt-section receipt-driver-row">
+        <div class="receipt-driver-avatar" id="receipt-driver-avatar-wrap">
+          <span class="receipt-driver-initial" id="receipt-driver-initial">?</span>
+        </div>
+        <div class="receipt-driver-info">
+          <div class="receipt-driver-name" id="receipt-driver-name">--</div>
+          <div class="receipt-driver-rating"><span id="receipt-driver-rating">-- ⭐</span></div>
+          <div class="receipt-driver-vehicle" id="receipt-driver-vehicle">--</div>
+          <div class="receipt-driver-plate" id="receipt-driver-plate">--</div>
+        </div>
       </div>
-      <div id="place-modal-error" class="place-modal-error d-none" aria-live="assertive"></div>
-      <div class="modal-actions">
-        <button id="place-modal-save" type="button" class="btn btn-primary btn-sm">Save Place</button>
-        <button id="place-modal-cancel" type="button" class="btn btn-secondary btn-sm">Cancel</button>
+
+      <div class="receipt-section">
+        <div class="receipt-metrics">
+          <div class="receipt-metric">
+            <span class="receipt-metric-label">Distance</span>
+            <strong id="receipt-distance">-- mi</strong>
+          </div>
+          <div class="receipt-metric">
+            <span class="receipt-metric-label">Duration</span>
+            <strong id="receipt-duration">-- min</strong>
+          </div>
+          <div class="receipt-metric">
+            <span class="receipt-metric-label">Route</span>
+            <strong id="receipt-route-type">Fastest route</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="receipt-section">
+        <div class="receipt-fare-title">Fare Breakdown</div>
+        <div class="receipt-fare-rows">
+          <div class="receipt-fare-row">
+            <span>Base fare</span>
+            <span id="receipt-base-fare">$0.00</span>
+          </div>
+          <div class="receipt-fare-row">
+            <span>Distance charge</span>
+            <span id="receipt-distance-charge">$0.00</span>
+          </div>
+          <div class="receipt-fare-row">
+            <span>Time charge</span>
+            <span id="receipt-time-charge">$0.00</span>
+          </div>
+          <div class="receipt-fare-row" id="receipt-discount-row">
+            <span>Discount</span>
+            <span id="receipt-discount" class="receipt-discount">–$0.00</span>
+          </div>
+          <div class="receipt-fare-divider"></div>
+          <div class="receipt-fare-row receipt-fare-total">
+            <span>Total</span>
+            <strong id="receipt-total">$0.00</strong>
+          </div>
+        </div>
+        <div class="receipt-payment">
+          <i class="bi bi-credit-card-2-front" aria-hidden="true"></i>
+          <span id="receipt-payment-method">Card</span>
+        </div>
+      </div>
+
+      <div class="receipt-actions">
+        <button id="receipt-download-btn" type="button" class="btn btn-primary btn-sm">
+          <i class="bi bi-download" aria-hidden="true"></i>
+          Download Receipt
+        </button>
+        <button id="receipt-share-btn" type="button" class="btn btn-secondary btn-sm">
+          <i class="bi bi-share" aria-hidden="true"></i>
+          Share
+        </button>
+        <button id="receipt-close-btn" type="button" class="btn btn-secondary btn-sm">
+          Close
+        </button>
       </div>
     </div>
   </div>
 
-  <!-- Cancel Scheduled Ride Modal -->
-  <div id="cancel-scheduled-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="cancel-scheduled-title">
-    <div class="modal-card">
-      <h3 id="cancel-scheduled-title">Cancel scheduled ride?</h3>
-      <p>This scheduled ride will be permanently cancelled.</p>
-      <div class="modal-actions">
-        <button id="cancel-scheduled-confirm" type="button" class="btn btn-danger btn-sm">Cancel Ride</button>
-        <button id="cancel-scheduled-keep" type="button" class="btn btn-secondary btn-sm">Keep Ride</button>
+  <!-- Rating Modal -->
+  <div id="rating-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="rating-modal-title">
+    <div class="modal-card rating-card">
+      <h3 id="rating-modal-title">How was your ride?</h3>
+      <div class="rating-driver-row">
+        <div class="rating-driver-avatar">
+          <span class="rating-driver-initial" id="rating-driver-initial">?</span>
+        </div>
+        <div class="rating-driver-info">
+          <div class="rating-driver-name" id="rating-driver-name">--</div>
+          <div class="rating-driver-current"><span id="rating-driver-current-rating">-- ⭐</span></div>
+        </div>
       </div>
-    </div>
-  </div>
-
-  <!-- Delete Place Confirmation Modal -->
-  <div id="delete-place-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="delete-place-title">
-    <div class="modal-card">
-      <h3 id="delete-place-title">Delete saved place?</h3>
-      <p id="delete-place-description">This place will be removed from your saved places.</p>
+      <div class="star-selector" id="star-selector" role="radiogroup" aria-label="Rating">
+        <button type="button" class="star-btn" data-value="1" aria-label="1 star" title="Poor">★</button>
+        <button type="button" class="star-btn" data-value="2" aria-label="2 stars" title="Fair">★</button>
+        <button type="button" class="star-btn" data-value="3" aria-label="3 stars" title="Good">★</button>
+        <button type="button" class="star-btn" data-value="4" aria-label="4 stars" title="Great">★</button>
+        <button type="button" class="star-btn" data-value="5" aria-label="5 stars" title="Excellent">★</button>
+      </div>
+      <div class="rating-numeric" id="rating-numeric" aria-live="polite"></div>
+      <div class="rating-comment-wrap">
+        <textarea
+          id="rating-comment"
+          class="rating-comment"
+          maxlength="500"
+          placeholder="Share your feedback (optional)"
+          aria-label="Feedback comment"
+          rows="3"
+        ></textarea>
+        <div class="rating-char-counter"><span id="rating-char-count">0</span>/500</div>
+      </div>
       <div class="modal-actions">
-        <button id="delete-place-confirm" type="button" class="btn btn-danger btn-sm">Delete</button>
-        <button id="delete-place-cancel" type="button" class="btn btn-secondary btn-sm">Keep</button>
+        <button id="rating-submit-btn" type="button" class="btn btn-primary btn-sm" disabled>Submit</button>
+        <button id="rating-skip-btn" type="button" class="btn btn-secondary btn-sm">Not now</button>
       </div>
     </div>
   </div>
