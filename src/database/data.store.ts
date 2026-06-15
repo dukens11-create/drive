@@ -120,6 +120,12 @@ export type Ride = {
   chargeId?: string;
   fareDetails?: RideFareDetails;
   events?: RideEvent[];
+  // Pricing breakdown (added for tiered commission model)
+  grossFare?: number;           // Gross ride fare before commission (cents)
+  platformFee?: number;         // Platform commission amount (cents)
+  platformFeePercent?: number;  // Commission rate (0.08, 0.10, 0.12)
+  driverPayout?: number;        // Amount driver keeps (cents)
+  payoutStatus?: 'pending' | 'processed' | 'failed';
   createdAt: string;
   updatedAt: string;
 };
@@ -156,6 +162,33 @@ export type ReferralEvent = {
   bonusCents: number;
   paid: boolean;
   rideId?: string;
+  createdAt: string;
+};
+
+export type DriverEarning = {
+  id: string;
+  driverId: string;
+  rideId: string;
+  amountCents: number;         // driverPayout
+  grossFare: number;           // Subtotal (cents)
+  platformFee: number;         // Commission amount (cents)
+  platformFeePercent: number;  // Commission rate (0.08, 0.10, 0.12)
+  rideType: string;
+  tips: number;                // Tips in cents
+  taxes: number;               // Taxes in cents
+  tolls: number;               // Tolls in cents
+  completedAt: string;
+  createdAt: string;
+};
+
+export type PricingHistoryEntry = {
+  id: string;
+  rideType: string;
+  oldRate: number;
+  newRate: number;
+  effectiveDate: string;
+  changedBy: string;
+  reason?: string;
   createdAt: string;
 };
 
@@ -1080,6 +1113,8 @@ type PersistedStore = {
   payoutRequests: Array<[string, PayoutRequest]>;
   locationHistory: DriverLocationPoint[];
   dispatchEvents: DispatchEvent[];
+  driverEarnings: DriverEarning[];
+  pricingHistory: PricingHistoryEntry[];
 };
 
 let isHydrating = false;
@@ -1200,6 +1235,8 @@ export const store = {
   payoutRequests: new PersistentMap<string, PayoutRequest>(),
   locationHistory: createPersistentArray<DriverLocationPoint>(),
   dispatchEvents: createPersistentArray<DispatchEvent>(),
+  driverEarnings: createPersistentArray<DriverEarning>(),
+  pricingHistory: createPersistentArray<PricingHistoryEntry>(),
   // Ephemeral store – not persisted (tokens expire in 1 hour)
   passwordResetTokens: new Map<string, { userId: string; expiresAt: string }>()
 };
@@ -1262,7 +1299,9 @@ function toSerializableStore(): PersistedStore {
     bankAccounts: Array.from(store.bankAccounts.entries()),
     payoutRequests: Array.from(store.payoutRequests.entries()),
     locationHistory: [...store.locationHistory],
-    dispatchEvents: [...store.dispatchEvents]
+    dispatchEvents: [...store.dispatchEvents],
+    driverEarnings: [...store.driverEarnings],
+    pricingHistory: [...store.pricingHistory]
   };
 }
 
@@ -1367,6 +1406,8 @@ function hydrateStore() {
     for (const [id, payoutRequest] of parsed.payoutRequests || []) store.payoutRequests.set(id, payoutRequest);
     for (const locationPoint of parsed.locationHistory || []) store.locationHistory.push(locationPoint);
     for (const dispatchEvent of parsed.dispatchEvents || []) store.dispatchEvents.push(dispatchEvent);
+    for (const earning of parsed.driverEarnings || []) store.driverEarnings.push(earning);
+    for (const entry of parsed.pricingHistory || []) store.pricingHistory.push(entry);
   } finally {
     isHydrating = false;
   }

@@ -40,6 +40,8 @@ router.post('/apply', validateBody(applySchema), controller.apply);
 router.post('/availability', validateBody(availabilitySchema), controller.availability);
 router.post('/location', validateBody(locationSchema), controller.location);
 router.post('/earnings', controller.earnings);
+router.get('/earnings/breakdown', controller.earningsBreakdown);
+router.get('/pricing-info', controller.pricingInfo);
 router.post('/documents', validateBody(documentsSchema), controller.documents);
 router.post('/vehicles/activate', validateBody(genericSchema), controller.setActiveVehicle);
 router.post('/kyc/create-session', validateBody(genericSchema), controller.create_kyc_session);

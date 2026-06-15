@@ -740,6 +740,78 @@ export async function earnings(body: any, _params?: any, _query?: any) {
   };
 }
 
+export async function earningsBreakdown(body: any, _params?: any, query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'drivers', action: 'earnings-breakdown', error: 'actor ID or userId is required' };
+  const profile = getOrCreateProfile(userId, body?.actor?.role);
+  if (!profile) return { module: 'drivers', action: 'earnings-breakdown', error: 'driver not found' };
+
+  const now = new Date();
+  const todayStart = new Date(now);
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const weekStart = new Date(now);
+  weekStart.setUTCDate(weekStart.getUTCDate() - 6);
+  weekStart.setUTCHours(0, 0, 0, 0);
+  const monthStart = new Date(now);
+  monthStart.setUTCDate(1);
+  monthStart.setUTCHours(0, 0, 0, 0);
+
+  const driverEarnings = store.driverEarnings.filter(e => e.driverId === userId);
+
+  function summarise(records: typeof driverEarnings) {
+    const grossFare = records.reduce((sum, e) => sum + e.grossFare, 0);
+    const platformFee = records.reduce((sum, e) => sum + e.platformFee, 0);
+    const driverPayout = records.reduce((sum, e) => sum + e.amountCents, 0);
+    const tips = records.reduce((sum, e) => sum + e.tips, 0);
+    return { grossFare, platformFee, driverPayout, tips, rides: records.length };
+  }
+
+  const todayEarnings = driverEarnings.filter(e => new Date(e.completedAt) >= todayStart);
+  const weekEarnings = driverEarnings.filter(e => new Date(e.completedAt) >= weekStart);
+  const monthEarnings = driverEarnings.filter(e => new Date(e.completedAt) >= monthStart);
+
+  const walletTotal = store.walletTx
+    .filter(tx => tx.userId === userId && tx.kind === 'credit' && tx.reason.startsWith('ride:') && tx.reason.endsWith(':payout'))
+    .reduce((sum, tx) => sum + tx.amountCents, 0);
+
+  return {
+    module: 'drivers',
+    action: 'earnings-breakdown',
+    ok: true,
+    today: summarise(todayEarnings),
+    week: summarise(weekEarnings),
+    month: summarise(monthEarnings),
+    lifetime: {
+      driverPayout: walletTotal,
+      rides: driverEarnings.length
+    }
+  };
+}
+
+export async function pricingInfo(_body: any, _params?: any, _query?: any) {
+  const { COMMISSION_RATES, COMMISSION_EFFECTIVE_UNTIL, isPromotionalPeriodActive } = await import('../config/pricing');
+  const promoActive = isPromotionalPeriodActive();
+  const currentRate = promoActive ? COMMISSION_RATES.PROMOTIONAL : COMMISSION_RATES.STANDARD;
+  return {
+    module: 'drivers',
+    action: 'pricing-info',
+    ok: true,
+    currentCommissionRate: currentRate,
+    currentCommissionPercent: Math.round(currentRate * 100),
+    driverKeepsPercent: Math.round((1 - currentRate) * 100),
+    promotionalPeriodActive: promoActive,
+    promotionalRateExpiresAt: COMMISSION_EFFECTIVE_UNTIL.PROMOTIONAL,
+    rates: {
+      standard: { rate: COMMISSION_RATES.STANDARD, driverKeeps: Math.round((1 - COMMISSION_RATES.STANDARD) * 100) },
+      premium: { rate: COMMISSION_RATES.PREMIUM, driverKeeps: Math.round((1 - COMMISSION_RATES.PREMIUM) * 100) },
+      promotional: { rate: COMMISSION_RATES.PROMOTIONAL, driverKeeps: Math.round((1 - COMMISSION_RATES.PROMOTIONAL) * 100) }
+    },
+    message: promoActive
+      ? `Limited Time: FlupFlap takes only ${Math.round(COMMISSION_RATES.PROMOTIONAL * 100)}%! Normally ${Math.round(COMMISSION_RATES.STANDARD * 100)}%`
+      : `FlupFlap takes ${Math.round(COMMISSION_RATES.STANDARD * 100)}% on standard rides and ${Math.round(COMMISSION_RATES.PREMIUM * 100)}% on premium rides`
+  };
+}
+
 export async function sendPayoutConfirmation(body: {
   userId?: string;
   amountCents?: number;
