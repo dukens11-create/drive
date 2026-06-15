@@ -2770,35 +2770,6 @@ function labelForPaymentMethod(method) {
   return 'Card';
 }
 
-// ── Phase 3: Toast Notifications ─────────────────────────────────────────────
-
-const TOAST_ICONS = {
-  success: 'bi-check-circle-fill',
-  error:   'bi-x-circle-fill',
-  warning: 'bi-exclamation-triangle-fill',
-  info:    'bi-info-circle-fill'
-};
-
-function showToast(message, type, durationMs) {
-  const safeType = type || 'info';
-  const safeDuration = durationMs || 4000;
-  const container = document.getElementById('toast-container');
-  if (!container) { showPopup(message); return; }
-  const toast = document.createElement('div');
-  toast.className = `toast-notification toast-notification--${safeType}`;
-  const iconClass = TOAST_ICONS[safeType] || TOAST_ICONS.info;
-  toast.innerHTML = `<i class="bi ${escapeHtml(iconClass)} toast-notification-icon" aria-hidden="true"></i><span>${escapeHtml(message)}</span>`;
-  container.appendChild(toast);
-  const all = container.querySelectorAll('.toast-notification:not(.is-hiding)');
-  if (all.length > 3) all[0].remove();
-  const dismiss = () => {
-    toast.classList.add('is-hiding');
-    toast.addEventListener('animationend', () => toast.remove(), { once: true });
-  };
-  window.setTimeout(dismiss, safeDuration);
-  toast.addEventListener('click', dismiss);
-}
-
 // ── Phase 3: Trip Receipt ─────────────────────────────────────────────────────
 
 function showReceiptModal(ride) {
