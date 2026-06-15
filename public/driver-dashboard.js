@@ -4169,11 +4169,12 @@ async function acceptRideById(rawRideId, options = {}) {
   acceptingRideIds.add(rideId);
   try {
     console.log(`[DRIVER] Accept clicked for ride ${rideId}`);
-    const acceptedRideFromApi = await submitRideAccept({ id: rideId });
-    if (!acceptedRideFromApi) {
-      showAlert('danger', 'Unable to accept ride.');
+    const acceptResult = await submitRideAccept({ id: rideId });
+    if (!acceptResult?.ride) {
+      showAlert('danger', acceptResult?.error || 'Unable to accept ride.');
       return false;
     }
+    const acceptedRideFromApi = acceptResult.ride;
     showAlert('success', `Ride ${rideId} accepted.`);
     const acceptedRide = getRideById(rideId) || normalizeRide({ id: rideId, status: 'accepted' }, 0);
     const acceptedRidePatch = normalizeRide({ ...acceptedRide, ...acceptedRideFromApi }, 0);
@@ -4220,7 +4221,9 @@ async function acceptRideById(rawRideId, options = {}) {
 }
 
 async function submitRideAccept(ride) {
-  if (!ride?.id || !accessToken) return null;
+  if (!ride?.id || !accessToken) {
+    return { ride: null, error: 'Missing ride ID or access token.' };
+  }
   console.log(`[ACCEPT] Accepting ride ${ride.id}`);
   const url = `${API_BASE_URL}/api/rides/${encodeURIComponent(ride.id)}/accept`;
   const headers = {
@@ -4237,13 +4240,16 @@ async function submitRideAccept(ride) {
     logApiResponse(response, data);
     if (data?.ok && data?.ride) {
       console.log(`[ACCEPT] Success: Ride ${ride.id} accepted. Driver status is now ${data.ride.status}`);
-      return data.ride;
+      return { ride: data.ride, error: '' };
     }
-    console.log(`[ACCEPT] Failed: ${data?.error || 'Unable to accept ride.'}`);
+    const failedMessage = data?.error || 'Unable to accept ride.';
+    console.log(`[ACCEPT] Failed: ${failedMessage}`);
+    return { ride: null, error: failedMessage };
   } catch (error) {
-    console.log(`[ACCEPT] Error: ${error?.message || 'Unable to accept ride.'}`);
+    const errorMessage = error?.message || 'Unable to accept ride.';
+    console.log(`[ACCEPT] Error: ${errorMessage}`);
+    return { ride: null, error: errorMessage };
   }
-  return null;
 }
 
 async function handleAcceptRide(event) {
