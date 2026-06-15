@@ -509,7 +509,12 @@ function applyRealtimeEarnings(payload) {
   const earningsCents = Number(payload.earningsCents);
   const rideCount = Number(payload.rideCount);
   if (!Number.isFinite(earningsCents) || !Number.isFinite(rideCount)) return;
-  earningsSnapshot = { earningsCents, rideCount };
+  earningsSnapshot = {
+    earningsCents,
+    rideCount,
+    breakdown: payload.breakdown || earningsSnapshot?.breakdown || null,
+    pricingInfo: earningsSnapshot?.pricingInfo || null
+  };
   cacheRealtimeSection('earnings', earningsSnapshot);
   renderEarnings();
 }
@@ -3611,21 +3616,41 @@ function startIncomingRequestsPolling() {
 
 function renderRideHistory() {
   const body = document.getElementById('ride-history-body');
+  if (!body) return;
+  const colCount = body.closest('table')?.querySelector('thead tr')?.children?.length || 8;
   if (!completedRideHistory.length) {
-    body.innerHTML = '<tr><td colspan="6" class="text-muted">No completed rides yet.</td></tr>';
+    body.innerHTML = `<tr><td colspan="${colCount}" class="text-muted">No completed rides yet.</td></tr>`;
     return;
   }
 
-  body.innerHTML = completedRideHistory.map(ride => `
+  body.innerHTML = completedRideHistory.map(ride => {
+    const grossFare = Number(ride.grossFare || 0) / 100;
+    const platformFee = Number(ride.platformFee || 0) / 100;
+    const driverPayout = Number(ride.driverPayout || 0) / 100;
+    const platformFeePercent = Number(ride.platformFeePercent || 0);
+    const hasBreakdown = ride.grossFare != null;
+    const fareDisplay = hasBreakdown
+      ? `$${grossFare.toFixed(2)}`
+      : `$${Number(ride.fareEstimate || 0).toFixed(2)}`;
+    const commissionDisplay = hasBreakdown
+      ? `-$${platformFee.toFixed(2)} (${Math.round(platformFeePercent * 100)}%)`
+      : '—';
+    const payoutDisplay = hasBreakdown
+      ? `<strong style="color:#4ade80">$${driverPayout.toFixed(2)}</strong>`
+      : `$${Number(ride.fareEstimate || 0).toFixed(2)}`;
+    return `
     <tr>
       <td>${escapeHtml(ride.id)}</td>
       <td>${escapeHtml(formatCoordinate(ride.pickupLat, ride.pickupLng))}</td>
       <td>${escapeHtml(formatCoordinate(ride.dropoffLat, ride.dropoffLng))}</td>
-      <td>$${Number(ride.fareEstimate || 0).toFixed(2)}</td>
+      <td>${fareDisplay}</td>
+      <td style="color:#f87171">${commissionDisplay}</td>
+      <td>${payoutDisplay}</td>
       <td>${Number(ride.minutes || 0)} min</td>
       <td>${Number(ride.passengerRating || 0).toFixed(1)} ★</td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function renderPerformanceStats() {
@@ -4162,6 +4187,35 @@ function renderEarnings() {
     </div>
     ${graphHtml}
   `;
+
+  // Update period summary cards if breakdown data is available
+  if (earningsSnapshot.breakdown) {
+    const bd = earningsSnapshot.breakdown;
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    set('earnings-today', `$${(Number(bd.today?.driverPayout || 0) / 100).toFixed(2)}`);
+    set('earnings-today-rides', `${Number(bd.today?.rides || 0)} ride${bd.today?.rides === 1 ? '' : 's'}`);
+    set('earnings-week', `$${(Number(bd.week?.driverPayout || 0) / 100).toFixed(2)}`);
+    set('earnings-week-rides', `${Number(bd.week?.rides || 0)} ride${bd.week?.rides === 1 ? '' : 's'}`);
+    set('earnings-month', `$${(Number(bd.month?.driverPayout || 0) / 100).toFixed(2)}`);
+    set('earnings-month-rides', `${Number(bd.month?.rides || 0)} ride${bd.month?.rides === 1 ? '' : 's'}`);
+    set('earnings-lifetime', `$${(Number(bd.lifetime?.driverPayout || 0) / 100).toFixed(2)}`);
+    set('earnings-lifetime-rides', `${Number(bd.lifetime?.rides || 0)} rides total`);
+  }
+
+  // Update commission banner from pricing info
+  if (earningsSnapshot.pricingInfo) {
+    const pi = earningsSnapshot.pricingInfo;
+    const banner = document.getElementById('commission-banner');
+    if (banner && pi.currentCommissionPercent != null) {
+      const keeps = pi.driverKeepsPercent;
+      const rate = pi.currentCommissionPercent;
+      banner.querySelector('.content strong').textContent = `You keep up to ${keeps}% of every ride`;
+      banner.querySelector('.content p').textContent = pi.promotionalPeriodActive
+        ? `FlupFlap takes ${rate}% platform commission during our launch period`
+        : `FlupFlap takes ${rate}% platform commission`;
+      banner.querySelector('.rate-badge').textContent = `${rate}% Commission`;
+    }
+  }
 }
 
 function renderWallet() {
@@ -4279,37 +4333,49 @@ function renderPayouts() {
 async function loadEarnings() {
   const earningsDiv = document.getElementById('earnings-info');
   try {
-    // Use GET /api/drivers/earnings (via POST for legacy compatibility) and wallet
-    const [earningsRes, walletRes, weekRes] = await Promise.all([
+    const [earningsResult, walletResult, weekResult, breakdownResult, pricingResult] = await Promise.allSettled([
       fetchJson(`${API_BASE_URL}/api/drivers/earnings`, {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + accessToken }
       }),
       fetchJson(`${API_BASE_URL}/api/drivers/wallet`, {
         headers: { Authorization: 'Bearer ' + accessToken }
-      }).catch(() => ({ data: null })),
+      }),
       fetchJson(`${API_BASE_URL}/api/drivers/earnings/week`, {
         headers: { Authorization: 'Bearer ' + accessToken }
-      }).catch(() => ({ data: null }))
+      }),
+      fetchJson(`${API_BASE_URL}/api/drivers/earnings/breakdown`, {
+        headers: { Authorization: 'Bearer ' + accessToken }
+      }),
+      fetchJson(`${API_BASE_URL}/api/drivers/pricing-info`, {
+        headers: { Authorization: 'Bearer ' + accessToken }
+      })
     ]);
 
-    const earningsCents = Number(earningsRes.data?.earningsCents);
-    const rideCount = Number(earningsRes.data?.rideCount);
-    if (earningsRes.data?.ok && Number.isFinite(earningsCents) && Number.isFinite(rideCount)) {
-      earningsSnapshot = { earningsCents, rideCount };
-      cacheRealtimeSection('earnings', earningsSnapshot);
-      publishRealtimeSnapshot('earnings', earningsSnapshot).catch(() => {});
+    const earningsData = earningsResult.status === 'fulfilled' ? earningsResult.value?.data : null;
+    const walletData = walletResult.status === 'fulfilled' ? walletResult.value?.data : null;
+    const weekData = weekResult.status === 'fulfilled' ? weekResult.value?.data : null;
+    const earningsCents = Number(earningsData?.earningsCents);
+    const rideCount = Number(earningsData?.rideCount);
+    if (!earningsData?.ok || !Number.isFinite(earningsCents) || !Number.isFinite(rideCount)) {
+      earningsDiv.innerHTML = '<div class="text-danger">Unable to load earnings.</div>';
+      return;
     }
-
-    if (walletRes.data?.ok) {
-      walletSnapshot = walletRes.data;
+    earningsSnapshot = {
+      earningsCents,
+      rideCount,
+      breakdown: breakdownResult.status === 'fulfilled' ? breakdownResult.value?.data : null,
+      pricingInfo: pricingResult.status === 'fulfilled' ? pricingResult.value?.data : null
+    };
+    if (walletData?.ok) {
+      walletSnapshot = walletData;
     }
-
-    if (weekRes.data?.ok && weekRes.data.dailyBreakdown) {
+    if (weekData?.ok && weekData.dailyBreakdown) {
       if (!walletSnapshot) walletSnapshot = {};
-      walletSnapshot.dailyBreakdown = weekRes.data.dailyBreakdown;
+      walletSnapshot.dailyBreakdown = weekData.dailyBreakdown;
     }
-
+    cacheRealtimeSection('earnings', earningsSnapshot);
+    publishRealtimeSnapshot('earnings', earningsSnapshot).catch(() => {});
     renderEarnings();
     renderWallet();
   } catch (_error) {
@@ -4317,9 +4383,12 @@ async function loadEarnings() {
     if (cache.earnings && typeof cache.earnings === 'object') {
       earningsSnapshot = {
         earningsCents: Number(cache.earnings.earningsCents) || 0,
-        rideCount: Number(cache.earnings.rideCount) || 0
+        rideCount: Number(cache.earnings.rideCount) || 0,
+        breakdown: cache.earnings.breakdown || null,
+        pricingInfo: cache.earnings.pricingInfo || null
       };
       renderEarnings();
+      renderWallet();
       return;
     }
     if (earningsDiv) earningsDiv.innerHTML = '<div class="text-danger">Unable to load earnings.</div>';

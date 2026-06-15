@@ -20,6 +20,8 @@ export async function payouts(req:any,res:any){res.json(await service.payouts({ 
 export async function getPayoutById(req:any,res:any){res.json(await service.getPayoutById({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function saveBankAccount(req:any,res:any){res.json(await service.saveBankAccount({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function updatePayoutPreferences(req:any,res:any){res.json(await service.updatePayoutPreferences({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function earningsBreakdown(req:any,res:any){res.json(await service.earningsBreakdown({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function pricingInfo(req:any,res:any){res.json(await service.pricingInfo({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function documents(req:any,res:any){res.json(await service.documents({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function nearby(req:any,res:any){res.json(await service.nearby({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function createVehicle(req:any,res:any){res.json(await service.createVehicle({ ...req.body, actor: req.user }, req.params, req.query));}

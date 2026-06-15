@@ -260,6 +260,20 @@ export function publishDriverRealtimeEarnings(driverId: string) {
   return earnings;
 }
 
+export function publishDriverEarningsUpdate(driverId: string, payload: {
+  driverPayout: number;
+  grossFare: number;
+  platformFee: number;
+  platformFeePercent: number;
+  rideId: string;
+  tips: number;
+}) {
+  const data = { ...payload, updatedAt: timestamp() };
+  emitToRoom(`driver:${driverId}`, 'dispatch:earnings_update', data);
+  emitToRoom(`user:${driverId}`, 'dispatch:earnings_update', data);
+  return data;
+}
+
 export function publishDriverStatusChanged(driverId: string) {
   const profile = store.drivers.get(driverId);
   if (!profile) return null;

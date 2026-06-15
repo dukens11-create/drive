@@ -868,6 +868,110 @@
             grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
         }
 
+        .earnings-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .earning-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .earning-card .label {
+            font-size: 0.78rem;
+            color: var(--muted-text);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 6px;
+        }
+
+        .earning-card .amount {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #4ade80;
+        }
+
+        .earning-card .meta {
+            font-size: 0.75rem;
+            color: var(--muted-text);
+            margin-top: 4px;
+        }
+
+        .earning-card.lifetime .amount {
+            font-size: 1.2rem;
+        }
+
+        .commission-banner {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            background: linear-gradient(135deg, #052e16 0%, #14532d 100%);
+            border: 1px solid #16a34a;
+            border-radius: 10px;
+            padding: 14px 16px;
+            margin-bottom: 16px;
+        }
+
+        .commission-banner .icon {
+            font-size: 1.5rem;
+            flex-shrink: 0;
+        }
+
+        .commission-banner .content {
+            flex: 1;
+        }
+
+        .commission-banner .content strong {
+            display: block;
+            color: #86efac;
+            font-size: 0.95rem;
+        }
+
+        .commission-banner .content p {
+            margin: 2px 0 0;
+            font-size: 0.8rem;
+            color: #4ade80;
+        }
+
+        .commission-banner .rate-badge {
+            background: #16a34a;
+            color: #fff;
+            font-weight: 700;
+            font-size: 0.85rem;
+            padding: 4px 10px;
+            border-radius: 20px;
+            white-space: nowrap;
+        }
+
+        .fare-table {
+            width: 100%;
+            font-size: 0.85rem;
+            border-collapse: collapse;
+        }
+
+        .fare-table td {
+            padding: 5px 4px;
+        }
+
+        .fare-table td.amount {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .fare-table td.fee { color: #f87171; }
+        .fare-table td.tip { color: #4ade80; }
+        .fare-table tr.total td {
+            font-weight: 700;
+            border-top: 1px solid var(--border-color);
+            padding-top: 8px;
+        }
+
         .more-grid {
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
         }
@@ -2031,6 +2135,36 @@
                                 <div>
                                     <h2>Earnings Overview</h2>
                                     <span>Real-time earnings breakdown across today, this week, this month, and lifetime.</span>
+                                </div>
+                            </div>
+                            <div id="commission-banner" class="commission-banner">
+                                <div class="icon">✅</div>
+                                <div class="content">
+                                    <strong>You keep up to 92% of every ride</strong>
+                                    <p>FlupFlap takes 8% platform commission during our launch period</p>
+                                </div>
+                                <div class="rate-badge">8% Commission</div>
+                            </div>
+                            <div id="earnings-summary" class="earnings-summary">
+                                <div class="earning-card today">
+                                    <div class="label">Today</div>
+                                    <div class="amount" id="earnings-today">$0.00</div>
+                                    <div class="meta" id="earnings-today-rides">0 rides</div>
+                                </div>
+                                <div class="earning-card week">
+                                    <div class="label">This Week</div>
+                                    <div class="amount" id="earnings-week">$0.00</div>
+                                    <div class="meta" id="earnings-week-rides">0 rides</div>
+                                </div>
+                                <div class="earning-card month">
+                                    <div class="label">This Month</div>
+                                    <div class="amount" id="earnings-month">$0.00</div>
+                                    <div class="meta" id="earnings-month-rides">0 rides</div>
+                                </div>
+                                <div class="earning-card lifetime">
+                                    <div class="label">Lifetime</div>
+                                    <div class="amount" id="earnings-lifetime">$0.00</div>
+                                    <div class="meta" id="earnings-lifetime-rides">0 rides total</div>
                                 </div>
                             </div>
                             <div id="earnings-info">Loading earnings...</div>
