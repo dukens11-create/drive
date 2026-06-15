@@ -4,8 +4,8 @@ import { store } from '../database/data.store';
 import { env } from '../config/env';
 import { DISPATCH_EVENT_HISTORY_LIMIT, getDriverRealtimeDispatchSnapshot, getRealtimeDispatchSnapshot, registerRealtimeDispatchServer } from '../services/realtime-dispatch.service';
 
-export function registerTrackingSocket(io: Server) {
-  registerRealtimeDispatchServer(io);
+export function registerTrackingSocket(io: Server, channel: 'default' | 'dispatch' = 'default') {
+  registerRealtimeDispatchServer(io, channel);
   io.use((socket, next) => {
     const authHeader = socket.handshake.auth?.token || socket.handshake.headers.authorization;
     const token = typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '') : '';

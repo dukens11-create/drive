@@ -207,7 +207,15 @@ test('realtime dispatch emits assignment and request lifecycle websocket events'
 
   assert.equal(emitted.some(item => item.room === `user:${ride.riderId}` && item.event === 'dispatch:assignment_confirmed'), true);
   assert.equal(emitted.some(item => item.room === `driver:${ride.driverId}` && item.event === 'dispatch:ride_assigned'), true);
-  assert.equal(emitted.some(item => item.room === `driver:${ride.driverId}` && item.event === 'dispatch:ride_request'), true);
+  assert.equal(
+    emitted.some(item =>
+      item.room === `driver:${ride.driverId}`
+      && item.event === 'dispatch:ride_request'
+      && item.payload.type === 'ride_request_created'
+    ),
+    true
+  );
+  assert.equal(emitted.some(item => item.room === `driver:${ride.driverId}` && item.event === 'ride_request_created'), true);
   assert.equal(emitted.some(item => item.room === `driver:${ride.driverId}` && item.event === 'dispatch:request_rejected'), true);
   assert.equal(emitted.some(item => item.room === `driver:${ride.driverId}` && item.event === 'dispatch:request_expired'), true);
   assert.equal(emitted.some(item => item.room === `user:${ride.riderId}` && item.event === 'dispatch:request_rejected'), true);
