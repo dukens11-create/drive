@@ -3613,8 +3613,9 @@ function startIncomingRequestsPolling() {
 
 function renderRideHistory() {
   const body = document.getElementById('ride-history-body');
+  const colCount = body.closest('table')?.querySelector('thead tr')?.children?.length || 8;
   if (!completedRideHistory.length) {
-    body.innerHTML = '<tr><td colspan="8" class="text-muted">No completed rides yet.</td></tr>';
+    body.innerHTML = `<tr><td colspan="${colCount}" class="text-muted">No completed rides yet.</td></tr>`;
     return;
   }
 
