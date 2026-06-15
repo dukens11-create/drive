@@ -9,6 +9,7 @@ const MAPBOX_GEOCODE_CACHE_STORAGE_KEY = 'drive.mapboxGeocodeCache.v1';
 const SHARED_RIDE_STORAGE_KEY = 'drive.sharedRideRequests.v1';
 const SHARED_RIDE_STORAGE_VERSION = 1;
 const RIDE_POLL_INTERVAL_MS = 2500;
+const DRIVER_ASSIGNMENT_POLL_INTERVAL_MS = 3000;
 const MIN_LOCATION_PUSH_INTERVAL_MS = 8000;
 const REQUEST_SUCCESS_ANIMATION_MS = 1200;
 const DEFAULT_PICKUP = { lat: 37.7749, lng: -122.4194 };
@@ -109,6 +110,7 @@ let clockIntervalId = null;
 let searchingDotsIntervalId = null;
 let etaCountdownIntervalId = null;
 let statusProgressionTimerId = null;
+let ridePollingIntervalId = null;
 let assignedDriver = null;
 let estimateRetryCount = 0;
 let estimateRetryTimerId = null;
@@ -1274,6 +1276,12 @@ async function requestRide(pickup, destination) {
       createdAt: new Date().toISOString()
     }]
   };
+  console.log('[RIDER] Booking ride:', {
+    pickupAddress: baseRide.pickupLabel,
+    destinationAddress: baseRide.destinationLabel,
+    rideType: baseRide.rideType,
+    fareEstimate: baseRide.fareEstimate
+  });
 
   if (accessToken) {
     const requestBody = {
@@ -1281,8 +1289,11 @@ async function requestRide(pickup, destination) {
       pickupLng: pickup.lng,
       dropoffLat: destination.lat,
       dropoffLng: destination.lng,
+      destinationLat: destination.lat,
+      destinationLng: destination.lng,
       pickupAddress: pickupLocation?.label || document.getElementById('pickup-input')?.value.trim() || '',
       dropoffAddress: destinationLocation?.label || document.getElementById('destination-input')?.value.trim() || '',
+      destinationAddress: destinationLocation?.label || document.getElementById('destination-input')?.value.trim() || '',
       rideType: normalizedRideType,
       fareEstimate: estimate.fareEstimate,
       distance: estimate.route.distanceMiles,
@@ -1292,7 +1303,7 @@ async function requestRide(pickup, destination) {
       riderId: currentUser.id,
       ...(appliedPromo ? { promoCode: appliedPromo.code, discountAmount, finalFare } : {}),
       paymentMethod: selectedPaymentMethod,
-      ...(scheduleState.isScheduled && scheduleState.scheduledDateTime ? { scheduledAt: scheduleState.scheduledDateTime } : {})
+      ...(scheduleState.isScheduled && scheduleState.scheduledDateTime ? { scheduledAt: scheduleState.scheduledDateTime, scheduledTime: scheduleState.scheduledDateTime } : {})
     };
     try {
       console.log('[Ride Booking] Payload:', requestBody);
@@ -2596,7 +2607,54 @@ async function syncRides() {
   rides = mergeRides(backendRides, readSharedRideStore().rides);
   writeSharedRideStore({ rides });
   selectCurrentRide();
+  const normalizedStatus = normalizeRideStatus(currentRide?.status);
+  if (currentRide?.id && normalizedStatus === 'requested') {
+    startPollingForDriver(currentRide.id);
+  } else if (!currentRide?.id || TERMINAL_RIDE_STATUSES.includes(normalizedStatus) || DRIVER_VISIBLE_RIDE_STATUSES.includes(normalizedStatus)) {
+    stopPollingForDriver();
+  }
   renderRideState();
+}
+
+async function pollForDriverAssignment(rideId) {
+  if (!rideId || !accessToken) return;
+  const { response, data } = await fetchJson(`/api/rides/${encodeURIComponent(rideId)}`, { headers: getAuthHeaders() });
+  if (!response.ok || !data?.ok || !data?.ride) return;
+  const previousStatus = normalizeRideStatus(currentRide?.status);
+  const nextRide = normalizeRide(data.ride);
+  currentRide = nextRide;
+  rides = mergeRides([nextRide], readSharedRideStore().rides);
+  writeSharedRideStore({ rides });
+  renderRideState();
+  const nextStatus = normalizeRideStatus(nextRide.status);
+  if (DRIVER_VISIBLE_RIDE_STATUSES.includes(nextStatus) && previousStatus !== nextStatus) {
+    const driver = nextRide.driver || {};
+    const vehicle = driver.vehicle || {};
+    console.log(
+      `[RIDER] Driver assigned! Driver: ${driver.name || 'Driver'}, Vehicle: ${vehicle.year || '--'} ${vehicle.color || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
+    );
+    stopPollingForDriver();
+  } else if (TERMINAL_RIDE_STATUSES.includes(nextStatus)) {
+    stopPollingForDriver();
+  }
+}
+
+function stopPollingForDriver() {
+  if (ridePollingIntervalId) {
+    window.clearInterval(ridePollingIntervalId);
+    ridePollingIntervalId = null;
+    console.log('[RIDER] Polling stopped');
+  }
+}
+
+function startPollingForDriver(rideId) {
+  if (!rideId || !accessToken) return;
+  stopPollingForDriver();
+  console.log(`[RIDER] Polling for driver assignment: ${rideId}`);
+  pollForDriverAssignment(rideId).catch(() => {});
+  ridePollingIntervalId = window.setInterval(() => {
+    pollForDriverAssignment(rideId).catch(() => {});
+  }, DRIVER_ASSIGNMENT_POLL_INTERVAL_MS);
 }
 
 async function createRidePaymentIntent(ride) {
@@ -2735,10 +2793,7 @@ async function handleRequestRide() {
     }
     showToast('Searching for nearby drivers...', 'info');
 
-    // Only simulate driver for immediate (non-scheduled) rides
-    if (!scheduleState.isScheduled && currentRide?.id) {
-      simulateDriverAssignment(currentRide.id, pickup.lat, pickup.lng);
-    }
+    if (!scheduleState.isScheduled && currentRide?.id) startPollingForDriver(currentRide.id);
   } catch (err) {
     const errorMsg = (err instanceof Error && err.message) || 'Failed to book ride. Please try again.';
     if (bookingErrorEl) {
@@ -4645,6 +4700,7 @@ function setupHandlers() {
     if (searchingDotsIntervalId) window.clearInterval(searchingDotsIntervalId);
     if (etaCountdownIntervalId) window.clearInterval(etaCountdownIntervalId);
     if (statusProgressionTimerId) window.clearTimeout(statusProgressionTimerId);
+    if (ridePollingIntervalId) window.clearInterval(ridePollingIntervalId);
     if (estimateRetryTimerId) window.clearTimeout(estimateRetryTimerId);
     if (mapState.routeAnimationTimer) window.clearInterval(mapState.routeAnimationTimer);
     if (mapState.pendingDriverAnimation) window.cancelAnimationFrame(mapState.pendingDriverAnimation);

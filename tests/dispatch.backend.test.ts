@@ -140,6 +140,12 @@ test('dispatch backend compatibility endpoints expose realtime driver, rider, re
 
     const rideId = rideRequestBody.ride.id;
 
+    response = await requestJson(baseUrl, '/api/driver/ride-requests?status=SEARCHING&limit=20', 'GET', undefined, driverOne.accessToken);
+    const incomingRideRequestsBody = await response.json();
+    assert.equal(incomingRideRequestsBody.ok, true);
+    assert.equal(Array.isArray(incomingRideRequestsBody.rides), true);
+    assert.equal(incomingRideRequestsBody.rides.some((ride: { rideId: string; status: string }) => ride.rideId === rideId && ride.status === 'SEARCHING'), true);
+
     response = await requestJson(baseUrl, `/api/rides/${rideId}/accept`, 'POST', {}, driverOne.accessToken);
     const acceptBody = await response.json();
     assert.equal(acceptBody.ok, true);

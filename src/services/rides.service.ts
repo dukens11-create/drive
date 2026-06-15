@@ -380,16 +380,135 @@ function toRiderRideSummary(ride: Ride) {
   const riderPhone = store.users.get(ride.riderId)?.phone;
   const driverPhone = ride.driverId ? store.users.get(ride.driverId)?.phone : undefined;
   const driver = buildAssignedDriverDetails(ride);
+  const driverProfile: any = ride.driverId ? store.drivers.get(ride.driverId) : undefined;
+  const driverLat = Number(driverProfile?.lat);
+  const driverLng = Number(driverProfile?.lng);
+  const pickupLat = Number(ride.pickupLat);
+  const pickupLng = Number(ride.pickupLng);
+  const hasDriverLocation = Number.isFinite(driverLat) && Number.isFinite(driverLng);
+  const hasPickupLocation = Number.isFinite(pickupLat) && Number.isFinite(pickupLng);
+  const distanceMiles = hasDriverLocation && hasPickupLocation
+    ? estimateRouteDistanceMiles(driverLat, driverLng, pickupLat, pickupLng)
+    : undefined;
+  const etaMinutes = Number.isFinite(distanceMiles)
+    ? Math.max(1, Math.round((distanceMiles as number) * 3.5))
+    : Math.max(1, Math.round(Number(ride.minutes || 0)));
   return {
     ...ride,
     riderPhone,
     driverPhone,
     driver,
     driverName: ride.driverId ? getDriverDisplayName(ride.driverId) : undefined,
+    distanceAway: Number.isFinite(distanceMiles) ? Number((distanceMiles as number).toFixed(1)) : undefined,
+    etaMinutes,
+    location: hasDriverLocation ? { lat: driverLat, lng: driverLng } : undefined,
+    driverLocation: hasDriverLocation ? { lat: driverLat, lng: driverLng, updatedAt: driverProfile?.lastLocationUpdatedAt || ride.updatedAt } : undefined,
     events,
     lifecycleState: getRideLifecycleState(ride),
     latestEvent: events[events.length - 1] || null,
     availableActions: getRideAvailableActions(ride)
+  };
+}
+
+function estimateRouteDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const toRad = (value: number) => value * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  const km = 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return km * 0.621371;
+}
+
+function mapRideStatusForDispatch(status?: string) {
+  const normalized = String(status || '').trim().toLowerCase();
+  if (normalized === 'requested') return 'SEARCHING';
+  if (normalized === 'accepted') return 'ASSIGNED';
+  if (normalized === 'arrived_at_pickup') return 'ARRIVING';
+  if (normalized === 'started') return 'IN_TRIP';
+  if (normalized === 'completed') return 'COMPLETED';
+  if (normalized === 'canceled' || normalized === 'cancelled') return 'CANCELED';
+  return normalized.toUpperCase() || 'SEARCHING';
+}
+
+function toDriverRideRequestSummary(ride: Ride) {
+  const riderUser = store.users.get(ride.riderId);
+  const riderProfile = store.riders.get(ride.riderId);
+  return {
+    rideId: ride.id,
+    riderId: ride.riderId,
+    riderName: riderUser?.email?.split('@')[0] || 'Rider',
+    riderPhone: riderUser?.phone || '',
+    riderRating: Number(riderProfile?.rating || 5),
+    pickupAddress: ride.pickupAddress || '',
+    pickupLat: ride.pickupLat,
+    pickupLng: ride.pickupLng,
+    destinationAddress: ride.dropoffAddress || '',
+    destinationLat: ride.dropoffLat,
+    destinationLng: ride.dropoffLng,
+    rideType: String(ride.vehicleType || 'economy').toUpperCase(),
+    fareEstimate: ride.fareEstimate,
+    distance: ride.miles,
+    duration: ride.minutes,
+    paymentMethod: ride.paymentMethod || 'card',
+    status: mapRideStatusForDispatch(ride.status),
+    createdAt: ride.createdAt
+  };
+}
+
+function toAssignedRideDispatchSummary(ride: Ride) {
+  const riderSummary = toDriverRideRequestSummary(ride);
+  const fallbackDriver = {
+    driverId: ride.driverId || 'driver_demo_1',
+    name: 'John Smith',
+    rating: 4.9,
+    photoUrl: '/assets/drivers/demo-driver.png',
+    phone: '555-555-5555'
+  };
+  const fallbackVehicle = {
+    photoUrl: '/assets/vehicles/economy-car.png',
+    make: 'Toyota',
+    model: 'Camry',
+    year: 2022,
+    color: 'White',
+    plate: 'FLP-123'
+  };
+  const summary = toRiderRideSummary(ride) as any;
+  const driverProfile: any = ride.driverId ? store.drivers.get(ride.driverId) : undefined;
+  const sourceVehicle = summary?.driver?.vehicle || driverProfile?.vehicle || {};
+  const sourceDriver = summary?.driver || {};
+  const location = summary?.location || summary?.driverLocation || {
+    lat: ride.pickupLat,
+    lng: ride.pickupLng
+  };
+  return {
+    rideId: ride.id,
+    status: mapRideStatusForDispatch(ride.status),
+    driverId: ride.driverId || fallbackDriver.driverId,
+    driver: {
+      driverId: ride.driverId || fallbackDriver.driverId,
+      name: sourceDriver.name || fallbackDriver.name,
+      rating: Number(sourceDriver.rating || fallbackDriver.rating),
+      photoUrl: sourceDriver.profilePhotoUrl || sourceDriver.photoUrl || fallbackDriver.photoUrl,
+      phone: sourceDriver.phone || fallbackDriver.phone
+    },
+    vehicle: {
+      make: sourceVehicle.make || fallbackVehicle.make,
+      model: sourceVehicle.model || fallbackVehicle.model,
+      year: Number(sourceVehicle.year || fallbackVehicle.year),
+      color: sourceVehicle.color || fallbackVehicle.color,
+      plate: sourceVehicle.plateNumber || sourceVehicle.plate || fallbackVehicle.plate,
+      photoUrl: sourceVehicle.photoUrl || fallbackVehicle.photoUrl
+    },
+    location: {
+      lat: Number(location?.lat ?? ride.pickupLat ?? 0),
+      lng: Number(location?.lng ?? ride.pickupLng ?? 0)
+    },
+    etaMinutes: Number(summary?.etaMinutes || ride.minutes || 4),
+    distanceAway: summary?.distanceAway != null ? `${Number(summary.distanceAway).toFixed(1)} mi` : '0.8 mi',
+    riderId: riderSummary.riderId,
+    pickupAddress: riderSummary.pickupAddress,
+    destinationAddress: riderSummary.destinationAddress
   };
 }
 
@@ -715,16 +834,48 @@ export async function request(body: any, _params?: any, _query?: any) {
     }
   }
   publishRideRealtimeUpdate(ride, 'ride_requested');
+  const riderRide = toRiderRideSummary(ride);
+  const dispatchStatus = mapRideStatusForDispatch(ride.status);
   return {
     module: 'rides',
     action: 'request',
     ok: true,
-    ride: toRiderRideSummary(ride),
+    ride: riderRide,
+    rideId: ride.id,
+    status: dispatchStatus,
+    riderId: ride.riderId,
+    pickupAddress: ride.pickupAddress || '',
+    pickupLat: ride.pickupLat,
+    pickupLng: ride.pickupLng,
+    destinationAddress: ride.dropoffAddress || '',
+    destinationLat: ride.dropoffLat,
+    destinationLng: ride.dropoffLng,
+    rideType: String(ride.vehicleType || 'economy').toUpperCase(),
+    fareEstimate: ride.fareEstimate,
+    distance: ride.miles,
+    duration: ride.minutes,
+    paymentMethod: ride.paymentMethod || 'card',
+    createdAt: ride.createdAt,
     request: syncRideRequestState(rideRequest),
     dispatch,
     discountCents,
     availableActions: getRideAvailableActions(ride)
   };
+}
+
+export async function getDriverRideRequests(body: any, _params?: any, query?: any) {
+  const actor = body?.actor;
+  if (!actor?.id || actor?.role !== 'driver') {
+    return { module: 'rides', action: 'driver-ride-requests', error: 'forbidden' };
+  }
+  const limit = Math.max(1, Math.min(100, Number(query?.limit || body?.limit || 20)));
+  const requestedStatus = mapRideStatusForDispatch(query?.status || body?.status || 'SEARCHING');
+  const rides = Array.from(store.rides.values())
+    .filter(ride => mapRideStatusForDispatch(ride.status) === requestedStatus)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, limit)
+    .map(toDriverRideRequestSummary);
+  return { module: 'rides', action: 'driver-ride-requests', ok: true, rides };
 }
 
 export async function history(body: any, _params?: any, _query?: any) {
@@ -897,7 +1048,14 @@ export async function accept(body: any, params?: any, _query?: any) {
   }
   if (ride.status === 'accepted' && ride.driverId === driverId) {
     if (request) syncRideRequestState(request, 'accepted');
-    return { module: 'rides', action: 'accept', ok: true, ride: toRiderRideSummary(ride), request };
+    return {
+      module: 'rides',
+      action: 'accept',
+      ok: true,
+      ride: toRiderRideSummary(ride),
+      request,
+      assignment: toAssignedRideDispatchSummary(ride)
+    };
   }
   if (ride.status === 'accepted' && ride.driverId !== driverId) {
     if (request) upsertRideRequestResponse(request, driverId, 'ignored');
@@ -934,7 +1092,14 @@ export async function accept(body: any, params?: any, _query?: any) {
   );
   await sendRideConfirmationEmail(ride);
   publishRideRealtimeUpdate(ride, 'accepted');
-  return { module: 'rides', action: 'accept', ok: true, ride: toRiderRideSummary(ride), request };
+  return {
+    module: 'rides',
+    action: 'accept',
+    ok: true,
+    ride: toRiderRideSummary(ride),
+    request,
+    assignment: toAssignedRideDispatchSummary(ride)
+  };
 }
 
 export async function arrive(body: any, _params?: any, _query?: any) {

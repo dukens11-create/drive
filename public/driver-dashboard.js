@@ -27,6 +27,7 @@ const REALTIME_POLL_INTERVAL_MS = 12_000;
 const ALERT_DISPLAY_DURATION = 4200;
 const PROFILE_LOAD_MAX_RETRIES = 2;
 const PROFILE_RETRY_DELAY_MS = 800;
+const INCOMING_REQUESTS_POLL_INTERVAL_MS = 5000;
 const GPS_LOG_KEY = 'driverGpsLog';
 const LAST_KNOWN_LOCATION_KEY = 'driverLastKnownLocation';
 const MAX_GPS_LOG_ENTRIES = 200;
@@ -122,6 +123,7 @@ let accessToken = null;
 let currentProfile = null;
 let isProfileLoading = false;
 let nearbyRideRequests = [];
+let incomingRideRequests = [];
 let completedRideHistory = [];
 let selectedRideForDetails = null;
 let earningsSnapshot = { earningsCents: 0, rideCount: 0 };
@@ -132,6 +134,7 @@ let alertTimeoutId = null;
 let pendingRideActionHandler = null;
 let vehiclePhotoFile = null;
 let vehiclePhotoUrl = '';
+let incomingRequestsPollIntervalId = null;
 
 let mapState = {
   zoom: 15,
@@ -3513,6 +3516,74 @@ async function loadAvailableRideRequests() {
   mergePendingRiderRequests();
 }
 
+function renderIncomingRequests() {
+  const container = document.getElementById('incoming-requests-list');
+  if (!container) return;
+  if (!incomingRideRequests.length) {
+    container.innerHTML = '<div class="text-muted">No incoming requests right now.</div>';
+    return;
+  }
+
+  container.innerHTML = incomingRideRequests.map(ride => `
+    <div class="ride-item incoming-request-card" data-incoming-ride-id="${escapeHtml(ride.rideId)}">
+      <div class="ride-item-top">
+        <div>
+          <strong>${escapeHtml(ride.pickupAddress || '--')}</strong>
+          <div class="text-muted small">to ${escapeHtml(ride.destinationAddress || '--')}</div>
+        </div>
+        <span class="ride-request-pill">${escapeHtml(String(ride.rideType || 'ECONOMY').toUpperCase())}</span>
+      </div>
+      <div class="small mt-2">
+        <div>Rider: ${escapeHtml(ride.riderName || 'Rider')} • ⭐ ${Number(ride.riderRating || 5).toFixed(1)}</div>
+        <div>Fare: $${Number(ride.fareEstimate || 0).toFixed(2)} • ${Number(ride.distance || 0).toFixed(1)} mi • ${Number(ride.duration || 0)} min</div>
+      </div>
+      <div class="ride-footer mt-3">
+        <button class="primary-action incoming-accept-button" type="button" data-ride-id="${escapeHtml(ride.rideId)}" data-rider-name="${escapeHtml(ride.riderName || 'Rider')}">Accept</button>
+      </div>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.incoming-accept-button').forEach(button => {
+    button.addEventListener('click', async () => {
+      const rideId = button.getAttribute('data-ride-id') || '';
+      const riderName = button.getAttribute('data-rider-name') || 'Rider';
+      if (!rideId) return;
+      const accepted = await acceptRideById(rideId, { source: 'incoming-requests', riderName });
+      if (accepted) {
+        incomingRideRequests = incomingRideRequests.filter(ride => ride.rideId !== rideId);
+        renderIncomingRequests();
+      }
+    });
+  });
+}
+
+async function fetchIncomingRequests() {
+  if (!accessToken) return;
+  try {
+    const { data } = await fetchJson(`${API_BASE_URL}/api/driver/ride-requests?status=SEARCHING&limit=20`, {
+      headers: { Authorization: 'Bearer ' + accessToken }
+    });
+    if (data?.ok && Array.isArray(data.rides)) {
+      incomingRideRequests = data.rides;
+    } else {
+      incomingRideRequests = [];
+    }
+    console.log(`[DRIVER] Fetched ${incomingRideRequests.length} incoming requests`);
+  } catch (_error) {
+    incomingRideRequests = [];
+    console.log('[DRIVER] Fetched 0 incoming requests');
+  }
+  renderIncomingRequests();
+}
+
+function startIncomingRequestsPolling() {
+  if (incomingRequestsPollIntervalId) window.clearInterval(incomingRequestsPollIntervalId);
+  fetchIncomingRequests().catch(() => {});
+  incomingRequestsPollIntervalId = window.setInterval(() => {
+    fetchIncomingRequests().catch(() => {});
+  }, INCOMING_REQUESTS_POLL_INTERVAL_MS);
+}
+
 function renderRideHistory() {
   const body = document.getElementById('ride-history-body');
   if (!completedRideHistory.length) {
@@ -3902,15 +3973,16 @@ async function acceptRideById(rawRideId, options = {}) {
   if (rideIdInput) rideIdInput.value = rideId;
   acceptingRideIds.add(rideId);
   try {
-    const { data } = await fetchJson(`${API_BASE_URL}/api/rides/accept`, {
+    const { data } = await fetchJson(`${API_BASE_URL}/api/rides/${encodeURIComponent(rideId)}/accept`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: 'Bearer ' + accessToken
       },
-      body: JSON.stringify({ rideId })
+      body: JSON.stringify({ rideId, driverId: currentUser?.id })
     });
     if (!data?.ok) {
+      console.log(`[DRIVER] Accept failed: ${data?.error || 'Unable to accept ride.'}`);
       showAlert('danger', data.error || 'Unable to accept ride.');
       return false;
     }
@@ -3924,6 +3996,11 @@ async function acceptRideById(rawRideId, options = {}) {
       driverName: acceptedRide.driverName || getDriverDisplayName(currentUser?.email),
       etaMinutes: Number.isFinite(routeCache.pickupEta) ? Number(routeCache.pickupEta) : Number(acceptedRide.minutes || 0)
     });
+    if (options?.riderName) {
+      console.log(`[DRIVER] Accepted ride: ${rideId}, Rider: ${options.riderName}`);
+    } else {
+      console.log(`[DRIVER] Accepted ride: ${rideId}, Rider: ${acceptedRide.passengerName || acceptedRide.riderName || 'Rider'}`);
+    }
     emitRideRequestAction('accepted', acceptedRide, { source: options.source || 'manual' });
     // [REALTIME] Replace publishSharedRideStatus with a Firebase/Supabase write so
     // the rider dashboard sees "Driver assigned" in real time.
@@ -3939,6 +4016,7 @@ async function acceptRideById(rawRideId, options = {}) {
     document.getElementById('accept-ride-form')?.reset();
     return true;
   } catch (_error) {
+    console.log('[DRIVER] Accept failed: Unable to accept ride.');
     if (rideRequestPopupState.rideId === rideId) {
       setRideRequestPopupPhase('requesting', existingRide || normalizeRide({ id: rideId, status: 'requested' }, 0), {
         expiresAt: existingRide ? getRideRequestExpiryTimestamp(existingRide) : Date.now() + RIDE_REQUEST_ALERT_WINDOW_MS
@@ -4849,16 +4927,18 @@ window.addEventListener('load', async () => {
     stopLocationTracking();
     if (gpsSimulationIntervalId !== null) window.clearInterval(gpsSimulationIntervalId);
     if (rideRequestCountdownIntervalId !== null) window.clearInterval(rideRequestCountdownIntervalId);
+    if (incomingRequestsPollIntervalId !== null) window.clearInterval(incomingRequestsPollIntervalId);
     if (routeRefreshTimeoutId !== null) window.clearTimeout(routeRefreshTimeoutId);
     if (wakeLockSentinel && typeof wakeLockSentinel.release === 'function') wakeLockSentinel.release().catch(() => {});
   });
 
   // Load data
-  await Promise.all([loadDriverProfile(), loadVehicleProfile(), loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
+  await Promise.all([loadDriverProfile(), loadVehicleProfile(), loadAvailableRideRequests(), fetchIncomingRequests(), loadRideHistory(), loadEarnings()]);
   await initializeMapbox();
   await ensureDriverLocation();
   await requestWakeLock();
   startUiRefreshLoop();
+  startIncomingRequestsPolling();
   startRealtimeSync();
   await startLocationTracking();
   flushOfflineLocationQueue().catch(() => {});
