@@ -3085,14 +3085,6 @@ function setShareTripModalOpen(isOpen) {
   if (modal) modal.classList.toggle('d-none', !shareTripModalOpen);
 }
 
-function generateShareLink(rideId) {
-  const token = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-    ? crypto.randomUUID()
-    : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
-  const domain = window.location.origin;
-  return `${domain}/shared-trip.html?rideId=${encodeURIComponent(rideId)}&token=${encodeURIComponent(token)}`;
-}
-
 async function handleShareTripClick() {
   if (!currentRide?.id) {
     showPopup('No active ride to share.');
@@ -3129,11 +3121,12 @@ async function handleShareTripClick() {
         shareLink = data.shareLink;
       }
     } catch (_error) {
-      // Fall through to local generation
+      // Backend will remain the source of truth for secure share links.
     }
   }
   if (!shareLink) {
-    shareLink = generateShareLink(currentRide.id);
+    showPopup('Could not generate a share link right now. Please try again.');
+    return;
   }
   currentShareLink = shareLink;
 
