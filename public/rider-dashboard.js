@@ -96,6 +96,11 @@ let estimateRetryCount = 0;
 let estimateRetryTimerId = null;
 let latestKnownRiderPosition = null;
 let isFareEstimateLoading = false;
+const ratingShownForRides = new Set();
+let rideHistoryData = [];
+let selectedStarRating = 0;
+let rideHistoryOffset = 0;
+const HISTORY_PAGE_SIZE = 20;
 const geocodeDebounceTimers = {};
 const locationSuggestions = {
   'pickup-input': [],
@@ -563,7 +568,9 @@ function normalizeRide(ride = {}, index = 0) {
     createdAt: ride.createdAt || new Date().toISOString(),
     updatedAt: ride.updatedAt || new Date().toISOString(),
     completedAt: ride.completedAt || null,
-    canceledAt: ride.canceledAt || null
+    canceledAt: ride.canceledAt || null,
+    rating: typeof ride.rating === 'number' ? ride.rating : null,
+    paymentMethod: ride.paymentMethod || 'card'
   };
 }
 
@@ -1279,8 +1286,10 @@ function renderRideState() {
   const cancelButton = document.getElementById('cancel-ride-button');
   const requestButton = document.getElementById('request-ride-button');
   const buttonGroup = document.querySelector('.button-group');
+  const viewReceiptButton = document.getElementById('view-receipt-button');
   const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status));
   const showCancelButton = canCancelRide;
+  const showViewReceipt = Boolean(currentRide && ['completed', 'canceled'].includes(currentRide.status));
   if (requestButton) {
     requestButton.classList.remove('d-none');
   }
@@ -1288,8 +1297,11 @@ function renderRideState() {
     cancelButton.disabled = !canCancelRide;
     cancelButton.classList.toggle('d-none', !showCancelButton);
   }
+  if (viewReceiptButton) {
+    viewReceiptButton.classList.toggle('d-none', !showViewReceipt);
+  }
   if (buttonGroup) {
-    const visibleButtons = 1 + Number(showCancelButton);
+    const visibleButtons = 1 + Number(showCancelButton) + Number(showViewReceipt);
     buttonGroup.classList.toggle('single-action', visibleButtons <= 1);
   }
   updateRequestRideButtonState();
@@ -1297,6 +1309,13 @@ function renderRideState() {
   const previousStatus = mapState.lastRideStatus;
   mapState.lastRideStatus = currentRide?.status || 'idle';
   renderMapState({ fitRoute: previousStatus !== mapState.lastRideStatus });
+
+  // Phase 3: trigger receipt and rating on first completion
+  if (currentRide?.status === 'completed' && !ratingShownForRides.has(currentRide.id + '_receipt')) {
+    ratingShownForRides.add(currentRide.id + '_receipt');
+    showReceiptModal(currentRide);
+    refreshRideHistory();
+  }
 }
 
 function showPopup(message) {
@@ -2459,8 +2478,387 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
   }, delay);
 }
 
+// ── Phase 3 helpers ───────────────────────────────────────────────────────────
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatTripDateTime(isoString) {
+  if (!isoString) return '--';
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return '--';
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const time = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (date.toDateString() === today.toDateString()) return `Today at ${time}`;
+  if (date.toDateString() === yesterday.toDateString()) return `Yesterday at ${time}`;
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ` at ${time}`;
+}
+
+function truncateAddress(address, maxLength = 40) {
+  const str = String(address || '');
+  return str.length > maxLength ? str.slice(0, maxLength - 1) + '\u2026' : str;
+}
+
+function labelForPaymentMethod(method) {
+  const m = String(method || 'card').toLowerCase();
+  if (m === 'apple_pay' || m === 'applepay') return 'Apple Pay';
+  if (m === 'google_pay' || m === 'googlepay') return 'Google Pay';
+  if (m === 'cash') return 'Cash';
+  return 'Card';
+}
+
+// ── Phase 3: Toast Notifications ─────────────────────────────────────────────
+
+const TOAST_ICONS = {
+  success: 'bi-check-circle-fill',
+  error:   'bi-x-circle-fill',
+  warning: 'bi-exclamation-triangle-fill',
+  info:    'bi-info-circle-fill'
+};
+
+function showToast(message, type, durationMs) {
+  const safeType = type || 'info';
+  const safeDuration = durationMs || 4000;
+  const container = document.getElementById('toast-container');
+  if (!container) { showPopup(message); return; }
+  const toast = document.createElement('div');
+  toast.className = `toast-notification toast-notification--${safeType}`;
+  const iconClass = TOAST_ICONS[safeType] || TOAST_ICONS.info;
+  toast.innerHTML = `<i class="bi ${escapeHtml(iconClass)} toast-notification-icon" aria-hidden="true"></i><span>${escapeHtml(message)}</span>`;
+  container.appendChild(toast);
+  const all = container.querySelectorAll('.toast-notification:not(.is-hiding)');
+  if (all.length > 3) all[0].remove();
+  const dismiss = () => {
+    toast.classList.add('is-hiding');
+    toast.addEventListener('animationend', () => toast.remove(), { once: true });
+  };
+  window.setTimeout(dismiss, safeDuration);
+  toast.addEventListener('click', dismiss);
+}
+
+// ── Phase 3: Trip Receipt ─────────────────────────────────────────────────────
+
+function showReceiptModal(ride) {
+  if (!ride) return;
+  console.log('[Receipt] Generated receipt for ride:', ride.id);
+  const fareDetails = ride.fareDetails || {};
+  const driver = ride.driver || {};
+  const driverName = driver.name || ride.driverName || '--';
+  const driverRating = Number(driver.rating || 4.9).toFixed(2);
+  const vehicle = driver.vehicle && typeof driver.vehicle === 'object' ? driver.vehicle : {};
+  const vehicleDisplay = getDriverVehicleDisplay(vehicle);
+
+  safeSetText('receipt-date', formatTripDateTime(ride.completedAt || ride.updatedAt));
+  safeSetText('receipt-ride-id', ride.id ? `#${String(ride.id).slice(0, 10)}` : '--');
+  safeSetText('receipt-pickup', ride.pickupLabel || '--');
+  safeSetText('receipt-destination', ride.destinationLabel || '--');
+  safeSetText('receipt-driver-name', driverName);
+  safeSetText('receipt-driver-rating', `${driverRating} \u2b50`);
+  safeSetText('receipt-driver-vehicle', vehicleDisplay.title);
+  safeSetText('receipt-driver-plate', vehicleDisplay.plate);
+  safeSetText('receipt-driver-initial', driverName[0] || '?');
+  safeSetText('receipt-distance', formatMiles(ride.miles));
+  safeSetText('receipt-duration', formatMinutes(ride.minutes));
+  safeSetText('receipt-payment-method', labelForPaymentMethod(ride.paymentMethod));
+
+  const baseFare = Number(fareDetails.baseFare || fareDetails.base_fare || 0);
+  const distCharge = Number(fareDetails.distanceCharge || fareDetails.distanceFare || fareDetails.distance_fare || 0);
+  const timeCharge = Number(fareDetails.timeCharge || fareDetails.timeFare || fareDetails.time_fare || 0);
+  const discount = Number(fareDetails.discount || fareDetails.discounts || 0);
+  const total = Number(fareDetails.total || fareDetails.fareEstimate || ride.fareEstimate || 0);
+
+  safeSetText('receipt-base-fare', formatCurrency(baseFare));
+  safeSetText('receipt-distance-charge', formatCurrency(distCharge));
+  safeSetText('receipt-time-charge', formatCurrency(timeCharge));
+  safeSetText('receipt-discount', `\u2013${formatCurrency(Math.abs(discount))}`);
+  safeSetText('receipt-total', formatCurrency(total));
+
+  const discountRow = document.getElementById('receipt-discount-row');
+  if (discountRow) discountRow.style.display = discount > 0 ? '' : 'none';
+  document.getElementById('receipt-modal')?.classList.remove('d-none');
+}
+
+function closeReceiptModal() {
+  document.getElementById('receipt-modal')?.classList.add('d-none');
+  if (currentRide?.status === 'completed' && currentRide?.id) {
+    if (!ratingShownForRides.has(currentRide.id + '_rated')) {
+      showRatingModal(currentRide);
+    }
+  }
+}
+
+function handleDownloadReceipt(rideId) {
+  const ride = currentRide;
+  console.log('[Receipt] Downloading receipt for ride:', rideId || ride?.id);
+  const fareDetails = ride?.fareDetails || {};
+  const driver = ride?.driver || {};
+  const driverName = driver.name || ride?.driverName || '--';
+  const total = Number(fareDetails.total || fareDetails.fareEstimate || ride?.fareEstimate || 0);
+  const date = new Date(ride?.completedAt || ride?.updatedAt || Date.now());
+  const dateStr = date.toISOString().slice(0, 10);
+  const filename = `receipt_${rideId || ride?.id || 'unknown'}_${dateStr}`;
+
+  const rows = [
+    ['Base fare', formatCurrency(Number(fareDetails.baseFare || 0))],
+    ['Distance charge', formatCurrency(Number(fareDetails.distanceCharge || fareDetails.distanceFare || 0))],
+    ['Time charge', formatCurrency(Number(fareDetails.timeCharge || fareDetails.timeFare || 0))],
+    ['Total', formatCurrency(total)]
+  ].map(([label, val]) => `<div class="row"><span>${escapeHtml(label)}</span><span>${escapeHtml(val)}</span></div>`).join('');
+
+  const printHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
+<title>${escapeHtml(filename)}</title>
+<style>body{font-family:Arial,sans-serif;max-width:520px;margin:40px auto;color:#172033;}
+h1{font-size:1.4rem;margin-bottom:4px;}.sub{color:#64748b;font-size:.8rem;}
+.section{border-top:1px solid #e2e8f0;padding:14px 0;}
+.row{display:flex;justify-content:space-between;font-size:.9rem;margin-bottom:6px;}
+.footer{color:#64748b;font-size:.75rem;margin-top:24px;}</style></head>
+<body>
+<h1>Drive – Trip Receipt</h1>
+<div class="sub">Date: ${escapeHtml(formatTripDateTime(ride?.completedAt || ride?.updatedAt))}</div>
+<div class="sub">Ride ID: ${escapeHtml(rideId || ride?.id || '--')}</div>
+<div class="section">
+<div class="row"><span>Pickup</span><span>${escapeHtml(ride?.pickupLabel || '--')}</span></div>
+<div class="row"><span>Destination</span><span>${escapeHtml(ride?.destinationLabel || '--')}</span></div>
+</div>
+<div class="section">
+<div class="row"><span>Driver</span><span>${escapeHtml(driverName)}</span></div>
+<div class="row"><span>Distance</span><span>${escapeHtml(formatMiles(ride?.miles))}</span></div>
+<div class="row"><span>Duration</span><span>${escapeHtml(formatMinutes(ride?.minutes))}</span></div>
+</div>
+<div class="section">${rows}</div>
+<div class="section"><div class="row"><span>Payment</span><span>${escapeHtml(labelForPaymentMethod(ride?.paymentMethod))}</span></div></div>
+<div class="footer">Thank you for riding with Drive.</div>
+</body></html>`;
+
+  const win = window.open('', '_blank', 'width=600,height=800');
+  if (!win) { showToast('Allow pop-ups to download the receipt.', 'warning'); return; }
+  win.document.write(printHtml);
+  win.document.close();
+  win.document.title = filename;
+  win.addEventListener('load', () => { win.print(); win.close(); });
+}
+
+function handleShareReceipt(rideId) {
+  const id = rideId || currentRide?.id;
+  if (!id) return;
+  const url = `${window.location.origin}/trip/${id}`;
+  console.log('[Receipt] Sharing receipt for ride:', id, url);
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(url).then(() => {
+      showToast('Trip link copied to clipboard!', 'success');
+    }).catch(() => {
+      showToast('Unable to copy link.', 'error');
+    });
+  } else {
+    showToast(`Trip link: ${url}`, 'info', 6000);
+  }
+}
+
+// ── Phase 3: Rating ──────────────────────────────────────────────────────────
+
+const STAR_LABELS = ['', 'Poor', 'Fair', 'Good', 'Great', 'Excellent!'];
+
+function updateStarDisplay(value) {
+  document.querySelectorAll('.star-btn').forEach(btn => {
+    const v = Number(btn.getAttribute('data-value'));
+    btn.classList.toggle('is-selected', v <= value);
+  });
+  const numericEl = document.getElementById('rating-numeric');
+  if (numericEl) numericEl.textContent = value > 0 ? `${value} \u2013 ${STAR_LABELS[value] || ''}` : '';
+  const submitBtn = document.getElementById('rating-submit-btn');
+  if (submitBtn) submitBtn.disabled = value < 1;
+}
+
+function showRatingModal(ride) {
+  if (!ride?.id) return;
+  if (ratingShownForRides.has(ride.id + '_rated')) return;
+  const driver = ride.driver || {};
+  const driverName = driver.name || ride.driverName || '--';
+  const driverRating = Number(driver.rating || 4.9).toFixed(2);
+  safeSetText('rating-driver-name', driverName);
+  safeSetText('rating-driver-current-rating', `${driverRating} \u2b50`);
+  safeSetText('rating-driver-initial', driverName[0] || '?');
+  selectedStarRating = 0;
+  updateStarDisplay(0);
+  const commentEl = document.getElementById('rating-comment');
+  const charCountEl = document.getElementById('rating-char-count');
+  if (commentEl) commentEl.value = '';
+  if (charCountEl) charCountEl.textContent = '0';
+  document.getElementById('rating-modal')?.classList.remove('d-none');
+}
+
+function closeRatingModal() {
+  document.getElementById('rating-modal')?.classList.add('d-none');
+}
+
+async function handleSubmitRating() {
+  if (!currentRide?.id || selectedStarRating < 1) return;
+  const comment = String(document.getElementById('rating-comment')?.value || '').trim();
+  const rideId = currentRide.id;
+  const rating = selectedStarRating;
+  console.log('[Rating] Submitted rating:', { rideId, rating, comment });
+  const submitBtn = document.getElementById('rating-submit-btn');
+  if (submitBtn) submitBtn.disabled = true;
+  try {
+    if (accessToken) {
+      await fetchJson(`/api/rides/${encodeURIComponent(rideId)}/rate`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ rideId, rating, comment, ratedAt: new Date().toISOString() })
+      });
+    }
+  } catch (_error) {
+    // Rating saved locally; backend error is non-fatal
+  } finally {
+    ratingShownForRides.add(rideId + '_rated');
+    closeRatingModal();
+    showToast('Thank you for rating!', 'success');
+  }
+}
+
+function handleSkipRating() {
+  const rideId = currentRide?.id;
+  console.log('[Rating] Skipped rating for ride:', rideId);
+  if (rideId) ratingShownForRides.add(rideId + '_rated');
+  closeRatingModal();
+}
+
+// ── Phase 3: Ride History ─────────────────────────────────────────────────────
+
+async function fetchRideHistory() {
+  const historyList = document.getElementById('history-list');
+  const loadingEl = document.getElementById('history-loading');
+  const errorEl = document.getElementById('history-error');
+  const emptyEl = document.getElementById('history-empty');
+
+  if (loadingEl) loadingEl.classList.remove('d-none');
+  if (errorEl) errorEl.classList.add('d-none');
+  if (emptyEl) emptyEl.classList.add('d-none');
+  if (historyList) historyList.innerHTML = '';
+
+  let historyRides = [];
+  if (accessToken) {
+    try {
+      const { response, data } = await fetchJson('/api/rides/history', { headers: getAuthHeaders() });
+      if (response.ok && data?.ok && Array.isArray(data.rides)) {
+        historyRides = data.rides.map(normalizeRide).filter(r => r.status === 'completed' || r.status === 'canceled');
+      }
+    } catch (_error) {
+      // Fall through to local store
+    }
+  }
+
+  if (!historyRides.length) {
+    const localRides = readSharedRideStore().rides || [];
+    historyRides = localRides
+      .filter(r => r.riderId === currentUser?.id && (r.status === 'completed' || r.status === 'canceled'))
+      .map(normalizeRide);
+  }
+
+  historyRides.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+  rideHistoryData = historyRides;
+  console.log('[History] Fetched rides:', historyRides.length);
+
+  if (loadingEl) loadingEl.classList.add('d-none');
+  renderRideHistory(historyRides.slice(0, HISTORY_PAGE_SIZE));
+
+  const loadMoreBtn = document.getElementById('history-load-more');
+  if (loadMoreBtn) {
+    loadMoreBtn.classList.toggle('d-none', historyRides.length <= HISTORY_PAGE_SIZE);
+  }
+  rideHistoryOffset = HISTORY_PAGE_SIZE;
+}
+
+function refreshRideHistory() {
+  fetchRideHistory().catch(() => {});
+}
+
+function buildHistoryCardHtml(ride) {
+  const driver = ride.driver || {};
+  const driverName = driver.name || ride.driverName || 'Driver';
+  const driverRating = Number(driver.rating || 0).toFixed(1);
+  const fare = formatCurrency(ride.fareEstimate || 0);
+  const pickup = truncateAddress(ride.pickupLabel);
+  const destination = truncateAddress(ride.destinationLabel);
+  const datetime = formatTripDateTime(ride.completedAt || ride.updatedAt || ride.canceledAt);
+  const statusClass = ride.status === 'completed' ? 'history-status-badge--completed' : 'history-status-badge--canceled';
+  const statusLabel = ride.status === 'completed' ? 'Completed' : 'Cancelled';
+  const initial = driverName[0] || '?';
+  const ratingStr = driverRating !== '0.0' ? ` \u00b7 ${escapeHtml(driverRating)} \u2b50` : '';
+  return `<li class="history-trip-card" data-ride-id="${escapeHtml(ride.id)}" role="button" tabindex="0" aria-label="Trip on ${escapeHtml(datetime)}">
+  <div class="history-trip-header">
+    <div class="history-trip-avatar" aria-hidden="true">${escapeHtml(initial)}</div>
+    <div class="history-trip-meta">
+      <div class="history-trip-datetime">${escapeHtml(datetime)}</div>
+      <div class="history-trip-driver">${escapeHtml(driverName)}${ratingStr}</div>
+    </div>
+    <div class="history-trip-fare">${escapeHtml(fare)}</div>
+  </div>
+  <div class="history-trip-route" title="${escapeHtml(pickup)} \u2192 ${escapeHtml(destination)}">${escapeHtml(pickup)} \u2192 ${escapeHtml(destination)}</div>
+  <div class="history-trip-footer">
+    <span class="history-status-badge ${statusClass}">${escapeHtml(statusLabel)}</span>
+    ${ride.status === 'completed' ? '<span class="history-view-receipt">View Receipt \u2192</span>' : ''}
+  </div>
+</li>`;
+}
+
+function renderRideHistory(rides) {
+  const historyList = document.getElementById('history-list');
+  const emptyEl = document.getElementById('history-empty');
+  if (!historyList) return;
+  if (!rides.length) {
+    historyList.innerHTML = '';
+    if (emptyEl) emptyEl.classList.remove('d-none');
+    return;
+  }
+  if (emptyEl) emptyEl.classList.add('d-none');
+  historyList.innerHTML = rides.map(buildHistoryCardHtml).join('');
+}
+
+function handleLoadMoreHistory() {
+  const next = rideHistoryData.slice(rideHistoryOffset, rideHistoryOffset + HISTORY_PAGE_SIZE);
+  const historyList = document.getElementById('history-list');
+  if (historyList && next.length) {
+    historyList.insertAdjacentHTML('beforeend', next.map(buildHistoryCardHtml).join(''));
+    rideHistoryOffset += HISTORY_PAGE_SIZE;
+  }
+  const loadMoreBtn = document.getElementById('history-load-more');
+  if (loadMoreBtn) loadMoreBtn.classList.toggle('d-none', rideHistoryOffset >= rideHistoryData.length);
+}
+
+// ── Phase 3: Tab switching ────────────────────────────────────────────────────
+
+function switchPanelTab(tab) {
+  const isRideNow = tab === 'ride-now';
+  document.getElementById('panel-ride-now')?.classList.toggle('d-none', !isRideNow);
+  document.getElementById('panel-trips')?.classList.toggle('d-none', isRideNow);
+  const rideNowBtn = document.getElementById('tab-btn-ride-now');
+  const tripsBtn = document.getElementById('tab-btn-trips');
+  rideNowBtn?.classList.toggle('is-active', isRideNow);
+  tripsBtn?.classList.toggle('is-active', !isRideNow);
+  rideNowBtn?.setAttribute('aria-selected', String(isRideNow));
+  tripsBtn?.setAttribute('aria-selected', String(!isRideNow));
+  if (!isRideNow) {
+    fetchRideHistory().catch(() => {
+      document.getElementById('history-loading')?.classList.add('d-none');
+      const errorEl = document.getElementById('history-error');
+      if (errorEl) {
+        errorEl.classList.remove('d-none');
+        safeSetText('history-error-text', 'Unable to load trip history. Please try again.');
+      }
+    });
+  }
+}
+
 function setupHandlers() {
-  document.getElementById('logout-button')?.addEventListener('click', handleLogout);
   document.getElementById('request-ride-button')?.addEventListener('click', () => {
     handleRequestRide().catch(() => showPopup('Unable to book a ride.'));
   });
@@ -2612,6 +3010,92 @@ function setupHandlers() {
     if (mapState.pendingDriverAnimation) window.cancelAnimationFrame(mapState.pendingDriverAnimation);
     Object.values(geocodeDebounceTimers).forEach(timer => window.clearTimeout(timer));
   });
+
+  // ── Phase 3 handlers ──────────────────────────────────────────────────────
+
+  // Tab switching
+  document.getElementById('tab-btn-ride-now')?.addEventListener('click', () => switchPanelTab('ride-now'));
+  document.getElementById('tab-btn-trips')?.addEventListener('click', () => switchPanelTab('trips'));
+
+  // View receipt button (reopen from Live Status)
+  document.getElementById('view-receipt-button')?.addEventListener('click', () => {
+    if (currentRide) showReceiptModal(currentRide);
+  });
+
+  // Receipt modal actions
+  document.getElementById('receipt-close-btn')?.addEventListener('click', closeReceiptModal);
+  document.getElementById('receipt-download-btn')?.addEventListener('click', () => {
+    handleDownloadReceipt(currentRide?.id);
+  });
+  document.getElementById('receipt-share-btn')?.addEventListener('click', () => {
+    handleShareReceipt(currentRide?.id);
+  });
+  document.getElementById('receipt-modal')?.addEventListener('click', event => {
+    if (event.target === event.currentTarget) closeReceiptModal();
+  });
+
+  // Rating modal actions
+  document.getElementById('rating-submit-btn')?.addEventListener('click', () => {
+    handleSubmitRating().catch(() => {
+      showToast('Unable to submit rating.', 'error');
+    });
+  });
+  document.getElementById('rating-skip-btn')?.addEventListener('click', handleSkipRating);
+  document.getElementById('rating-modal')?.addEventListener('click', event => {
+    if (event.target === event.currentTarget) handleSkipRating();
+  });
+
+  // Star rating interactions
+  const starSelector = document.getElementById('star-selector');
+  if (starSelector) {
+    starSelector.addEventListener('mouseover', event => {
+      const btn = event.target.closest('.star-btn');
+      if (!btn) return;
+      const hoverVal = Number(btn.getAttribute('data-value'));
+      document.querySelectorAll('.star-btn').forEach(s => {
+        s.classList.toggle('is-hovered', Number(s.getAttribute('data-value')) <= hoverVal);
+      });
+    });
+    starSelector.addEventListener('mouseleave', () => {
+      document.querySelectorAll('.star-btn').forEach(s => s.classList.remove('is-hovered'));
+    });
+    starSelector.addEventListener('click', event => {
+      const btn = event.target.closest('.star-btn');
+      if (!btn) return;
+      selectedStarRating = Number(btn.getAttribute('data-value'));
+      updateStarDisplay(selectedStarRating);
+      btn.classList.add('star-pop');
+      btn.addEventListener('animationend', () => btn.classList.remove('star-pop'), { once: true });
+    });
+  }
+
+  // Rating comment character counter
+  document.getElementById('rating-comment')?.addEventListener('input', event => {
+    const len = String(event.target.value || '').length;
+    safeSetText('rating-char-count', String(len));
+  });
+
+  // History: click trip card to view receipt
+  document.getElementById('history-list')?.addEventListener('click', event => {
+    const card = event.target.closest('.history-trip-card');
+    if (!card) return;
+    const rideId = card.getAttribute('data-ride-id');
+    const historyRide = rideHistoryData.find(r => r.id === rideId);
+    if (historyRide) showReceiptModal(historyRide);
+  });
+
+  document.getElementById('history-list')?.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const card = event.target.closest('.history-trip-card');
+    if (!card) return;
+    event.preventDefault();
+    const rideId = card.getAttribute('data-ride-id');
+    const historyRide = rideHistoryData.find(r => r.id === rideId);
+    if (historyRide) showReceiptModal(historyRide);
+  });
+
+  // History load more
+  document.getElementById('history-load-more')?.addEventListener('click', handleLoadMoreHistory);
 }
 
 window.addEventListener('load', async () => {
@@ -2626,6 +3110,8 @@ window.addEventListener('load', async () => {
   await refreshFareEstimate({ fitRoute: true });
   await syncRides();
   startRiderLocationSync();
+  // Phase 3: pre-load history in background so Trips tab is ready
+  fetchRideHistory().catch(() => {});
   window.setInterval(() => {
     syncRides().catch(() => {});
   }, RIDE_POLL_INTERVAL_MS);
