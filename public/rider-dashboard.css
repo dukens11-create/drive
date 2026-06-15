@@ -2055,12 +2055,14 @@ input {
   display: grid;
   place-items: center;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.22);
+  transition: transform 220ms ease;
 }
 
-.driver-marker-arrow {
+.driver-marker-vehicle {
   display: inline-block;
-  font-size: 16px;
+  font-size: 18px;
   line-height: 1;
+  color: rgba(15, 23, 42, 0.9);
 }
 
 .rider-marker {

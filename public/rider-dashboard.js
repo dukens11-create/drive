@@ -42,7 +42,10 @@ const DRIVER_START_POSITION_OFFSET = 0.04; // ~2–3 miles in lat/lng degrees
 const DRIVER_ASSIGN_DELAY_MIN_MS = 3000;
 const DRIVER_ASSIGN_DELAY_MAX_MS = 5000;
 const MIN_VALID_VEHICLE_YEAR = 1900;
-const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'arrived_at_pickup', 'started'];
+const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'assigned', 'arrived_at_pickup', 'started'];
+const DRIVER_VISIBLE_RIDE_STATUSES = ['assigned', 'arrived_at_pickup', 'started'];
+const DRIVER_APPROACH_RIDE_STATUSES = ['assigned', 'arrived_at_pickup'];
+const TERMINAL_RIDE_STATUSES = ['completed', 'canceled'];
 const TOAST_MAX_VISIBLE = 3;
 const LONG_DISTANCE_WARNING_MINUTES = 360;
 const SUPPORTED_COUNTRY = 'United States';
@@ -206,6 +209,19 @@ function sanitizePhoneForUri(value) {
   if (!normalized) return '';
   if (!/^[+0-9()\-\s]+$/.test(normalized)) return '';
   return normalized.replace(/\s+/g, '');
+}
+
+function normalizeRideStatus(status) {
+  const normalized = String(status || 'requested').trim().toLowerCase();
+  if (normalized === 'accepted') return 'assigned';
+  if (normalized === 'cancelled') return 'canceled';
+  return normalized;
+}
+
+function formatDistanceAway(value) {
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized) || normalized < 0) return '';
+  return `${normalized.toFixed(1)} mi away`;
 }
 
 function normalizeRideTypeForApi(rideType = selectedRideType) {
@@ -551,6 +567,18 @@ function normalizeRide(ride = {}, index = 0) {
   const fallbackDropoffLat = Number.isFinite(Number(ride.dropoffLat)) ? Number(ride.dropoffLat) : fallbackPickupLat + DEFAULT_DROPOFF_OFFSET_DEGREES;
   const fallbackDropoffLng = Number.isFinite(Number(ride.dropoffLng)) ? Number(ride.dropoffLng) : fallbackPickupLng + DEFAULT_DROPOFF_OFFSET_DEGREES;
   const rideFareDetails = ride.fareDetails || ride.fareBreakdown || null;
+  const driverLocationPayload = ride.driverLocation && typeof ride.driverLocation === 'object'
+    ? ride.driverLocation
+    : ride.location && typeof ride.location === 'object'
+      ? ride.location
+      : {};
+  const driverLat = Number(driverLocationPayload.lat ?? driverLocationPayload.latitude ?? ride.driverLat ?? ride.driverLatitude ?? ride.latitude);
+  const driverLng = Number(driverLocationPayload.lng ?? driverLocationPayload.longitude ?? ride.driverLng ?? ride.driverLongitude ?? ride.longitude);
+  const driverHeading = Number(driverLocationPayload.heading ?? ride.heading ?? ride.driverHeading);
+  const driverSpeed = Number(driverLocationPayload.speed ?? ride.speed ?? ride.driverSpeed);
+  const normalizedStatus = normalizeRideStatus(ride.status);
+  const normalizedLifecycleState = normalizeRideStatus(ride.lifecycleState || ride.status);
+  const distanceAway = Number(ride.distanceAway ?? ride.driver?.distanceAway ?? driverLocationPayload.distanceAway);
   return {
     id: ride.id || `rider_local_${Date.now()}_${index}`,
     riderId: ride.riderId || ride.userId || currentUser?.id || 'rider',
@@ -567,17 +595,25 @@ function normalizeRide(ride = {}, index = 0) {
     minutes: Number(ride.minutes || 0),
     fareEstimate: Number(ride.fareEstimate || rideFareDetails?.fareEstimate || rideFareDetails?.total || 0),
     fareDetails: rideFareDetails,
-    status: String(ride.status || 'requested'),
-    lifecycleState: String(ride.lifecycleState || ride.status || 'requested'),
+    status: normalizedStatus,
+    lifecycleState: normalizedLifecycleState,
     driverId: ride.driverId || null,
     driverName: ride.driverName || ride.driver?.name || (ride.driverId ? `Driver ${String(ride.driverId).slice(0, 6)}` : null),
     driver: ride.driver && typeof ride.driver === 'object' ? ride.driver : null,
-    etaMinutes: Number(ride.etaMinutes || ride.minutes || 0),
+    etaMinutes: Number(ride.etaMinutes ?? ride.driver?.etaMinutes ?? ride.minutes ?? 0),
+    distanceAway: Number.isFinite(distanceAway) ? Math.max(0, distanceAway) : null,
+    driverStatus: String(ride.driverStatus || ride.statusLabel || driverLocationPayload.status || '').trim(),
     riderLocation: ride.riderLocation && Number.isFinite(Number(ride.riderLocation.lat)) && Number.isFinite(Number(ride.riderLocation.lng))
       ? { lat: Number(ride.riderLocation.lat), lng: Number(ride.riderLocation.lng), updatedAt: ride.riderLocation.updatedAt || new Date().toISOString() }
       : null,
-    driverLocation: ride.driverLocation && Number.isFinite(Number(ride.driverLocation.lat)) && Number.isFinite(Number(ride.driverLocation.lng))
-      ? { lat: Number(ride.driverLocation.lat), lng: Number(ride.driverLocation.lng), updatedAt: ride.driverLocation.updatedAt || new Date().toISOString() }
+    driverLocation: Number.isFinite(driverLat) && Number.isFinite(driverLng)
+      ? {
+        lat: driverLat,
+        lng: driverLng,
+        heading: Number.isFinite(driverHeading) ? normalizeHeading(driverHeading) : null,
+        speed: Number.isFinite(driverSpeed) ? Math.max(0, driverSpeed) : null,
+        updatedAt: driverLocationPayload.updatedAt || ride.updatedAt || new Date().toISOString()
+      }
       : null,
     events: Array.isArray(ride.events) ? ride.events : [],
     createdAt: ride.createdAt || new Date().toISOString(),
@@ -1258,9 +1294,9 @@ async function cancelRide(rideId) {
 }
 
 function getStatusViewModel(ride) {
-  const status = String(ride?.status || 'idle').toLowerCase();
+  const status = normalizeRideStatus(ride?.status || 'idle');
   if (status === 'requested') return { pill: 'Searching', message: 'Searching for nearby drivers...', step: 'searching', headerStatus: 'Finding a driver' };
-  if (status === 'accepted' || status === 'assigned') return { pill: 'Assigned', message: 'Your driver is on the way to pickup.', step: 'assigned', headerStatus: 'Driver assigned' };
+  if (status === 'assigned') return { pill: 'Assigned', message: 'Your driver is on the way to pickup.', step: 'assigned', headerStatus: 'Driver assigned' };
   if (status === 'arrived_at_pickup') return { pill: 'Arriving', message: 'Your driver has arrived at the pickup point.', step: 'arriving', headerStatus: 'Driver at pickup' };
   if (status === 'started') return { pill: 'In trip', message: 'You are on the way to your destination.', step: 'started', headerStatus: 'Ride in progress' };
   if (status === 'completed') return { pill: 'Completed', message: 'Ride completed successfully.', step: 'completed', headerStatus: 'Trip completed' };
@@ -1286,12 +1322,12 @@ function renderRideState() {
   updateTimeline(state.step);
   document.querySelector('.status-card')?.setAttribute('class', `card status-card status-${state.step || (currentRide?.status || 'idle')}`);
   document.getElementById('searching-status')?.classList.toggle('d-none', state.step !== 'searching');
-  setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(currentRide.status)));
+  setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(normalizeRideStatus(currentRide.status))));
   document.getElementById('ride-empty-state')?.classList.toggle('d-none', rides.some(ride => ride.riderId === currentUser?.id));
 
   const assignedCard = document.getElementById('driver-assigned-card');
-  const rideStatus = String(currentRide?.status || '').toLowerCase();
-  const showDriverCard = Boolean(currentRide && ['accepted', 'assigned', 'arrived_at_pickup', 'started'].includes(rideStatus));
+  const showDriverCard = Boolean(currentRide && DRIVER_VISIBLE_RIDE_STATUSES.includes(normalizeRideStatus(currentRide.status)));
+  const rideStatus = normalizeRideStatus(currentRide?.status || '');
   const wasHidden = assignedCard?.classList.contains('d-none');
   if (assignedCard) assignedCard.classList.toggle('d-none', !showDriverCard);
   if (showDriverCard) {
@@ -1302,12 +1338,17 @@ function renderRideState() {
     }
     const activeDriver = currentRide.driver || assignedDriver || {};
     renderDriverCardDetails(activeDriver, currentRide.etaMinutes || currentRide.minutes || 0);
+    const statusText = String(currentRide.driverStatus || '').trim();
+    const distanceText = formatDistanceAway(currentRide.distanceAway);
+    safeSetText('driver-location', [distanceText, statusText].filter(Boolean).join(' • ') || '--');
+    if (distanceText) animateNumericText('driver-countdown', distanceText);
+    if (!etaCountdownIntervalId) animateNumericText('driver-eta', formatMinutes(currentRide.etaMinutes || currentRide.minutes || 0));
   }
 
   const cancelButton = document.getElementById('cancel-ride-button');
   const requestButton = document.getElementById('request-ride-button');
   const buttonGroup = document.querySelector('.button-group');
-  const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'assigned', 'arrived_at_pickup'].includes(rideStatus));
+  const canCancelRide = Boolean(currentRide && ['requested', 'assigned', 'arrived_at_pickup'].includes(normalizeRideStatus(currentRide.status)));
   const showCancelButton = canCancelRide;
   if (requestButton) {
     requestButton.classList.toggle('d-none', showCancelButton);
@@ -1536,7 +1577,7 @@ function renderInputMessages(validation) {
 function updateRequestRideButtonState() {
   const requestButton = document.getElementById('request-ride-button');
   if (!requestButton) return;
-  const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status));
+  const canCancelRide = Boolean(currentRide && ['requested', 'assigned', 'arrived_at_pickup'].includes(normalizeRideStatus(currentRide.status)));
   const disabledReason = canCancelRide ? 'You already have an active ride.' : rideValidationState.disabledReason;
   requestButton.disabled = canCancelRide || Boolean(disabledReason);
   requestButton.title = disabledReason || 'Request your ride';
@@ -1776,6 +1817,7 @@ function createRouteMarkerElement(kind) {
 function createDriverMarkerElement() {
   const element = document.createElement('div');
   element.className = 'driver-marker';
+  element.setAttribute('aria-label', 'Driver vehicle marker');
 
   const speedBadge = document.createElement('div');
   speedBadge.className = 'driver-marker-speed';
@@ -1784,11 +1826,11 @@ function createDriverMarkerElement() {
   const body = document.createElement('div');
   body.className = 'driver-marker-body';
 
-  const arrow = document.createElement('span');
-  arrow.className = 'driver-marker-arrow';
-  arrow.textContent = '▲';
+  const vehicle = document.createElement('i');
+  vehicle.className = 'bi bi-car-front-fill driver-marker-vehicle';
+  vehicle.setAttribute('aria-hidden', 'true');
 
-  body.appendChild(arrow);
+  body.appendChild(vehicle);
   element.append(speedBadge, body);
   return element;
 }
@@ -1803,13 +1845,16 @@ function createRiderMarkerElement() {
 function updateDriverMarkerVisuals(position) {
   const markerElement = mapState.markers.driver?.getElement?.();
   if (!markerElement || !position) return;
-  const arrow = markerElement.querySelector('.driver-marker-arrow');
+  const body = markerElement.querySelector('.driver-marker-body');
   const speedBadge = markerElement.querySelector('.driver-marker-speed');
-  if (arrow) {
-    arrow.style.transform = `rotate(${normalizeHeading(position.heading ?? mapState.driverHeading)}deg)`;
+  if (body) {
+    body.style.transform = `rotate(${normalizeHeading(position.heading ?? mapState.driverHeading)}deg)`;
   }
   if (speedBadge) {
-    speedBadge.textContent = currentRide?.driverName || 'Driver';
+    const speedMph = Number(currentRide?.driverLocation?.speed);
+    speedBadge.textContent = Number.isFinite(speedMph) && speedMph > 0
+      ? `${Math.round(speedMph)} mph`
+      : (currentRide?.driverName || 'Driver');
   }
 }
 
@@ -2061,12 +2106,18 @@ function syncMapMarkers(pickup, destination) {
     mapState.markers.rider.remove();
   }
 
+  const normalizedRideStatus = normalizeRideStatus(currentRide?.status);
+  const shouldDisplayDriverMarker = Boolean(currentRide?.driverLocation)
+    && ACTIVE_RIDE_STATUSES.includes(normalizedRideStatus)
+    && !TERMINAL_RIDE_STATUSES.includes(normalizedRideStatus);
   const driverLocation = currentRide?.driverLocation;
-  if (driverLocation && Number.isFinite(Number(driverLocation.lat)) && Number.isFinite(Number(driverLocation.lng))) {
+  if (shouldDisplayDriverMarker && driverLocation && Number.isFinite(Number(driverLocation.lat)) && Number.isFinite(Number(driverLocation.lng))) {
     if (!mapState.markers.driver) {
       mapState.markers.driver = new window.mapboxgl.Marker({ element: createDriverMarkerElement() });
     }
-    if (mapState.lastDriverPosition) {
+    if (Number.isFinite(Number(driverLocation.heading))) {
+      mapState.driverHeading = normalizeHeading(Number(driverLocation.heading));
+    } else if (mapState.lastDriverPosition) {
       mapState.driverHeading = calculateHeading(
         mapState.lastDriverPosition.lat,
         mapState.lastDriverPosition.lng,
@@ -2095,14 +2146,31 @@ function syncMapMarkers(pickup, destination) {
 async function refreshMapRoute(options = {}) {
   const { fitRoute = false, force = false } = options;
   const { pickup, destination } = getPickupAndDestination({ allowFallback: true });
-  const nextRouteKey = [pickup.lat, pickup.lng, destination.lat, destination.lng].map(value => Number(value).toFixed(5)).join(':');
+  const normalizedRideStatus = normalizeRideStatus(currentRide?.status);
+  const hasDriverLocation = Boolean(
+    currentRide?.driverLocation
+    && Number.isFinite(Number(currentRide.driverLocation.lat))
+    && Number.isFinite(Number(currentRide.driverLocation.lng))
+  );
+  const useDriverApproachRoute = hasDriverLocation && DRIVER_APPROACH_RIDE_STATUSES.includes(normalizedRideStatus);
+  const routeStart = useDriverApproachRoute
+    ? { lat: Number(currentRide.driverLocation.lat), lng: Number(currentRide.driverLocation.lng) }
+    : pickup;
+  const routeEnd = useDriverApproachRoute ? pickup : destination;
+  const nextRouteKey = [
+    Number(routeStart.lat).toFixed(5),
+    Number(routeStart.lng).toFixed(5),
+    Number(routeEnd.lat).toFixed(5),
+    Number(routeEnd.lng).toFixed(5),
+    normalizedRideStatus
+  ].join(':');
   mapState.lastRouteKey = nextRouteKey;
   if (!force && mapState.lastFetchedRouteKey === nextRouteKey) {
-    if (fitRoute || !mapState.hasFittedScene) fitMapToScene(pickup, destination);
+    if (fitRoute || !mapState.hasFittedScene || useDriverApproachRoute) fitMapToScene(pickup, destination);
     return;
   }
 
-  const route = await fetchDirectionsRoute(pickup, destination);
+  const route = await fetchDirectionsRoute(routeStart, routeEnd);
   if (nextRouteKey !== mapState.lastRouteKey) return;
   mapState.lastFetchedRouteKey = nextRouteKey;
   mapState.routeGeojson = {
@@ -2117,15 +2185,22 @@ async function refreshMapRoute(options = {}) {
     }]
   };
   mapState.routeInstructions = route.instructions;
-  mapState.routeSourceLabel = route.sourceLabel;
+  mapState.routeSourceLabel = useDriverApproachRoute ? 'Driver to pickup route' : route.sourceLabel;
   mapState.routeTrafficLabel = route.trafficLabel || 'Clear route';
   updateRouteSource();
   renderRouteInstructions(route.instructions);
-  safeSetText('route-source-badge', route.sourceLabel);
+  safeSetText('route-source-badge', mapState.routeSourceLabel);
   safeSetText('map-route-traffic', mapState.routeTrafficLabel);
 
   // Use actual Mapbox distance/duration to refresh fare estimate if data is valid
   if (Number.isFinite(route.distanceMiles) && Number.isFinite(route.etaMinutes) && route.distanceMiles > 0) {
+    if (useDriverApproachRoute) {
+    safeSetText('map-route-distance', formatMiles(route.distanceMiles));
+    animateNumericText('map-route-duration', formatMinutes(route.etaMinutes));
+    safeSetText('map-route-overview', `Driver to pickup • ${formatMiles(route.distanceMiles)} • ${formatMinutes(route.etaMinutes)}`);
+    animateNumericText('map-route-arrival', formatArrivalTimeFromMinutes(route.etaMinutes));
+    if (!etaCountdownIntervalId) animateNumericText('driver-eta', formatMinutes(route.etaMinutes));
+    } else {
     const mapboxRoute = { distanceMiles: route.distanceMiles, etaMinutes: route.etaMinutes };
     const updatedEstimate = {
       ok: true,
@@ -2135,9 +2210,10 @@ async function refreshMapRoute(options = {}) {
       ...buildEstimateFromRoute(mapboxRoute, selectedRideType)
     };
     renderFareEstimate(updatedEstimate);
+    }
   }
 
-  if (fitRoute || !mapState.hasFittedScene) fitMapToScene(pickup, destination);
+  if (fitRoute || !mapState.hasFittedScene || useDriverApproachRoute) fitMapToScene(pickup, destination);
 }
 
 function renderMapState(options = {}) {
@@ -2152,7 +2228,11 @@ function renderMapState(options = {}) {
   }
   flyToPrimaryLocation(pickup, destination);
   syncMapMarkers(pickup, destination);
-  refreshMapRoute({ fitRoute }).catch(() => {
+  const shouldTrackDriver = Boolean(
+    currentRide?.driverLocation
+    && DRIVER_APPROACH_RIDE_STATUSES.includes(normalizeRideStatus(currentRide?.status))
+  );
+  refreshMapRoute({ fitRoute: fitRoute || shouldTrackDriver }).catch(() => {
     const fallbackDirections = buildFallbackDirections(pickup, destination);
     renderRouteInstructions(fallbackDirections.instructions);
     safeSetText('route-source-badge', fallbackDirections.sourceLabel);
@@ -2260,7 +2340,7 @@ async function syncRides() {
   } catch (_error) {
     backendRides = [];
   } finally {
-    setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(currentRide.status)));
+    setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(normalizeRideStatus(currentRide?.status))));
   }
   rides = mergeRides(backendRides, readSharedRideStore().rides);
   writeSharedRideStore({ rides });
@@ -2372,7 +2452,7 @@ function startRiderLocationSync() {
     latestKnownRiderPosition = { lat, lng };
     if (Date.now() - lastLocationPushAt < MIN_LOCATION_PUSH_INTERVAL_MS) return;
     lastLocationPushAt = Date.now();
-    if (currentRide?.id && ACTIVE_RIDE_STATUSES.includes(currentRide.status)) {
+    if (currentRide?.id && ACTIVE_RIDE_STATUSES.includes(normalizeRideStatus(currentRide.status))) {
       const updated = updateSharedRide(currentRide.id, {
         riderLocation: { lat, lng, updatedAt: new Date().toISOString() }
       });
@@ -2587,7 +2667,7 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
     const vehicleModel = vehicleParts.length > 1 ? vehicleParts.slice(1).join(' ') : '';
 
     applyRideStatusUpdate(rideId, {
-      status: 'accepted',
+      status: 'assigned',
       driverId: assignedDriverId,
       driverName: driver.name,
       distanceAway: Number(driverDistance),
