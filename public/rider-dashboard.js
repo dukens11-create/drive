@@ -218,13 +218,18 @@ function getDriverVehicleDisplay(vehicle = {}) {
   const model = String(vehicle.model || '').trim();
   const year = Number(vehicle.year);
   const color = String(vehicle.color || '').trim();
-  const plateNumber = String(vehicle.plateNumber || '').trim();
+  const plateNumber = String(vehicle.plate || vehicle.plateNumber || vehicle.licensePlate || '').trim();
   const title = label || (make && model ? `${make} ${model}` : 'Vehicle details pending');
-  const specs = [Number.isInteger(year) ? String(year) : '', color].filter(Boolean).join(' • ');
+  const specs = [Number.isInteger(year) && year > 1900 ? String(year) : '', color].filter(Boolean).join(' • ');
   return {
     title,
     specs,
-    plate: plateNumber ? `Plate: ${plateNumber}` : 'Plate: ___'
+    plate: plateNumber ? `Plate: ${plateNumber}` : 'Plate: ___',
+    make,
+    model,
+    year: Number.isInteger(year) && year > 1900 ? year : null,
+    color,
+    plateNumber
   };
 }
 
@@ -235,21 +240,32 @@ function renderDriverCardDetails(driver = {}, etaMinutes = 0) {
     make: driver.vehicleMake,
     model: driver.vehicleModel,
     color: driver.vehicleColor,
-    plateNumber: driver.licensePlate || driver.vehiclePlate || driver.plateNumber,
+    plate: driver.licensePlate || driver.vehiclePlate || driver.plateNumber || driver.plate,
     photoUrl: driver.vehiclePhotoUrl || driver.vehicleImageUrl || driver.vehicleImage
   };
   const vehicle = driver.vehicle && typeof driver.vehicle === 'object'
     ? {
       ...driver.vehicle,
-      plateNumber: driver.vehicle.plateNumber || driver.vehicle.licensePlate || fallbackVehicle.plateNumber
+      plate: driver.vehicle.plate || driver.vehicle.plateNumber || driver.vehicle.licensePlate || fallbackVehicle.plate
     }
     : fallbackVehicle;
   const vehicleDisplay = getDriverVehicleDisplay(vehicle);
   safeSetText('driver-name', driver.name || currentRide?.driverName || currentRide?.driverId || '--');
   safeSetText('driver-vehicle', vehicleDisplay.title);
   safeSetText('driver-plate', vehicleDisplay.plate);
+  safeSetText('driver-plate-vehicle', vehicleDisplay.plate);
   safeSetText('driver-vehicle-specs', vehicleDisplay.specs);
   safeSetText('driver-rating', `${Number(driver.rating || 4.9).toFixed(2)} ⭐`);
+
+  const driverStatus = driver.driverStatus || (etaMinutes > 0 ? 'On the way' : 'Arrived');
+  safeSetText('driver-status-text', driverStatus);
+
+  const distanceAway = driver.distanceAway || currentRide?.distanceAway;
+  const distanceText = distanceAway
+    ? (typeof distanceAway === 'number' ? `${distanceAway.toFixed(1)} mi` : String(distanceAway))
+    : '--';
+  safeSetText('driver-distance-away', distanceText);
+
   if (!etaCountdownIntervalId) {
     animateNumericText('driver-eta', formatMinutes(etaMinutes || currentRide?.etaMinutes || currentRide?.minutes || 0));
     animateNumericText('driver-countdown', formatMinutes(etaMinutes || currentRide?.etaMinutes || currentRide?.minutes || 0));
@@ -563,7 +579,8 @@ function normalizeRide(ride = {}, index = 0) {
     createdAt: ride.createdAt || new Date().toISOString(),
     updatedAt: ride.updatedAt || new Date().toISOString(),
     completedAt: ride.completedAt || null,
-    canceledAt: ride.canceledAt || null
+    canceledAt: ride.canceledAt || null,
+    distanceAway: ride.distanceAway != null ? Number(ride.distanceAway) : null
   };
 }
 
@@ -1236,7 +1253,7 @@ async function cancelRide(rideId) {
 function getStatusViewModel(ride) {
   const status = String(ride?.status || 'idle');
   if (status === 'requested') return { pill: 'Searching', message: 'Searching for nearby drivers...', step: 'searching', headerStatus: 'Finding a driver' };
-  if (status === 'accepted') return { pill: 'Assigned', message: 'Your driver is on the way to pickup.', step: 'assigned', headerStatus: 'Driver assigned' };
+  if (status === 'accepted' || status === 'ASSIGNED') return { pill: 'Assigned', message: 'Your driver is on the way to pickup.', step: 'assigned', headerStatus: 'Driver assigned' };
   if (status === 'arrived_at_pickup') return { pill: 'Arriving', message: 'Your driver has arrived at the pickup point.', step: 'arriving', headerStatus: 'Driver at pickup' };
   if (status === 'started') return { pill: 'In trip', message: 'You are on the way to your destination.', step: 'started', headerStatus: 'Ride in progress' };
   if (status === 'completed') return { pill: 'Completed', message: 'Ride completed successfully.', step: 'completed', headerStatus: 'Trip completed' };
@@ -1266,14 +1283,18 @@ function renderRideState() {
   document.getElementById('ride-empty-state')?.classList.toggle('d-none', rides.some(ride => ride.riderId === currentUser?.id));
 
   const assignedCard = document.getElementById('driver-assigned-card');
-  const showDriverCard = Boolean(currentRide && ['accepted', 'arrived_at_pickup', 'started'].includes(currentRide.status));
+  const ASSIGNED_STATUSES = ['accepted', 'ASSIGNED', 'arrived_at_pickup', 'started'];
+  const showDriverCard = Boolean(currentRide && ASSIGNED_STATUSES.includes(currentRide.status));
+  const wasHidden = assignedCard?.classList.contains('d-none');
   if (assignedCard) assignedCard.classList.toggle('d-none', !showDriverCard);
   if (showDriverCard) {
+    if (wasHidden) {
+      assignedCard.classList.remove('slide-up');
+      void assignedCard.offsetWidth;
+      assignedCard.classList.add('slide-up');
+    }
     const activeDriver = currentRide.driver || assignedDriver || {};
     renderDriverCardDetails(activeDriver, currentRide.etaMinutes || currentRide.minutes || 0);
-    safeSetText('driver-location', currentRide.driverLocation
-      ? `${Number(currentRide.driverLocation.lat).toFixed(5)}, ${Number(currentRide.driverLocation.lng).toFixed(5)}`
-      : '--');
   }
 
   const cancelButton = document.getElementById('cancel-ride-button');
@@ -2372,13 +2393,18 @@ function renderDriverCard(driver, etaMinutes) {
       ...driver,
       vehicle: {
         label: String(driver.vehicle || '').trim(),
-        plateNumber: driver.plate || ''
+        plate: driver.plate || driver.plateNumber || ''
       }
     };
   renderDriverCardDetails(normalizedDriver, etaMinutes || 5);
 
   // Online indicator
   card.querySelector('.driver-online-dot')?.classList.add('is-online');
+
+  // Trigger slide-in animation
+  card.classList.remove('d-none');
+  card.classList.remove('slide-up');
+  void card.offsetWidth;
   card.classList.add('slide-up');
 }
 
@@ -2416,18 +2442,32 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
     assignedDriver = driver;
     const assignedDriverId = `driver_${Date.now()}`;
     const driverEta = MIN_DRIVER_ETA_MINUTES + Math.floor(Math.random() * (MAX_DRIVER_ETA_MINUTES - MIN_DRIVER_ETA_MINUTES));
+    const driverDistance = (0.3 + Math.random() * 2.5).toFixed(1);
+
+    const vehicleLabel = String(driver.vehicle || '').trim();
+    const vehicleParts = vehicleLabel.match(/^(.+?)\s+(\d{4})$/) || [];
+    const vehicleMakeModel = vehicleParts[1] || vehicleLabel;
+    const vehicleYear = vehicleParts[2] ? Number(vehicleParts[2]) : null;
+    const [vehicleMake, ...modelParts] = vehicleMakeModel.split(' ');
 
     applyRideStatusUpdate(rideId, {
       status: 'accepted',
       driverId: assignedDriverId,
       driverName: driver.name,
+      distanceAway: Number(driverDistance),
       driver: {
         id: assignedDriverId,
         name: driver.name,
         rating: driver.rating,
+        photoUrl: driver.photoUrl || null,
+        distanceAway: Number(driverDistance),
         vehicle: {
-          label: String(driver.vehicle || '').trim(),
-          plateNumber: driver.plate || ''
+          make: vehicleMake || '',
+          model: modelParts.join(' ') || '',
+          year: vehicleYear,
+          color: driver.color || '',
+          plate: driver.plate || '',
+          photoUrl: driver.vehiclePhotoUrl || null
         }
       },
       etaMinutes: driverEta,
