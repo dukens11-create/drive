@@ -2070,3 +2070,473 @@ input {
   font-size: 0.875rem;
   font-weight: 500;
 }
+
+/* ── Schedule Toggle ──────────────────────────────────────── */
+.schedule-toggle-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.schedule-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  transition: background 0.2s, color 0.2s;
+}
+
+.schedule-toggle-btn.is-active {
+  background: var(--primary);
+  color: #fff;
+}
+
+.schedule-toggle-btn:not(.is-active):hover {
+  background: rgba(38, 208, 124, 0.1);
+  color: var(--primary);
+}
+
+/* ── Schedule Picker ──────────────────────────────────────── */
+.schedule-picker-section {
+  background: rgba(38, 208, 124, 0.06);
+  border: 1px solid rgba(38, 208, 124, 0.2);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 14px;
+  animation: fadeInDown 0.25s ease;
+}
+
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.schedule-quick-options {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.schedule-quick-btn {
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-input);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.schedule-quick-btn:hover,
+.schedule-quick-btn.is-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.schedule-inputs-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.schedule-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.schedule-date-input,
+.schedule-time-input {
+  border-radius: 10px;
+  font-size: 0.85rem;
+}
+
+.schedule-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(38, 208, 124, 0.12);
+  color: #16a34a;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.schedule-validation-msg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(220, 38, 38, 0.08);
+  color: #dc2626;
+  font-size: 0.82rem;
+  font-weight: 500;
+  margin-top: 8px;
+}
+
+/* ── Quick Place Buttons ──────────────────────────────────── */
+.quick-places-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.quick-place-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-input);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.quick-place-btn i {
+  font-size: 0.75rem;
+}
+
+.quick-place-btn:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+/* ── Saved Places Card ────────────────────────────────────── */
+.saved-places-card {
+  padding: 18px;
+}
+
+.saved-places-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.saved-places-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.saved-place-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-input);
+  transition: box-shadow 0.2s;
+}
+
+.saved-place-item:hover {
+  box-shadow: var(--shadow-soft);
+}
+
+.saved-place-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.saved-place-icon--home {
+  background: rgba(38, 208, 124, 0.15);
+  color: #16a34a;
+}
+
+.saved-place-icon--work {
+  background: rgba(27, 128, 255, 0.15);
+  color: #1b80ff;
+}
+
+.saved-place-icon--favorite {
+  background: rgba(255, 184, 77, 0.15);
+  color: #d97706;
+}
+
+.saved-place-info {
+  min-width: 0;
+}
+
+.saved-place-label {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saved-place-address {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.saved-place-notes {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-style: italic;
+  margin-top: 2px;
+}
+
+.saved-place-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.saved-place-edit-btn,
+.saved-place-delete-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  transition: all 0.2s;
+}
+
+.saved-place-edit-btn {
+  color: var(--info);
+}
+
+.saved-place-edit-btn:hover {
+  background: rgba(27, 128, 255, 0.1);
+}
+
+.saved-place-delete-btn {
+  color: var(--danger);
+}
+
+.saved-place-delete-btn:hover {
+  background: rgba(255, 95, 109, 0.1);
+}
+
+.saved-places-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 12px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.saved-places-empty i {
+  font-size: 1.8rem;
+  opacity: 0.5;
+}
+
+/* ── Place Modal ──────────────────────────────────────────── */
+.place-modal-card {
+  width: min(92vw, 420px);
+}
+
+.place-type-select {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.place-modal-error {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  color: #dc2626;
+  font-size: 0.82rem;
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+/* ── Scheduled Rides Card ─────────────────────────────────── */
+.scheduled-rides-card {
+  padding: 18px;
+}
+
+.scheduled-rides-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.scheduled-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 11px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.scheduled-rides-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scheduled-ride-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(38, 208, 124, 0.2);
+  background: rgba(38, 208, 124, 0.04);
+}
+
+.scheduled-ride-time {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.scheduled-ride-date {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--primary);
+  letter-spacing: 0.04em;
+}
+
+.scheduled-ride-clock {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.scheduled-ride-info {
+  min-width: 0;
+}
+
+.scheduled-ride-route {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scheduled-ride-meta {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  margin-top: 3px;
+}
+
+.scheduled-ride-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.scheduled-ride-cancel-btn {
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  background: transparent;
+  color: var(--danger);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.scheduled-ride-cancel-btn:hover {
+  background: rgba(255, 95, 109, 0.1);
+}
+
+.scheduled-rides-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 12px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.scheduled-rides-empty i {
+  font-size: 1.8rem;
+  opacity: 0.5;
+}
+
+@media (max-width: 640px) {
+  .schedule-inputs-row {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-places-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .scheduled-ride-item {
+    grid-template-columns: auto 1fr;
+  }
+
+  .scheduled-ride-actions {
+    grid-column: 1 / -1;
+    flex-direction: row;
+  }
+}

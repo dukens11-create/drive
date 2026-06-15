@@ -1,3 +1,8 @@
+const SAVED_PLACES_STORAGE_KEY = 'drive.savedPlaces';
+const MAX_FAVORITE_PLACES = 5;
+const SCHEDULE_MIN_MINUTES_AHEAD = 15;
+const SCHEDULE_MAX_DAYS_AHEAD = 30;
+
 const API_BASE_URL = '';
 const MAPBOX_TOKEN_STORAGE_KEY = 'drive.mapboxToken';
 const MAPBOX_GEOCODE_CACHE_STORAGE_KEY = 'drive.mapboxGeocodeCache.v1';
@@ -96,6 +101,14 @@ let estimateRetryCount = 0;
 let estimateRetryTimerId = null;
 let latestKnownRiderPosition = null;
 let isFareEstimateLoading = false;
+let savedPlaces = [];
+let pendingDeleteScheduledId = null;
+let placeModalEditId = null;
+const scheduleState = {
+  isScheduled: false,
+  scheduledDateTime: null,
+  scheduledRides: []
+};
 const geocodeDebounceTimers = {};
 const locationSuggestions = {
   'pickup-input': [],
@@ -154,6 +167,15 @@ function parseJson(value, fallback) {
   } catch (_error) {
     return fallback;
   }
+}
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function getRandomDelay(minMs, maxMs) {
@@ -1140,17 +1162,20 @@ async function requestRide(pickup, destination) {
     minutes: estimate.route.etaMinutes,
     fareEstimate: estimate.fareEstimate,
     fareDetails: estimate.fareBreakdown,
-    status: 'requested',
-    lifecycleState: 'requested',
+    status: scheduleState.isScheduled ? 'scheduled' : 'requested',
+    lifecycleState: scheduleState.isScheduled ? 'scheduled' : 'requested',
+    scheduledAt: scheduleState.isScheduled ? scheduleState.scheduledDateTime : null,
     etaMinutes: estimate.route.etaMinutes,
     riderLocation: mapState.markers.rider
       ? { lat: mapState.markers.rider.getLngLat().lat, lng: mapState.markers.rider.getLngLat().lng, updatedAt: new Date().toISOString() }
       : null,
     events: [{
       id: `evt_${Date.now()}`,
-      type: 'ride_requested',
-      title: 'Ride requested',
-      message: 'Waiting for a driver to accept your trip.',
+      type: scheduleState.isScheduled ? 'ride_scheduled' : 'ride_requested',
+      title: scheduleState.isScheduled ? 'Ride scheduled' : 'Ride requested',
+      message: scheduleState.isScheduled
+        ? `Scheduled for ${new Date(scheduleState.scheduledDateTime).toLocaleString()}.`
+        : 'Waiting for a driver to accept your trip.',
       createdAt: new Date().toISOString()
     }]
   };
@@ -1169,7 +1194,8 @@ async function requestRide(pickup, destination) {
       duration: estimate.route.etaMinutes,
       miles: estimate.route.distanceMiles,
       minutes: estimate.route.etaMinutes,
-      riderId: currentUser.id
+      riderId: currentUser.id,
+      ...(scheduleState.isScheduled && scheduleState.scheduledDateTime ? { scheduledAt: scheduleState.scheduledDateTime } : {})
     };
     try {
       console.log('[Ride Booking] Payload:', requestBody);
@@ -2122,6 +2148,19 @@ async function syncRides() {
 }
 
 async function handleRequestRide() {
+  // Validate schedule time if scheduling
+  if (scheduleState.isScheduled) {
+    if (!scheduleState.scheduledDateTime) {
+      showPopup('Please select a date and time to schedule your ride.');
+      return;
+    }
+    const { valid, error } = validateScheduleTime(new Date(scheduleState.scheduledDateTime));
+    if (!valid) {
+      showPopup(error);
+      return;
+    }
+  }
+
   await Promise.all([
     resolveCoordinateInput('pickup-input', { fitRoute: true, showError: true }),
     resolveCoordinateInput('destination-input', { fitRoute: true, showError: true })
@@ -2136,7 +2175,7 @@ async function handleRequestRide() {
   const requestLabel = requestButton?.querySelector('.btn-label');
   const bookingErrorEl = document.getElementById('booking-error-message');
   if (bookingErrorEl) bookingErrorEl.classList.add('d-none');
-  if (requestLabel) requestLabel.textContent = 'Booking...';
+  if (requestLabel) requestLabel.textContent = scheduleState.isScheduled ? 'Scheduling...' : 'Booking...';
   setButtonLoading('request-ride-button', true);
   try {
     const ride = await requestRide(pickup, destination);
@@ -2146,18 +2185,29 @@ async function handleRequestRide() {
     if (requestButton && requestLabel) {
       const icon = requestButton.querySelector('.btn-icon');
       requestButton.classList.add('is-success');
-      requestLabel.textContent = 'Ride booked!';
+      if (scheduleState.isScheduled) {
+        requestLabel.textContent = 'Ride Scheduled!';
+        const dt = new Date(scheduleState.scheduledDateTime);
+        const dtStr = dt.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        showPopup(`Ride scheduled for ${dtStr}`);
+        // Add to scheduled rides list
+        scheduleState.scheduledRides.push({ ...currentRide, reminderSent: false });
+        renderScheduledRides();
+        console.log('[Schedule] Scheduled ride for:', scheduleState.scheduledDateTime);
+      } else {
+        requestLabel.textContent = 'Ride booked!';
+        showPopup('Searching for nearby drivers...');
+      }
       if (icon) icon.className = 'bi bi-check2-circle btn-icon';
       window.setTimeout(() => {
         if (icon) icon.className = 'bi bi-lightning-charge-fill btn-icon';
-        requestLabel.textContent = 'Book a ride';
+        requestLabel.textContent = scheduleState.isScheduled ? 'Schedule Ride' : 'Book a ride';
         requestButton.classList.remove('is-success');
       }, REQUEST_SUCCESS_ANIMATION_MS);
     }
-    showPopup('Searching for nearby drivers...');
 
-    // Simulate driver assignment after 3-5 seconds
-    if (currentRide?.id) {
+    // Only simulate driver for immediate (non-scheduled) rides
+    if (!scheduleState.isScheduled && currentRide?.id) {
       simulateDriverAssignment(currentRide.id, pickup.lat, pickup.lng);
     }
   } catch (err) {
@@ -2168,7 +2218,7 @@ async function handleRequestRide() {
     } else {
       showPopup(errorMsg);
     }
-    if (requestLabel) requestLabel.textContent = 'Book a ride';
+    if (requestLabel) requestLabel.textContent = scheduleState.isScheduled ? 'Schedule Ride' : 'Book a ride';
   } finally {
     setButtonLoading('request-ride-button', false);
     renderRideState();
@@ -2459,6 +2509,540 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
   }, delay);
 }
 
+// ─── Saved Places ─────────────────────────────────────────────────────────────
+
+function loadSavedPlaces() {
+  const raw = localStorage.getItem(SAVED_PLACES_STORAGE_KEY);
+  savedPlaces = parseJson(raw, []);
+  if (!Array.isArray(savedPlaces)) savedPlaces = [];
+  console.log('[Saved Places] Loaded places:', savedPlaces.length);
+  return savedPlaces;
+}
+
+function persistSavedPlaces() {
+  localStorage.setItem(SAVED_PLACES_STORAGE_KEY, JSON.stringify(savedPlaces));
+}
+
+async function fetchSavedPlaces() {
+  loadSavedPlaces();
+  if (accessToken && currentUser?.id) {
+    try {
+      const { response, data } = await fetchJson(`/api/users/${currentUser.id}/places`, { headers: getAuthHeaders() });
+      if (response.ok && Array.isArray(data?.places)) {
+        savedPlaces = data.places;
+        persistSavedPlaces();
+        console.log('[Saved Places] Fetched from backend:', savedPlaces.length);
+      }
+    } catch (_error) {
+      // Use localStorage fallback silently
+    }
+  }
+  renderSavedPlacesList();
+  populateQuickPlaces();
+}
+
+async function saveSavedPlace(place) {
+  const idx = savedPlaces.findIndex(p => p.id === place.id);
+  if (idx >= 0) {
+    savedPlaces[idx] = { ...savedPlaces[idx], ...place };
+  } else {
+    savedPlaces.push({ ...place, createdAt: new Date().toISOString() });
+  }
+  persistSavedPlaces();
+  console.log('[Saved Places] Saved place:', place);
+  if (accessToken && currentUser?.id) {
+    try {
+      await fetchJson(`/api/users/${currentUser.id}/places`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ places: savedPlaces })
+      });
+    } catch (_error) {}
+  }
+  renderSavedPlacesList();
+  populateQuickPlaces();
+}
+
+async function deleteSavedPlace(placeId) {
+  savedPlaces = savedPlaces.filter(p => p.id !== placeId);
+  persistSavedPlaces();
+  console.log('[Saved Places] Deleted place:', placeId);
+  if (accessToken && currentUser?.id) {
+    try {
+      await fetchJson(`/api/users/${currentUser.id}/places`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ places: savedPlaces })
+      });
+    } catch (_error) {}
+  }
+  renderSavedPlacesList();
+  populateQuickPlaces();
+}
+
+function updatePlaceLastUsed(placeId) {
+  const place = savedPlaces.find(p => p.id === placeId);
+  if (place) {
+    place.lastUsed = new Date().toISOString();
+    persistSavedPlaces();
+    console.log('[Saved Places] Updated last used:', placeId);
+  }
+}
+
+function populateQuickPlaces() {
+  const typeOrder = { home: 0, work: 1, favorite: 2 };
+  const sorted = [...savedPlaces].sort((a, b) => {
+    const td = (typeOrder[a.type] ?? 2) - (typeOrder[b.type] ?? 2);
+    if (td !== 0) return td;
+    return (b.lastUsed || '') > (a.lastUsed || '') ? 1 : -1;
+  }).slice(0, 5);
+
+  ['pickup', 'destination'].forEach(field => {
+    const container = document.getElementById(`${field}-quick-places`);
+    if (!container) return;
+    if (!sorted.length) {
+      container.classList.add('d-none');
+      container.innerHTML = '';
+      return;
+    }
+    container.classList.remove('d-none');
+    container.innerHTML = sorted.map(place => {
+      const icon = place.type === 'home' ? 'house-fill' : place.type === 'work' ? 'briefcase-fill' : 'star-fill';
+      return `<button type="button" class="quick-place-btn" data-place-id="${escapeHtml(place.id)}" data-field="${field}" aria-label="${escapeHtml(place.label)} – set as ${field}"><i class="bi bi-${icon}"></i><span>${escapeHtml(place.label)}</span></button>`;
+    }).join('');
+    container.querySelectorAll('.quick-place-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        handleQuickPlaceClick(btn.getAttribute('data-place-id'), btn.getAttribute('data-field'));
+      });
+    });
+  });
+}
+
+function handleQuickPlaceClick(placeId, field) {
+  const place = savedPlaces.find(p => p.id === placeId);
+  if (!place || !place.address) return;
+  const inputId = `${field}-input`;
+  const input = document.getElementById(inputId);
+  if (input) {
+    input.value = place.address;
+    input.dataset.committedValue = place.address;
+  }
+  setResolvedLocation(inputId, { coordinates: place.coordinates, label: place.address }, place.address);
+  setInputFeedback(inputId, 'success', `${place.label} selected.`);
+  updatePlaceLastUsed(placeId);
+  refreshFareEstimate({ fitRoute: true }).catch(() => {});
+  console.log('[Saved Places] Quick place selected:', place.label, 'for', field);
+}
+
+function renderSavedPlacesList() {
+  const list = document.getElementById('saved-places-list');
+  const emptyState = document.getElementById('saved-places-empty');
+  if (!list) return;
+
+  if (!savedPlaces.length) {
+    list.innerHTML = '';
+    emptyState?.classList.remove('d-none');
+    return;
+  }
+  emptyState?.classList.add('d-none');
+
+  const typeOrder = { home: 0, work: 1, favorite: 2 };
+  const sorted = [...savedPlaces].sort((a, b) => (typeOrder[a.type] ?? 2) - (typeOrder[b.type] ?? 2));
+
+  list.innerHTML = sorted.map(place => {
+    const icon = place.type === 'home' ? 'house-fill' : place.type === 'work' ? 'briefcase-fill' : 'star-fill';
+    return `
+      <div class="saved-place-item">
+        <div class="saved-place-icon saved-place-icon--${escapeHtml(place.type)}">
+          <i class="bi bi-${icon}"></i>
+        </div>
+        <div class="saved-place-info">
+          <div class="saved-place-label">${escapeHtml(place.label)}</div>
+          <div class="saved-place-address">${escapeHtml(place.address)}</div>
+          ${place.notes ? `<div class="saved-place-notes">${escapeHtml(place.notes)}</div>` : ''}
+        </div>
+        <div class="saved-place-actions">
+          <button type="button" class="saved-place-edit-btn" data-place-id="${escapeHtml(place.id)}" aria-label="Edit ${escapeHtml(place.label)}">
+            <i class="bi bi-pencil-fill"></i>
+          </button>
+          <button type="button" class="saved-place-delete-btn" data-place-id="${escapeHtml(place.id)}" aria-label="Delete ${escapeHtml(place.label)}">
+            <i class="bi bi-trash-fill"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  list.querySelectorAll('.saved-place-edit-btn').forEach(btn => {
+    btn.addEventListener('click', () => openPlaceModal(btn.getAttribute('data-place-id')));
+  });
+  list.querySelectorAll('.saved-place-delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const placeId = btn.getAttribute('data-place-id');
+      const place = savedPlaces.find(p => p.id === placeId);
+      if (place && window.confirm(`Delete "${place.label}"?`)) {
+        deleteSavedPlace(placeId).catch(() => showPopup('Unable to delete place.'));
+      }
+    });
+  });
+}
+
+function openPlaceModal(editId = null) {
+  placeModalEditId = editId || null;
+  const modal = document.getElementById('place-modal');
+  const title = document.getElementById('place-modal-title');
+  const typeSelect = document.getElementById('place-type-select');
+  const labelInput = document.getElementById('place-label-input');
+  const addressInput = document.getElementById('place-address-input');
+  const notesInput = document.getElementById('place-notes-input');
+  const errorEl = document.getElementById('place-modal-error');
+  if (!modal) return;
+
+  if (editId) {
+    const place = savedPlaces.find(p => p.id === editId);
+    if (!place) return;
+    if (title) title.textContent = 'Edit Place';
+    if (typeSelect) typeSelect.value = place.type || 'favorite';
+    if (labelInput) labelInput.value = place.label || '';
+    if (addressInput) addressInput.value = place.address || '';
+    if (notesInput) notesInput.value = place.notes || '';
+  } else {
+    if (title) title.textContent = 'Add Place';
+    if (typeSelect) typeSelect.value = 'favorite';
+    if (labelInput) labelInput.value = '';
+    if (addressInput) addressInput.value = '';
+    if (notesInput) notesInput.value = '';
+  }
+  if (errorEl) errorEl.classList.add('d-none');
+  updatePlaceLabelVisibility();
+  modal.classList.remove('d-none');
+  console.log('[Saved Places] Opened place modal:', editId ? 'edit' : 'add');
+}
+
+function closePlaceModal() {
+  document.getElementById('place-modal')?.classList.add('d-none');
+  placeModalEditId = null;
+}
+
+function updatePlaceLabelVisibility() {
+  const typeSelect = document.getElementById('place-type-select');
+  const labelGroup = document.getElementById('place-label-group');
+  if (!typeSelect || !labelGroup) return;
+  const type = typeSelect.value;
+  labelGroup.style.display = type === 'favorite' ? '' : 'none';
+}
+
+async function handlePlaceModalSave() {
+  const typeSelect = document.getElementById('place-type-select');
+  const labelInput = document.getElementById('place-label-input');
+  const addressInput = document.getElementById('place-address-input');
+  const notesInput = document.getElementById('place-notes-input');
+  const errorEl = document.getElementById('place-modal-error');
+
+  const type = typeSelect?.value || 'favorite';
+  const rawLabel = String(labelInput?.value || '').trim();
+  const address = String(addressInput?.value || '').trim();
+  const notes = String(notesInput?.value || '').trim();
+
+  const label = type === 'home' ? 'Home' : type === 'work' ? 'Work' : rawLabel;
+
+  const showError = msg => {
+    if (errorEl) {
+      errorEl.textContent = msg;
+      errorEl.classList.remove('d-none');
+    }
+  };
+
+  if (!address) { showError('Please enter an address.'); return; }
+  if (type === 'favorite' && !rawLabel) { showError('Please enter a label for this place.'); return; }
+
+  // Check for duplicate home/work
+  if ((type === 'home' || type === 'work') && !placeModalEditId) {
+    const existing = savedPlaces.find(p => p.type === type);
+    if (existing) { showError(`You already have a ${label} saved. Edit it instead.`); return; }
+  }
+
+  // Check max favorites
+  if (type === 'favorite' && !placeModalEditId) {
+    const favCount = savedPlaces.filter(p => p.type === 'favorite').length;
+    if (favCount >= MAX_FAVORITE_PLACES) { showError(`You can save up to ${MAX_FAVORITE_PLACES} favorite places.`); return; }
+  }
+
+  // Geocode address to get coordinates
+  let coordinates = { lat: 0, lng: 0 };
+  try {
+    const token = mapState.token;
+    if (token) {
+      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json?access_token=${token}&limit=1`;
+      const res = await fetch(url);
+      const json = await res.json();
+      const feature = json?.features?.[0];
+      if (feature) {
+        coordinates = { lat: feature.center[1], lng: feature.center[0] };
+      }
+    }
+  } catch (_error) {}
+
+  const place = {
+    id: placeModalEditId || `place_${type}_${Date.now()}`,
+    label,
+    type,
+    address,
+    coordinates,
+    notes,
+    lastUsed: null
+  };
+
+  await saveSavedPlace(place);
+  closePlaceModal();
+  showPopup(`${label} saved!`);
+}
+
+// ─── Schedule Ride ─────────────────────────────────────────────────────────────
+
+function handleScheduleToggle(isScheduled) {
+  scheduleState.isScheduled = isScheduled;
+  const nowBtn = document.getElementById('ride-now-btn');
+  const laterBtn = document.getElementById('schedule-later-btn');
+  const pickerSection = document.getElementById('schedule-picker-section');
+  const requestBtn = document.getElementById('request-ride-button');
+  const requestLabel = requestBtn?.querySelector('.btn-label');
+
+  nowBtn?.classList.toggle('is-active', !isScheduled);
+  laterBtn?.classList.toggle('is-active', isScheduled);
+  nowBtn?.setAttribute('aria-pressed', String(!isScheduled));
+  laterBtn?.setAttribute('aria-pressed', String(isScheduled));
+
+  if (isScheduled) {
+    pickerSection?.classList.remove('d-none');
+    if (requestLabel) requestLabel.textContent = 'Schedule Ride';
+    // Set minimum date to today
+    const dateInput = document.getElementById('schedule-date');
+    if (dateInput) {
+      const now = new Date();
+      dateInput.min = now.toISOString().split('T')[0];
+      const maxDate = new Date(now);
+      maxDate.setDate(maxDate.getDate() + SCHEDULE_MAX_DAYS_AHEAD);
+      dateInput.max = maxDate.toISOString().split('T')[0];
+    }
+    // Set minimum time if today is selected
+    updateScheduleTimeMin();
+  } else {
+    pickerSection?.classList.add('d-none');
+    scheduleState.scheduledDateTime = null;
+    if (requestLabel) requestLabel.textContent = 'Book a ride';
+    document.getElementById('schedule-preview')?.classList.add('d-none');
+    document.getElementById('schedule-validation-msg')?.classList.add('d-none');
+  }
+  console.log('[Schedule] Toggle:', isScheduled ? 'Schedule Later' : 'Ride Now');
+}
+
+function updateScheduleTimeMin() {
+  const dateInput = document.getElementById('schedule-date');
+  const timeInput = document.getElementById('schedule-time');
+  if (!dateInput || !timeInput) return;
+  const now = new Date();
+  const selectedDate = dateInput.value;
+  const todayStr = now.toISOString().split('T')[0];
+  if (selectedDate === todayStr || !selectedDate) {
+    const minTime = new Date(now.getTime() + SCHEDULE_MIN_MINUTES_AHEAD * 60 * 1000);
+    timeInput.min = `${String(minTime.getHours()).padStart(2, '0')}:${String(minTime.getMinutes()).padStart(2, '0')}`;
+  } else {
+    timeInput.min = '00:00';
+  }
+}
+
+function handleDateTimeSelect() {
+  const dateInput = document.getElementById('schedule-date');
+  const timeInput = document.getElementById('schedule-time');
+  const preview = document.getElementById('schedule-preview');
+  const previewText = document.getElementById('schedule-preview-text');
+  const validationMsg = document.getElementById('schedule-validation-msg');
+  const validationText = document.getElementById('schedule-validation-text');
+
+  const dateVal = dateInput?.value;
+  const timeVal = timeInput?.value;
+
+  if (!dateVal || !timeVal) {
+    preview?.classList.add('d-none');
+    validationMsg?.classList.add('d-none');
+    scheduleState.scheduledDateTime = null;
+    return;
+  }
+
+  const scheduled = new Date(`${dateVal}T${timeVal}`);
+  const { valid, error } = validateScheduleTime(scheduled);
+
+  if (!valid) {
+    preview?.classList.add('d-none');
+    validationMsg?.classList.remove('d-none');
+    if (validationText) validationText.textContent = error;
+    scheduleState.scheduledDateTime = null;
+    return;
+  }
+
+  validationMsg?.classList.add('d-none');
+  scheduleState.scheduledDateTime = scheduled.toISOString();
+
+  const formattedDate = scheduled.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const formattedTime = scheduled.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (previewText) previewText.textContent = `${formattedDate} at ${formattedTime}`;
+  preview?.classList.remove('d-none');
+
+  console.log('[Schedule] Scheduled ride for:', scheduleState.scheduledDateTime);
+}
+
+function validateScheduleTime(datetime) {
+  const now = new Date();
+  const minTime = new Date(now.getTime() + SCHEDULE_MIN_MINUTES_AHEAD * 60 * 1000);
+  const maxTime = new Date(now.getTime() + SCHEDULE_MAX_DAYS_AHEAD * 24 * 60 * 60 * 1000);
+
+  if (datetime <= minTime) {
+    return { valid: false, error: `Please schedule at least ${SCHEDULE_MIN_MINUTES_AHEAD} minutes from now.` };
+  }
+  if (datetime > maxTime) {
+    return { valid: false, error: `You can only schedule up to ${SCHEDULE_MAX_DAYS_AHEAD} days in advance.` };
+  }
+  return { valid: true, error: '' };
+}
+
+function applyScheduleQuickOption(offsetDays) {
+  const dateInput = document.getElementById('schedule-date');
+  const timeInput = document.getElementById('schedule-time');
+  if (!dateInput || !timeInput) return;
+
+  const target = new Date();
+  target.setDate(target.getDate() + offsetDays);
+  const dateStr = target.toISOString().split('T')[0];
+  dateInput.value = dateStr;
+
+  // Set a sensible default time for the offset
+  if (offsetDays === 0) {
+    // Today: 30 minutes from now
+    const minTime = new Date(Date.now() + 30 * 60 * 1000);
+    timeInput.value = `${String(minTime.getHours()).padStart(2, '0')}:${String(minTime.getMinutes()).padStart(2, '0')}`;
+  } else {
+    timeInput.value = '09:00';
+  }
+
+  document.querySelectorAll('.schedule-quick-btn').forEach(btn => {
+    btn.classList.toggle('is-active', Number(btn.getAttribute('data-offset')) === offsetDays);
+  });
+
+  updateScheduleTimeMin();
+  handleDateTimeSelect();
+}
+
+async function fetchScheduledRides() {
+  if (accessToken) {
+    try {
+      const { response, data } = await fetchJson('/api/rides?status=scheduled', { headers: getAuthHeaders() });
+      if (response.ok && Array.isArray(data?.rides)) {
+        scheduleState.scheduledRides = data.rides;
+        console.log('[Schedule] Fetched scheduled rides:', scheduleState.scheduledRides.length);
+      }
+    } catch (_error) {}
+  }
+  // Also pull from local store
+  const localRides = readSharedRideStore().rides.filter(r => r.scheduledAt && r.status === 'scheduled');
+  const merged = [...scheduleState.scheduledRides];
+  localRides.forEach(lr => {
+    if (!merged.find(r => r.id === lr.id)) merged.push(lr);
+  });
+  scheduleState.scheduledRides = merged;
+  renderScheduledRides();
+}
+
+function renderScheduledRides() {
+  const list = document.getElementById('scheduled-rides-list');
+  const emptyState = document.getElementById('scheduled-rides-empty');
+  const countBadge = document.getElementById('scheduled-rides-count');
+  if (!list) return;
+
+  const rides = scheduleState.scheduledRides.filter(r => r.scheduledAt);
+  if (countBadge) {
+    countBadge.textContent = String(rides.length);
+    countBadge.classList.toggle('d-none', rides.length === 0);
+  }
+
+  if (!rides.length) {
+    list.innerHTML = '';
+    emptyState?.classList.remove('d-none');
+    return;
+  }
+  emptyState?.classList.add('d-none');
+
+  const sorted = [...rides].sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
+
+  list.innerHTML = sorted.map(ride => {
+    const dt = new Date(ride.scheduledAt);
+    const dateStr = dt.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    const timeStr = dt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const from = escapeHtml(ride.pickupLabel || ride.pickupAddress || 'Pickup');
+    const to = escapeHtml(ride.destinationLabel || ride.dropoffAddress || 'Destination');
+    const fare = ride.fareEstimate ? `$${Number(ride.fareEstimate).toFixed(2)}` : '';
+    return `
+      <div class="scheduled-ride-item" data-ride-id="${escapeHtml(ride.id)}">
+        <div class="scheduled-ride-time">
+          <div class="scheduled-ride-date">${escapeHtml(dateStr)}</div>
+          <div class="scheduled-ride-clock">${escapeHtml(timeStr)}</div>
+        </div>
+        <div class="scheduled-ride-info">
+          <div class="scheduled-ride-route">${from} → ${to}</div>
+          <div class="scheduled-ride-meta">${escapeHtml(ride.rideType || 'Economy')}${fare ? ` · ${fare}` : ''}</div>
+        </div>
+        <div class="scheduled-ride-actions">
+          <button type="button" class="scheduled-ride-cancel-btn" data-ride-id="${escapeHtml(ride.id)}" aria-label="Cancel scheduled ride">
+            <i class="bi bi-x-circle"></i> Cancel
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  list.querySelectorAll('.scheduled-ride-cancel-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      pendingDeleteScheduledId = btn.getAttribute('data-ride-id');
+      const modal = document.getElementById('cancel-scheduled-modal');
+      modal?.classList.remove('d-none');
+    });
+  });
+}
+
+async function handleCancelScheduledRide(rideId) {
+  if (!rideId) return;
+  console.log('[Schedule] Cancelling scheduled ride:', rideId);
+  if (accessToken) {
+    try {
+      await fetchJson(`/api/rides/${rideId}/cancel`, { method: 'POST', headers: getAuthHeaders() });
+    } catch (_error) {}
+  }
+  scheduleState.scheduledRides = scheduleState.scheduledRides.filter(r => r.id !== rideId);
+  // Also remove from shared ride store
+  const store = readSharedRideStore();
+  const updated = store.rides.map(r => r.id === rideId ? { ...r, status: 'cancelled' } : r);
+  writeSharedRideStore({ rides: updated });
+  renderScheduledRides();
+  showPopup('Scheduled ride cancelled.');
+}
+
+function setupScheduleRideReminders() {
+  // Check every minute for rides happening in ~15 minutes
+  window.setInterval(() => {
+    const now = Date.now();
+    scheduleState.scheduledRides.forEach(ride => {
+      if (!ride.scheduledAt || ride.reminderSent) return;
+      const diff = new Date(ride.scheduledAt).getTime() - now;
+      if (diff > 0 && diff <= 15 * 60 * 1000) {
+        const timeStr = new Date(ride.scheduledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        showPopup(`Your ride departs at ${timeStr} – 15 minutes away!`);
+        ride.reminderSent = true;
+        console.log('[Schedule] Reminder sent for ride:', ride.id);
+      }
+    });
+  }, 60 * 1000);
+}
+
 function setupHandlers() {
   document.getElementById('logout-button')?.addEventListener('click', handleLogout);
   document.getElementById('request-ride-button')?.addEventListener('click', () => {
@@ -2597,6 +3181,98 @@ function setupHandlers() {
     if (event.key === SHARED_RIDE_STORAGE_KEY) syncRides().catch(() => {});
   });
 
+  // ── Schedule Ride handlers ──────────────────────────────────────────────────
+  document.getElementById('ride-now-btn')?.addEventListener('click', () => handleScheduleToggle(false));
+  document.getElementById('schedule-later-btn')?.addEventListener('click', () => handleScheduleToggle(true));
+  document.getElementById('schedule-date')?.addEventListener('change', () => {
+    updateScheduleTimeMin();
+    handleDateTimeSelect();
+  });
+  document.getElementById('schedule-time')?.addEventListener('change', handleDateTimeSelect);
+  document.querySelectorAll('.schedule-quick-btn').forEach(btn => {
+    btn.addEventListener('click', () => applyScheduleQuickOption(Number(btn.getAttribute('data-offset') || 0)));
+  });
+
+  // Set "Next Day" label dynamically
+  const nextDayBtn = document.getElementById('schedule-quick-next-day');
+  if (nextDayBtn) {
+    const dayAfterTomorrow = new Date();
+    dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
+    nextDayBtn.textContent = dayAfterTomorrow.toLocaleDateString([], { weekday: 'short' });
+  }
+
+  // ── Saved Places handlers ───────────────────────────────────────────────────
+  document.getElementById('add-place-btn')?.addEventListener('click', () => openPlaceModal(null));
+  document.getElementById('place-modal-save')?.addEventListener('click', () => {
+    handlePlaceModalSave().catch(() => showPopup('Unable to save place.'));
+  });
+  document.getElementById('place-modal-cancel')?.addEventListener('click', closePlaceModal);
+  document.getElementById('place-modal')?.addEventListener('click', event => {
+    if (event.target === event.currentTarget) closePlaceModal();
+  });
+  document.getElementById('place-type-select')?.addEventListener('change', updatePlaceLabelVisibility);
+
+  // Place address autocomplete
+  document.getElementById('place-address-input')?.addEventListener('input', () => {
+    const input = document.getElementById('place-address-input');
+    const value = String(input?.value || '').trim();
+    if (geocodeDebounceTimers['place-address-input']) window.clearTimeout(geocodeDebounceTimers['place-address-input']);
+    if (value.length < MIN_GEOCODE_QUERY_LENGTH) {
+      document.getElementById('place-address-suggestions')?.classList.add('d-none');
+      return;
+    }
+    geocodeDebounceTimers['place-address-input'] = window.setTimeout(async () => {
+      const token = mapState.token;
+      if (!token) return;
+      try {
+        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(value)}.json?access_token=${token}&limit=${MAX_GEOCODE_SUGGESTIONS}&country=US&types=address,place,poi`;
+        const res = await fetch(url);
+        const json = await res.json();
+        const suggestions = document.getElementById('place-address-suggestions');
+        if (!suggestions) return;
+        const features = json?.features || [];
+        if (!features.length) { suggestions.classList.add('d-none'); return; }
+        suggestions.innerHTML = features.map(f =>
+          `<div class="suggestion-item" tabindex="0" role="option">${escapeHtml(f.place_name)}</div>`
+        ).join('');
+        suggestions.classList.remove('d-none');
+        suggestions.querySelectorAll('.suggestion-item').forEach((item, i) => {
+          item.addEventListener('click', () => {
+            if (input) input.value = features[i].place_name;
+            suggestions.classList.add('d-none');
+          });
+          item.addEventListener('keydown', e => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              if (input) input.value = features[i].place_name;
+              suggestions.classList.add('d-none');
+            }
+          });
+        });
+      } catch (_error) {}
+    }, GEOCODE_DEBOUNCE_MS);
+  });
+  document.getElementById('place-address-input')?.addEventListener('blur', () => {
+    window.setTimeout(() => document.getElementById('place-address-suggestions')?.classList.add('d-none'), SUGGESTION_HIDE_DELAY_MS);
+  });
+
+  // ── Cancel Scheduled Ride handlers ─────────────────────────────────────────
+  document.getElementById('cancel-scheduled-confirm')?.addEventListener('click', () => {
+    const rideId = pendingDeleteScheduledId;
+    pendingDeleteScheduledId = null;
+    document.getElementById('cancel-scheduled-modal')?.classList.add('d-none');
+    handleCancelScheduledRide(rideId).catch(() => showPopup('Unable to cancel scheduled ride.'));
+  });
+  document.getElementById('cancel-scheduled-keep')?.addEventListener('click', () => {
+    pendingDeleteScheduledId = null;
+    document.getElementById('cancel-scheduled-modal')?.classList.add('d-none');
+  });
+  document.getElementById('cancel-scheduled-modal')?.addEventListener('click', event => {
+    if (event.target === event.currentTarget) {
+      pendingDeleteScheduledId = null;
+      event.currentTarget.classList.add('d-none');
+    }
+  });
+
   if (!mapState.resizeHandlerBound) {
     mapState.resizeHandlerBound = true;
     window.addEventListener('resize', () => resizeMapNow(50));
@@ -2629,4 +3305,8 @@ window.addEventListener('load', async () => {
   window.setInterval(() => {
     syncRides().catch(() => {});
   }, RIDE_POLL_INTERVAL_MS);
+  // Phase 4: Initialize saved places and schedule features
+  await fetchSavedPlaces().catch(() => {});
+  await fetchScheduledRides().catch(() => {});
+  setupScheduleRideReminders();
 });
