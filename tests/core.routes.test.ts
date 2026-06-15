@@ -201,8 +201,11 @@ test('GET /driver-dashboard.js includes realtime and offline sync hooks', async 
       'hydrateDashboardFromCache',
       'startRealtimeSync',
       'startSocketRealtimeSync',
+      'DISPATCH_SOCKET_PATH',
+      'getDispatchWebSocketUrl',
       'dispatch:subscribe',
       'dispatch:rides',
+      'ride_request_created',
       'subscribeFirebaseStream',
       'flushOfflineLocationQueue',
       'handleArrivedAtPickup',
@@ -251,6 +254,10 @@ test('GET /driver-dashboard.js includes realtime and offline sync hooks', async 
       'Acquiring GPS...',
       'validateAuthSession',
       'buildFallbackDemoProfile',
+      'Reconnecting dispatch\\.\\.\\.',
+      '📡 Using polling fallback',
+      '🎯 Ride request received',
+      '🔌 Connecting to WebSocket\\.\\.\\.',
       'requestAnimationFrame',
       'easeInOutCubic',
       'driver-marker-trail',
@@ -264,6 +271,17 @@ test('GET /driver-dashboard.js includes realtime and offline sync hooks', async 
 test('GET /socket.io/socket.io.js serves the realtime websocket client bundle', async () => {
   await withServer(async baseUrl => {
     const response = await fetch(`${baseUrl}/socket.io/socket.io.js`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /javascript/);
+    const body = await response.text();
+    assert.match(body, /Socket/);
+    assert.match(body, /io/);
+  });
+});
+
+test('GET /ws/socket.io.js serves the dispatch websocket client bundle', async () => {
+  await withServer(async baseUrl => {
+    const response = await fetch(`${baseUrl}/ws/socket.io.js`);
     assert.equal(response.status, 200);
     assert.match(response.headers.get('content-type') ?? '', /javascript/);
     const body = await response.text();
