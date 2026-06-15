@@ -236,6 +236,7 @@ export function publishDriverRealtimeLocation(driverId: string) {
     .forEach(ride => {
       emitToRoom(`ride:${ride.id}`, 'ride:driver_location', {
         rideId: ride.id,
+        driverId,
         ...location
       });
     });
@@ -277,11 +278,15 @@ export function publishDriverEarningsUpdate(driverId: string, payload: {
 export function publishDriverStatusChanged(driverId: string) {
   const profile = store.drivers.get(driverId);
   if (!profile) return null;
-  const updatedAt = timestamp();
+  const updatedAt = profile.lastStatusChangeAt || timestamp();
   const payload = {
     driverId,
     status: profile.availabilityStatus,
     available: profile.available,
+    isOnline: profile.isOnline ?? (profile.availabilityStatus === 'online' || profile.availabilityStatus === 'assigned'),
+    lat: Number.isFinite(Number(profile.lat)) ? Number(profile.lat) : undefined,
+    lng: Number.isFinite(Number(profile.lng)) ? Number(profile.lng) : undefined,
+    lastUpdate: updatedAt,
     updatedAt
   };
   emitToRoom(`driver:${driverId}`, 'dispatch:driver_status', payload);
@@ -358,6 +363,18 @@ export function publishDispatchRideRequest(driverId: string, payload: Record<str
 
 export function publishDispatchRequestExpired(driverId: string, payload: Record<string, unknown>) {
   emitToRoom(`driver:${driverId}`, 'dispatch:request_expired', payload);
+}
+
+export function publishDispatchRideAssigned(driverId: string, payload: Record<string, unknown>) {
+  emitToRoom(`driver:${driverId}`, 'dispatch:ride_assigned', payload);
+}
+
+export function publishDispatchAssignmentConfirmed(riderId: string, payload: Record<string, unknown>) {
+  emitToRoom(`user:${riderId}`, 'dispatch:assignment_confirmed', payload);
+}
+
+export function publishDriverRequestRejected(driverId: string, payload: Record<string, unknown>) {
+  emitToRoom(`driver:${driverId}`, 'dispatch:request_rejected', payload);
 }
 
 export function publishDispatchRequestRejected(riderId: string, payload: Record<string, unknown>) {

@@ -30,6 +30,10 @@ export const rideAcceptSchema = z.object({
 
 export const rideAcceptPathSchema = z.object({}).passthrough();
 
+export const rideDeclinePathSchema = z.object({
+  reason: z.string().trim().max(200).optional()
+}).passthrough();
+
 export const rideStartCompleteCancelSchema = z.object({
   rideId: z.string().min(1)
 }).passthrough();
@@ -52,7 +56,7 @@ export const rideRatePathSchema = z.object({
 }).passthrough();
 
 export const rideStatusUpdateSchema = z.object({
-  status: z.enum(['accepted', 'arrived', 'arrived_at_pickup', 'started', 'in_progress', 'completed', 'cancelled', 'canceled']),
+  status: z.string().trim().min(1),
   reason: z.string().trim().max(200).optional()
 }).passthrough();
 

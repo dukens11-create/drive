@@ -5,6 +5,8 @@ export async function register(req:any,res:any){res.json(await service.register(
 export async function apply(req:any,res:any){res.json(await service.apply({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function availability(req:any,res:any){res.json(await service.availability({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function availabilityById(req:any,res:any){res.json(await service.availabilityById({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function online(req:any,res:any){res.json(await service.online({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function offline(req:any,res:any){res.json(await service.offline({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function location(req:any,res:any){res.json(await service.location({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function locationById(req:any,res:any){res.json(await service.locationById({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function me(req:any,res:any){res.json(await service.me({ ...req.body, actor: req.user }, req.params, req.query));}

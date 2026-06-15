@@ -24,6 +24,8 @@ router.get('/health', controller.health);
 router.post('/register', validateBody(signupSchema), controller.register);
 router.use(requireAuth);
 router.get('/nearby', controller.nearby);
+router.post('/:id/online', controller.online);
+router.post('/:id/offline', controller.offline);
 router.post('/:id/location', validateBody(locationSchema), controller.locationById);
 router.put('/:id/status', validateBody(availabilitySchema), controller.availabilityById);
 router.post('/:id/vehicles', validateBody(vehicleCreateSchema), controller.createVehicle);

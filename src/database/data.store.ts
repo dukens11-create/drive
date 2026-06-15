@@ -234,11 +234,13 @@ export type DriverVerificationReview = {
 };
 
 export type DriverVehicleProfile = {
+  vehicleId?: string;
   make: string;
   model: string;
   year: number;
   color: string;
   plateNumber: string;
+  licensePlate?: string;
   type: string;
   photoUrl?: string;
   lastUpdated: string;
@@ -253,6 +255,8 @@ export type DriverProfile = {
   verificationState: 'documents_pending' | 'kyc_pending' | 'review_pending' | 'verified' | 'rejected';
   availabilityStatus: 'offline' | 'online' | 'assigned' | 'unavailable';
   available: boolean;
+  isOnline?: boolean;
+  lastStatusChangeAt?: string;
   lat?: number;
   lng?: number;
   lastLocationUpdatedAt?: string;
