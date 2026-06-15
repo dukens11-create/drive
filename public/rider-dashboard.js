@@ -106,6 +106,8 @@ let recognition = null;
 let lastSpokenRideStatus = '';
 const alertQueue = [];
 let isSpeaking = false;
+const MIN_VOICE_COMMAND_CONFIDENCE = 0.5;
+const CANCELLATION_CONFIRMATION_RESPONSES = new Set(['yes', 'yes please', 'confirm', 'confirmed']);
 const voiceCommands = {
   where_driver: ["where is my driver", "where's my driver", "eta", "how far"],
   cancel_ride: ['cancel my ride', 'cancel', 'i want to cancel'],
@@ -1249,7 +1251,7 @@ async function cancelRide(rideId) {
 }
 
 function getStatusViewModel(ride) {
-  const status = String(ride?.status || 'idle');
+  const status = String(ride?.status || 'idle').toLowerCase();
   if (status === 'requested') return { pill: 'Searching', message: 'Searching for nearby drivers...', step: 'searching', headerStatus: 'Finding a driver' };
   if (status === 'accepted') return { pill: 'Assigned', message: 'Your driver is on the way to pickup.', step: 'assigned', headerStatus: 'Driver assigned' };
   if (status === 'arrived_at_pickup') return { pill: 'Arriving', message: 'Your driver has arrived at the pickup point.', step: 'arriving', headerStatus: 'Driver at pickup' };
@@ -2651,9 +2653,9 @@ function listenForCancellationConfirm() {
   confirmRec.continuous = false;
   confirmRec.interimResults = false;
   confirmRec.onresult = (event) => {
-    const transcript = (event.results[0]?.[0]?.transcript || '').toLowerCase().trim();
+    const transcript = (event.results[0]?.[0]?.transcript || '').toLowerCase().replace(/[.!?]/g, '').trim();
     console.log('[Voice] Cancellation confirmation:', transcript);
-    if (transcript === 'yes' || transcript.includes('yes')) {
+    if (CANCELLATION_CONFIRMATION_RESPONSES.has(transcript)) {
       setVoiceFeedback('Cancelling your ride…');
       speak('Your ride has been cancelled');
       handleCancelRide().catch(() => {});
@@ -2667,7 +2669,14 @@ function listenForCancellationConfirm() {
     setVoiceFeedback('Could not hear confirmation.', true);
     window.setTimeout(() => setVoiceFeedback(''), 3000);
   };
-  try { confirmRec.start(); } catch (_e) { /* ignore */ }
+  try {
+    confirmRec.start();
+  } catch (_e) {
+    const message = 'Could not start cancellation confirmation.';
+    setVoiceFeedback(message, true);
+    speak('Could not start confirmation. Please try again.');
+    window.setTimeout(() => setVoiceFeedback(''), 3000);
+  }
 }
 
 function handleVoiceResult(event) {
@@ -2684,7 +2693,7 @@ function handleVoiceResult(event) {
 
   setVoiceButtonState('processing');
   const command = matchVoiceCommand(transcript);
-  if (command && confidence >= 0.5) {
+  if (command && confidence >= MIN_VOICE_COMMAND_CONFIDENCE) {
     executeVoiceCommand(command);
   } else if (command) {
     const msg = "I didn't quite catch that. Please try again.";
@@ -2782,7 +2791,8 @@ function triggerSpokenAlert(step) {
   const driverName = driver.name || 'Your driver';
   const vehicleYear = driver.vehicle?.year || '';
   const vehicleMake = driver.vehicle?.make || '';
-  const vehicleModel = driver.vehicle?.model || driver.vehicle || '';
+  const vehicleLabel = typeof driver.vehicle === 'string' ? driver.vehicle : '';
+  const vehicleModel = driver.vehicle?.model || vehicleLabel || '';
   const vehicleInfo = [vehicleYear, vehicleMake, vehicleModel].filter(Boolean).join(' ') || 'their vehicle';
   const eta = currentRide?.etaMinutes || currentRide?.minutes || 0;
   const etaText = eta > 0 ? formatMinutes(eta) : 'a moment';
