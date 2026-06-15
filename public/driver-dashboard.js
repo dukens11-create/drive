@@ -58,7 +58,9 @@ const RIDE_REQUEST_HISTORY_LIMIT = 60;
 const RIDE_REQUEST_ANALYTICS_LIMIT = 120;
 const RIDE_POPUP_TERMINAL_STATE_MS = 1500;
 const RIDE_ALERT_MUTE_WINDOW_MS = 5 * 60 * 1000;
+const AUTH_REDIRECT_DELAY_MS = 150;
 const LOGIN_REDIRECT_PATH = '/drivers.html';
+const AUTH_REQUIRED_MESSAGE = 'Please log in again.';
 const AUTH_TOKEN_STORAGE_KEYS = ['drive_token', 'authToken', 'accessToken', 'token', 'drive.accessToken'];
 const AUTH_REFRESH_TOKEN_STORAGE_KEYS = ['refreshToken', 'drive.refreshToken'];
 const AUTH_USER_STORAGE_KEYS = ['user', 'drive_user', 'drive.user'];
@@ -109,7 +111,7 @@ function getStoredUserPayload() {
   return userPayload;
 }
 
-function redirectToDriverLogin(message = 'Please log in again.') {
+function redirectToDriverLogin(message = AUTH_REQUIRED_MESSAGE) {
   console.warn('[AUTH] Redirecting to driver login', { message });
   const alertDiv = document.getElementById('driver-alert');
   if (alertDiv) {
@@ -120,7 +122,7 @@ function redirectToDriverLogin(message = 'Please log in again.') {
   sessionStorage.setItem('authRedirectMessage', message);
   window.setTimeout(() => {
     window.location.replace(LOGIN_REDIRECT_PATH);
-  }, 150);
+  }, AUTH_REDIRECT_DELAY_MS);
 }
 
 function setupSession() {
@@ -137,12 +139,12 @@ function setupSession() {
   });
 
   if (!accessToken) {
-    redirectToDriverLogin('Please log in again.');
+    redirectToDriverLogin(AUTH_REQUIRED_MESSAGE);
     return false;
   }
 
   if (!userStr) {
-    redirectToDriverLogin('Please log in again.');
+    redirectToDriverLogin(AUTH_REQUIRED_MESSAGE);
     return false;
   }
 
@@ -150,7 +152,7 @@ function setupSession() {
     currentUser = JSON.parse(userStr);
   } catch (error) {
     console.error('[AUTH] Unable to parse stored driver session', { error, userStr });
-    redirectToDriverLogin('Please log in again.');
+    redirectToDriverLogin(AUTH_REQUIRED_MESSAGE);
     return false;
   }
 
@@ -162,7 +164,7 @@ function setupSession() {
 
   if (!currentUser?.id || role !== 'driver') {
     console.warn('[AUTH] Invalid driver session role payload', { user: currentUser });
-    redirectToDriverLogin('Please log in again.');
+    redirectToDriverLogin(AUTH_REQUIRED_MESSAGE);
     return false;
   }
 
@@ -456,18 +458,17 @@ async function fetchJson(url, options = {}) {
 
   console.log('[AUTH] Request token status', {
     found: Boolean(token),
-    length: token.length
+    length: token?.length || 0
   });
   console.log('[API] Request', {
     url,
     method,
     tokenSent: Boolean(token),
-    tokenLength: token.length
+    tokenLength: token?.length || 0
   });
 
   if (!token && String(url).includes('/api/')) {
-    showAlert('warning', 'Please log in again.');
-    redirectToDriverLogin('Please log in again.');
+    redirectToDriverLogin(AUTH_REQUIRED_MESSAGE);
     throw new Error('Authentication token missing');
   }
 
@@ -478,7 +479,13 @@ async function fetchJson(url, options = {}) {
   let data;
   try {
     data = await response.json();
-  } catch (_error) {
+  } catch (error) {
+    console.warn('[API] Response body was not valid JSON', {
+      url,
+      method,
+      status: response.status,
+      message: error instanceof Error ? error.message : 'unknown error'
+    });
     data = null;
   }
   console.log('[API] Response', {
@@ -5249,8 +5256,7 @@ async function uploadVehiclePhoto(file) {
   formData.append('photo', file);
   const token = getAuthToken();
   if (!token) {
-    showAlert('warning', 'Please log in again.');
-    redirectToDriverLogin('Please log in again.');
+    redirectToDriverLogin(AUTH_REQUIRED_MESSAGE);
     throw new Error('Authentication token missing');
   }
   console.log('[AUTH] Token sent for vehicle photo upload', { length: token.length });
@@ -5468,8 +5474,7 @@ async function toggleAvailability() {
   const token = getAuthToken();
 
   if (!token) {
-    showAlert('warning', 'Please log in again.');
-    redirectToDriverLogin('Please log in again.');
+    redirectToDriverLogin(AUTH_REQUIRED_MESSAGE);
     return;
   }
 
