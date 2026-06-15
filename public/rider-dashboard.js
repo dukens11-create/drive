@@ -46,6 +46,8 @@ const MAX_DRIVER_ETA_MINUTES = 8;
 const DRIVER_START_POSITION_OFFSET = 0.04; // ~2–3 miles in lat/lng degrees
 const DRIVER_ASSIGN_DELAY_MIN_MS = 3000;
 const DRIVER_ASSIGN_DELAY_MAX_MS = 5000;
+const DRIVER_LOCATION_UPDATE_INTERVAL_MS = 2500;
+const MILES_PER_LAT_DEGREE = 69; // approximate miles per degree of latitude at mid-latitudes
 const MIN_VALID_VEHICLE_YEAR = 1900;
 const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'assigned', 'arrived_at_pickup', 'started'];
 const DRIVER_VISIBLE_RIDE_STATUSES = ['assigned', 'arrived_at_pickup', 'started'];
@@ -3116,7 +3118,6 @@ function simulateDriverLocationUpdates(pickupLat, pickupLng) {
   let currentLng = mapState.lastDriverPosition.lng;
   let etaSeconds = (currentDriver?.etaMinutes || 4) * 60;
 
-  const UPDATE_INTERVAL_MS = 2500;
   driverLocationSimIntervalId = window.setInterval(() => {
     // Move 5% closer to pickup each interval
     const stepFraction = 0.05;
@@ -3126,26 +3127,28 @@ function simulateDriverLocationUpdates(pickupLat, pickupLng) {
     updateDriverMarkerLocation(currentLat, currentLng);
 
     // Update ETA
-    etaSeconds = Math.max(0, etaSeconds - UPDATE_INTERVAL_MS / 1000);
+    etaSeconds = Math.max(0, etaSeconds - DRIVER_LOCATION_UPDATE_INTERVAL_MS / 1000);
     const etaMins = Math.ceil(etaSeconds / 60);
     if (etaCountdownIntervalId === null) {
       animateNumericText('driver-eta', formatMinutes(etaMins));
       animateNumericText('driver-countdown', formatMinutes(etaMins));
     }
 
-    // Update distance
+    // Update distance using approximate miles per degree of latitude
     const dLat = pickupLat - currentLat;
     const dLng = pickupLng - currentLng;
     const distanceDeg = Math.sqrt(dLat * dLat + dLng * dLng);
-    const distanceMi = (distanceDeg * 69).toFixed(1);
+    const distanceMi = (distanceDeg * MILES_PER_LAT_DEGREE).toFixed(1);
     safeSetText('driver-distance-away', `${distanceMi} mi`);
 
     if (etaSeconds <= 0) {
       stopDriverLocationSim();
     }
-  }, UPDATE_INTERVAL_MS);
+  }, DRIVER_LOCATION_UPDATE_INTERVAL_MS);
 }
 
+// Fallback: creates a DOM-element driver marker when the image-based symbol layer
+// (driver-car) cannot be loaded (e.g. missing PNG asset or map not ready).
 function simulateDriverMovementOnMap(pickupLat, pickupLng) {
   if (!mapState.mapLoaded || !mapState.map) return;
   const startLat = pickupLat + (Math.random() - 0.5) * DRIVER_START_POSITION_OFFSET;
