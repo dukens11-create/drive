@@ -1,3 +1,8 @@
+const SAVED_PLACES_STORAGE_KEY = 'drive.savedPlaces';
+const MAX_FAVORITE_PLACES = 5;
+const SCHEDULE_MIN_MINUTES_AHEAD = 15;
+const SCHEDULE_MAX_DAYS_AHEAD = 30;
+
 const API_BASE_URL = '';
 const MAPBOX_TOKEN_STORAGE_KEY = 'drive.mapboxToken';
 const MAPBOX_GEOCODE_CACHE_STORAGE_KEY = 'drive.mapboxGeocodeCache.v1';
@@ -41,7 +46,12 @@ const MAX_DRIVER_ETA_MINUTES = 8;
 const DRIVER_START_POSITION_OFFSET = 0.04; // ~2–3 miles in lat/lng degrees
 const DRIVER_ASSIGN_DELAY_MIN_MS = 3000;
 const DRIVER_ASSIGN_DELAY_MAX_MS = 5000;
-const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'arrived_at_pickup', 'started'];
+const MIN_VALID_VEHICLE_YEAR = 1900;
+const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'assigned', 'arrived_at_pickup', 'started'];
+const DRIVER_VISIBLE_RIDE_STATUSES = ['assigned', 'arrived_at_pickup', 'started'];
+const DRIVER_APPROACH_RIDE_STATUSES = ['assigned', 'arrived_at_pickup'];
+const TERMINAL_RIDE_STATUSES = ['completed', 'canceled'];
+const TOAST_MAX_VISIBLE = 3;
 const LONG_DISTANCE_WARNING_MINUTES = 360;
 const SUPPORTED_COUNTRY = 'United States';
 const MAX_RIDE_DISTANCE_MILES = {
@@ -81,6 +91,7 @@ let currentUser = null;
 let accessToken = '';
 let refreshToken = '';
 let selectedRideType = 'ECONOMY';
+let selectedPaymentMethod = localStorage.getItem('drive.paymentMethod') || 'card';
 let rides = [];
 let currentRide = null;
 let riderLocationWatchId = null;
@@ -107,6 +118,17 @@ let finalFare = 0;
 let sosModalOpen = false;
 let shareTripModalOpen = false;
 let currentShareLink = '';
+
+let savedPlaces = [];
+let pendingDeleteScheduledId = null;
+let pendingDeletePlaceId = null;
+let placeModalEditId = null;
+const scheduleState = {
+  isScheduled: false,
+  scheduledDateTime: null,
+  scheduledRides: []
+};
+const activeToasts = [];
 const geocodeDebounceTimers = {};
 const locationSuggestions = {
   'pickup-input': [],
@@ -167,6 +189,15 @@ function parseJson(value, fallback) {
   }
 }
 
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function getRandomDelay(minMs, maxMs) {
   return minMs + Math.random() * (maxMs - minMs);
 }
@@ -215,6 +246,19 @@ function sanitizePhoneForUri(value) {
   return normalized.replace(/\s+/g, '');
 }
 
+function normalizeRideStatus(status) {
+  const normalized = String(status || 'requested').trim().toLowerCase();
+  if (normalized === 'accepted') return 'assigned';
+  if (normalized === 'cancelled') return 'canceled';
+  return normalized;
+}
+
+function formatDistanceAway(value) {
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized) || normalized < 0) return '';
+  return `${normalized.toFixed(1)} mi away`;
+}
+
 function normalizeRideTypeForApi(rideType = selectedRideType) {
   const normalized = String(rideType || '').trim().toLowerCase();
   if (normalized === 'economy' || normalized === 'comfort' || normalized === 'premium' || normalized === 'xl') {
@@ -229,13 +273,18 @@ function getDriverVehicleDisplay(vehicle = {}) {
   const model = String(vehicle.model || '').trim();
   const year = Number(vehicle.year);
   const color = String(vehicle.color || '').trim();
-  const plateNumber = String(vehicle.plateNumber || '').trim();
+  const plateNumber = String(vehicle.plate || vehicle.plateNumber || vehicle.licensePlate || '').trim();
   const title = label || (make && model ? `${make} ${model}` : 'Vehicle details pending');
-  const specs = [Number.isInteger(year) ? String(year) : '', color].filter(Boolean).join(' • ');
+  const specs = [Number.isInteger(year) && year > MIN_VALID_VEHICLE_YEAR ? String(year) : '', color].filter(Boolean).join(' • ');
   return {
     title,
     specs,
-    plate: plateNumber ? `Plate: ${plateNumber}` : 'Plate: ___'
+    plate: plateNumber ? `Plate: ${plateNumber}` : 'Plate: ___',
+    make,
+    model,
+    year: Number.isInteger(year) && year > MIN_VALID_VEHICLE_YEAR ? year : null,
+    color,
+    plateNumber
   };
 }
 
@@ -246,21 +295,32 @@ function renderDriverCardDetails(driver = {}, etaMinutes = 0) {
     make: driver.vehicleMake,
     model: driver.vehicleModel,
     color: driver.vehicleColor,
-    plateNumber: driver.licensePlate || driver.vehiclePlate || driver.plateNumber,
+    plate: driver.licensePlate || driver.vehiclePlate || driver.plateNumber || driver.plate,
     photoUrl: driver.vehiclePhotoUrl || driver.vehicleImageUrl || driver.vehicleImage
   };
   const vehicle = driver.vehicle && typeof driver.vehicle === 'object'
     ? {
       ...driver.vehicle,
-      plateNumber: driver.vehicle.plateNumber || driver.vehicle.licensePlate || fallbackVehicle.plateNumber
+      plate: driver.vehicle.plate || driver.vehicle.plateNumber || driver.vehicle.licensePlate || fallbackVehicle.plate
     }
     : fallbackVehicle;
   const vehicleDisplay = getDriverVehicleDisplay(vehicle);
   safeSetText('driver-name', driver.name || currentRide?.driverName || currentRide?.driverId || '--');
   safeSetText('driver-vehicle', vehicleDisplay.title);
   safeSetText('driver-plate', vehicleDisplay.plate);
+  safeSetText('driver-plate-vehicle', vehicleDisplay.plate);
   safeSetText('driver-vehicle-specs', vehicleDisplay.specs);
   safeSetText('driver-rating', `${Number(driver.rating || 4.9).toFixed(2)} ⭐`);
+
+  const driverStatus = driver.driverStatus || (etaMinutes > 0 ? 'On the way' : 'Arrived');
+  safeSetText('driver-status-text', driverStatus);
+
+  const distanceAway = driver.distanceAway || currentRide?.distanceAway;
+  const distanceText = distanceAway
+    ? (typeof distanceAway === 'number' ? `${distanceAway.toFixed(1)} mi` : String(distanceAway))
+    : '--';
+  safeSetText('driver-distance-away', distanceText);
+
   if (!etaCountdownIntervalId) {
     animateNumericText('driver-eta', formatMinutes(etaMinutes || currentRide?.etaMinutes || currentRide?.minutes || 0));
     animateNumericText('driver-countdown', formatMinutes(etaMinutes || currentRide?.etaMinutes || currentRide?.minutes || 0));
@@ -542,6 +602,18 @@ function normalizeRide(ride = {}, index = 0) {
   const fallbackDropoffLat = Number.isFinite(Number(ride.dropoffLat)) ? Number(ride.dropoffLat) : fallbackPickupLat + DEFAULT_DROPOFF_OFFSET_DEGREES;
   const fallbackDropoffLng = Number.isFinite(Number(ride.dropoffLng)) ? Number(ride.dropoffLng) : fallbackPickupLng + DEFAULT_DROPOFF_OFFSET_DEGREES;
   const rideFareDetails = ride.fareDetails || ride.fareBreakdown || null;
+  const driverLocationPayload = ride.driverLocation && typeof ride.driverLocation === 'object'
+    ? ride.driverLocation
+    : ride.location && typeof ride.location === 'object'
+      ? ride.location
+      : {};
+  const driverLat = Number(driverLocationPayload.lat ?? driverLocationPayload.latitude ?? ride.driverLat ?? ride.driverLatitude ?? ride.latitude);
+  const driverLng = Number(driverLocationPayload.lng ?? driverLocationPayload.longitude ?? ride.driverLng ?? ride.driverLongitude ?? ride.longitude);
+  const driverHeading = Number(driverLocationPayload.heading ?? ride.heading ?? ride.driverHeading);
+  const driverSpeed = Number(driverLocationPayload.speed ?? ride.speed ?? ride.driverSpeed);
+  const normalizedStatus = normalizeRideStatus(ride.status);
+  const normalizedLifecycleState = normalizeRideStatus(ride.lifecycleState || ride.status);
+  const distanceAway = Number(ride.distanceAway ?? ride.driver?.distanceAway ?? driverLocationPayload.distanceAway);
   return {
     id: ride.id || `rider_local_${Date.now()}_${index}`,
     riderId: ride.riderId || ride.userId || currentUser?.id || 'rider',
@@ -558,23 +630,32 @@ function normalizeRide(ride = {}, index = 0) {
     minutes: Number(ride.minutes || 0),
     fareEstimate: Number(ride.fareEstimate || rideFareDetails?.fareEstimate || rideFareDetails?.total || 0),
     fareDetails: rideFareDetails,
-    status: String(ride.status || 'requested'),
-    lifecycleState: String(ride.lifecycleState || ride.status || 'requested'),
+    status: normalizedStatus,
+    lifecycleState: normalizedLifecycleState,
     driverId: ride.driverId || null,
     driverName: ride.driverName || ride.driver?.name || (ride.driverId ? `Driver ${String(ride.driverId).slice(0, 6)}` : null),
     driver: ride.driver && typeof ride.driver === 'object' ? ride.driver : null,
-    etaMinutes: Number(ride.etaMinutes || ride.minutes || 0),
+    etaMinutes: Number(ride.etaMinutes ?? ride.driver?.etaMinutes ?? ride.minutes ?? 0),
+    distanceAway: Number.isFinite(distanceAway) ? Math.max(0, distanceAway) : null,
+    driverStatus: String(ride.driverStatus || ride.statusLabel || driverLocationPayload.status || '').trim(),
     riderLocation: ride.riderLocation && Number.isFinite(Number(ride.riderLocation.lat)) && Number.isFinite(Number(ride.riderLocation.lng))
       ? { lat: Number(ride.riderLocation.lat), lng: Number(ride.riderLocation.lng), updatedAt: ride.riderLocation.updatedAt || new Date().toISOString() }
       : null,
-    driverLocation: ride.driverLocation && Number.isFinite(Number(ride.driverLocation.lat)) && Number.isFinite(Number(ride.driverLocation.lng))
-      ? { lat: Number(ride.driverLocation.lat), lng: Number(ride.driverLocation.lng), updatedAt: ride.driverLocation.updatedAt || new Date().toISOString() }
+    driverLocation: Number.isFinite(driverLat) && Number.isFinite(driverLng)
+      ? {
+        lat: driverLat,
+        lng: driverLng,
+        heading: Number.isFinite(driverHeading) ? normalizeHeading(driverHeading) : null,
+        speed: Number.isFinite(driverSpeed) ? Math.max(0, driverSpeed) : null,
+        updatedAt: driverLocationPayload.updatedAt || ride.updatedAt || new Date().toISOString()
+      }
       : null,
     events: Array.isArray(ride.events) ? ride.events : [],
     createdAt: ride.createdAt || new Date().toISOString(),
     updatedAt: ride.updatedAt || new Date().toISOString(),
     completedAt: ride.completedAt || null,
-    canceledAt: ride.canceledAt || null
+    canceledAt: ride.canceledAt || null,
+    distanceAway: ride.distanceAway != null ? Number(ride.distanceAway) : null
   };
 }
 
@@ -1151,17 +1232,21 @@ async function requestRide(pickup, destination) {
     minutes: estimate.route.etaMinutes,
     fareEstimate: estimate.fareEstimate,
     fareDetails: estimate.fareBreakdown,
-    status: 'requested',
-    lifecycleState: 'requested',
+    status: scheduleState.isScheduled ? 'scheduled' : 'requested',
+    lifecycleState: scheduleState.isScheduled ? 'scheduled' : 'requested',
+    scheduledAt: scheduleState.isScheduled ? scheduleState.scheduledDateTime : null,
     etaMinutes: estimate.route.etaMinutes,
+    paymentMethod: selectedPaymentMethod,
     riderLocation: mapState.markers.rider
       ? { lat: mapState.markers.rider.getLngLat().lat, lng: mapState.markers.rider.getLngLat().lng, updatedAt: new Date().toISOString() }
       : null,
     events: [{
       id: `evt_${Date.now()}`,
-      type: 'ride_requested',
-      title: 'Ride requested',
-      message: 'Waiting for a driver to accept your trip.',
+      type: scheduleState.isScheduled ? 'ride_scheduled' : 'ride_requested',
+      title: scheduleState.isScheduled ? 'Ride scheduled' : 'Ride requested',
+      message: scheduleState.isScheduled
+        ? `Scheduled for ${new Date(scheduleState.scheduledDateTime).toLocaleString()}.`
+        : 'Waiting for a driver to accept your trip.',
       createdAt: new Date().toISOString()
     }]
   };
@@ -1181,10 +1266,31 @@ async function requestRide(pickup, destination) {
       miles: estimate.route.distanceMiles,
       minutes: estimate.route.etaMinutes,
       riderId: currentUser.id,
-      ...(appliedPromo ? { promoCode: appliedPromo.code, discountAmount, finalFare } : {})
+      ...(appliedPromo ? { promoCode: appliedPromo.code, discountAmount, finalFare } : {}),
+
+      paymentMethod: selectedPaymentMethod,
+      ...(scheduleState.isScheduled && scheduleState.scheduledDateTime ? { scheduledAt: scheduleState.scheduledDateTime } : {})
     };
     try {
       console.log('[Ride Booking] Payload:', requestBody);
+      console.log('[Payment] Selected method:', selectedPaymentMethod);
+      if (scheduleState.isScheduled) {
+        const scheduled = await fetchJson('/api/scheduled/book', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify(requestBody)
+        });
+        console.log('[Ride Booking] Scheduled API response:', { status: scheduled.response.status, data: scheduled.data });
+        if (scheduled.response.ok && scheduled.data?.id) {
+          return upsertSharedRide({
+            ...baseRide,
+            ...scheduled.data,
+            pickupLabel: scheduled.data.pickupLabel || scheduled.data.pickupAddress || baseRide.pickupLabel,
+            destinationLabel: scheduled.data.destinationLabel || scheduled.data.dropoffAddress || baseRide.destinationLabel,
+            fareDetails: baseRide.fareDetails
+          });
+        }
+      }
       const { response, data } = await fetchJson('/api/rides', {
         method: 'POST',
         headers: getAuthHeaders(),
@@ -1246,9 +1352,9 @@ async function cancelRide(rideId) {
 }
 
 function getStatusViewModel(ride) {
-  const status = String(ride?.status || 'idle');
+  const status = normalizeRideStatus(ride?.status || 'idle');
   if (status === 'requested') return { pill: 'Searching', message: 'Searching for nearby drivers...', step: 'searching', headerStatus: 'Finding a driver' };
-  if (status === 'accepted') return { pill: 'Assigned', message: 'Your driver is on the way to pickup.', step: 'assigned', headerStatus: 'Driver assigned' };
+  if (status === 'assigned') return { pill: 'Assigned', message: 'Your driver is on the way to pickup.', step: 'assigned', headerStatus: 'Driver assigned' };
   if (status === 'arrived_at_pickup') return { pill: 'Arriving', message: 'Your driver has arrived at the pickup point.', step: 'arriving', headerStatus: 'Driver at pickup' };
   if (status === 'started') return { pill: 'In trip', message: 'You are on the way to your destination.', step: 'started', headerStatus: 'Ride in progress' };
   if (status === 'completed') return { pill: 'Completed', message: 'Ride completed successfully.', step: 'completed', headerStatus: 'Trip completed' };
@@ -1274,27 +1380,36 @@ function renderRideState() {
   updateTimeline(state.step);
   document.querySelector('.status-card')?.setAttribute('class', `card status-card status-${state.step || (currentRide?.status || 'idle')}`);
   document.getElementById('searching-status')?.classList.toggle('d-none', state.step !== 'searching');
-  setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(currentRide.status)));
+  setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(normalizeRideStatus(currentRide.status))));
   document.getElementById('ride-empty-state')?.classList.toggle('d-none', rides.some(ride => ride.riderId === currentUser?.id));
 
   const assignedCard = document.getElementById('driver-assigned-card');
-  const showDriverCard = Boolean(currentRide && ['accepted', 'arrived_at_pickup', 'started'].includes(currentRide.status));
+  const showDriverCard = Boolean(currentRide && DRIVER_VISIBLE_RIDE_STATUSES.includes(normalizeRideStatus(currentRide.status)));
+  const rideStatus = normalizeRideStatus(currentRide?.status || '');
+  const wasHidden = assignedCard?.classList.contains('d-none');
   if (assignedCard) assignedCard.classList.toggle('d-none', !showDriverCard);
   if (showDriverCard) {
+    if (wasHidden) {
+      assignedCard.classList.remove('slide-up');
+      void assignedCard.offsetWidth; // force reflow so the animation restarts from scratch
+      assignedCard.classList.add('slide-up');
+    }
     const activeDriver = currentRide.driver || assignedDriver || {};
     renderDriverCardDetails(activeDriver, currentRide.etaMinutes || currentRide.minutes || 0);
-    safeSetText('driver-location', currentRide.driverLocation
-      ? `${Number(currentRide.driverLocation.lat).toFixed(5)}, ${Number(currentRide.driverLocation.lng).toFixed(5)}`
-      : '--');
+    const statusText = String(currentRide.driverStatus || '').trim();
+    const distanceText = formatDistanceAway(currentRide.distanceAway);
+    safeSetText('driver-location', [distanceText, statusText].filter(Boolean).join(' • ') || '--');
+    if (distanceText) animateNumericText('driver-countdown', distanceText);
+    if (!etaCountdownIntervalId) animateNumericText('driver-eta', formatMinutes(currentRide.etaMinutes || currentRide.minutes || 0));
   }
 
   const cancelButton = document.getElementById('cancel-ride-button');
   const requestButton = document.getElementById('request-ride-button');
   const buttonGroup = document.querySelector('.button-group');
-  const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status));
+  const canCancelRide = Boolean(currentRide && ['requested', 'assigned', 'arrived_at_pickup'].includes(normalizeRideStatus(currentRide.status)));
   const showCancelButton = canCancelRide;
   if (requestButton) {
-    requestButton.classList.remove('d-none');
+    requestButton.classList.toggle('d-none', showCancelButton);
   }
   if (cancelButton) {
     cancelButton.disabled = !canCancelRide;
@@ -1315,15 +1430,67 @@ function renderRideState() {
 
   const previousStatus = mapState.lastRideStatus;
   mapState.lastRideStatus = currentRide?.status || 'idle';
+
+  if (previousStatus !== mapState.lastRideStatus) {
+    const driverName = currentRide?.driver?.name || currentRide?.driverName || assignedDriver?.name || 'Your driver';
+    const driverRating = currentRide?.driver?.rating || assignedDriver?.rating || '';
+    if (mapState.lastRideStatus === 'accepted') {
+      const ratingText = driverRating ? ` (⭐ ${driverRating})` : '';
+      showToast(`Driver found! ${driverName}${ratingText} is on the way`, 'success');
+    } else if (mapState.lastRideStatus === 'arrived_at_pickup') {
+      showToast(`${driverName} has arrived at your pickup location`, 'success');
+    } else if (mapState.lastRideStatus === 'started') {
+      showToast("You're on the way to your destination", 'info');
+    } else if (mapState.lastRideStatus === 'completed') {
+      showToast('Ride completed! Rate your experience', 'success', 6000);
+    } else if (mapState.lastRideStatus === 'canceled') {
+      showToast('Ride cancelled', 'info');
+    }
+  }
+
   renderMapState({ fitRoute: previousStatus !== mapState.lastRideStatus });
 }
 
+function showToast(message, type = 'info', duration = 4000) {
+  console.log('[Toast] Showing:', message, type);
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  while (activeToasts.length >= TOAST_MAX_VISIBLE) {
+    const oldest = activeToasts.shift();
+    oldest?.remove();
+  }
+
+  const iconMap = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
+  const iconLabel = { info: 'Info', success: 'Success', error: 'Error', warning: 'Warning' };
+  const safeMessage = escapeHtml(message);
+  const toast = document.createElement('div');
+  toast.className = `toast-item toast-item--${type}`;
+  toast.setAttribute('role', 'status');
+  toast.innerHTML =
+    `<span class="toast-icon" role="img" aria-label="${iconLabel[type] || 'Info'}">${iconMap[type] || 'ℹ️'}</span>` +
+    `<span class="toast-message">${safeMessage}</span>` +
+    `<button class="toast-close" aria-label="Dismiss notification" type="button">×</button>`;
+
+  const dismiss = () => {
+    if (!toast.isConnected) return;
+    toast.classList.add('toast-item--leaving');
+    window.setTimeout(() => {
+      toast.remove();
+      const idx = activeToasts.indexOf(toast);
+      if (idx !== -1) activeToasts.splice(idx, 1);
+    }, 320);
+  };
+
+  toast.querySelector('.toast-close')?.addEventListener('click', dismiss);
+  container.appendChild(toast);
+  activeToasts.push(toast);
+
+  if (duration > 0) window.setTimeout(dismiss, duration);
+}
+
 function showPopup(message) {
-  const popup = document.getElementById('ride-popup');
-  if (!popup) return;
-  popup.textContent = message;
-  popup.classList.remove('d-none');
-  window.setTimeout(() => popup.classList.add('d-none'), POPUP_DISPLAY_DURATION_MS);
+  showToast(message, 'info', POPUP_DISPLAY_DURATION_MS);
 }
 
 function setFareLoading(isLoading) {
@@ -1476,7 +1643,7 @@ function renderInputMessages(validation) {
 function updateRequestRideButtonState() {
   const requestButton = document.getElementById('request-ride-button');
   if (!requestButton) return;
-  const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status));
+  const canCancelRide = Boolean(currentRide && ['requested', 'assigned', 'arrived_at_pickup'].includes(normalizeRideStatus(currentRide.status)));
   const disabledReason = canCancelRide ? 'You already have an active ride.' : rideValidationState.disabledReason;
   requestButton.disabled = canCancelRide || Boolean(disabledReason);
   requestButton.title = disabledReason || 'Request your ride';
@@ -1507,6 +1674,74 @@ function setCancelModalOpen(isOpen) {
   const modal = document.getElementById('cancel-modal');
   if (!modal) return;
   modal.classList.toggle('d-none', !isOpen);
+}
+
+const PAYMENT_METHOD_OPTIONS = [
+  { id: 'card', label: 'Card', icon: '💳' },
+  { id: 'apple_pay', label: 'Apple Pay', icon: '🍎' },
+  { id: 'google_pay', label: 'Google Pay', icon: '🔵' },
+  { id: 'cash', label: 'Cash', icon: '💵' }
+];
+
+function renderPaymentMethodPill() {
+  const method = PAYMENT_METHOD_OPTIONS.find(m => m.id === selectedPaymentMethod) || PAYMENT_METHOD_OPTIONS[0];
+  const iconEl = document.getElementById('payment-method-icon');
+  const textEl = document.getElementById('payment-method-text');
+  if (iconEl) iconEl.textContent = method.icon;
+  if (textEl) textEl.textContent = method.label;
+}
+
+function setPaymentMethod(methodId) {
+  selectedPaymentMethod = methodId;
+  localStorage.setItem('drive.paymentMethod', methodId);
+  console.log('[Payment] Selected method:', selectedPaymentMethod);
+  renderPaymentMethodPill();
+  document.querySelectorAll('[data-payment-method]').forEach(btn => {
+    const isSelected = btn.getAttribute('data-payment-method') === methodId;
+    btn.classList.toggle('is-selected', isSelected);
+    btn.setAttribute('aria-selected', String(isSelected));
+  });
+}
+
+function togglePaymentDropdown() {
+  const pill = document.getElementById('payment-method-pill');
+  const dropdown = document.getElementById('payment-method-dropdown');
+  if (!pill || !dropdown) return;
+  const isOpen = !dropdown.classList.contains('d-none');
+  dropdown.classList.toggle('d-none', isOpen);
+  pill.setAttribute('aria-expanded', String(!isOpen));
+}
+
+function closePaymentDropdown() {
+  const pill = document.getElementById('payment-method-pill');
+  const dropdown = document.getElementById('payment-method-dropdown');
+  if (!dropdown || dropdown.classList.contains('d-none')) return;
+  dropdown.classList.add('d-none');
+  if (pill) pill.setAttribute('aria-expanded', 'false');
+}
+
+function initPaymentMethod() {
+  const ua = navigator.userAgent;
+  const applePayOpt = document.getElementById('payment-opt-apple-pay');
+  const googlePayOpt = document.getElementById('payment-opt-google-pay');
+  const isIOS = /iPhone|iPad/i.test(ua);
+  const isAndroid = /Android/i.test(ua);
+  if (applePayOpt) applePayOpt.style.display = isIOS ? '' : 'none';
+  if (googlePayOpt) googlePayOpt.style.display = isAndroid ? '' : 'none';
+
+  const validMethods = PAYMENT_METHOD_OPTIONS.filter(m => {
+    if (m.id === 'apple_pay') return isIOS;
+    if (m.id === 'google_pay') return isAndroid;
+    return true;
+  }).map(m => m.id);
+
+  if (!validMethods.includes(selectedPaymentMethod)) {
+    selectedPaymentMethod = 'card';
+    localStorage.setItem('drive.paymentMethod', 'card');
+  }
+
+  renderPaymentMethodPill();
+  setPaymentMethod(selectedPaymentMethod);
 }
 
 function startSearchingDotsAnimation() {
@@ -1658,6 +1893,7 @@ function createRouteMarkerElement(kind) {
 function createDriverMarkerElement() {
   const element = document.createElement('div');
   element.className = 'driver-marker';
+  element.setAttribute('aria-label', 'Driver vehicle marker');
 
   const speedBadge = document.createElement('div');
   speedBadge.className = 'driver-marker-speed';
@@ -1666,11 +1902,11 @@ function createDriverMarkerElement() {
   const body = document.createElement('div');
   body.className = 'driver-marker-body';
 
-  const arrow = document.createElement('span');
-  arrow.className = 'driver-marker-arrow';
-  arrow.textContent = '▲';
+  const vehicle = document.createElement('i');
+  vehicle.className = 'bi bi-car-front-fill driver-marker-vehicle';
+  vehicle.setAttribute('aria-hidden', 'true');
 
-  body.appendChild(arrow);
+  body.appendChild(vehicle);
   element.append(speedBadge, body);
   return element;
 }
@@ -1685,13 +1921,16 @@ function createRiderMarkerElement() {
 function updateDriverMarkerVisuals(position) {
   const markerElement = mapState.markers.driver?.getElement?.();
   if (!markerElement || !position) return;
-  const arrow = markerElement.querySelector('.driver-marker-arrow');
+  const body = markerElement.querySelector('.driver-marker-body');
   const speedBadge = markerElement.querySelector('.driver-marker-speed');
-  if (arrow) {
-    arrow.style.transform = `rotate(${normalizeHeading(position.heading ?? mapState.driverHeading)}deg)`;
+  if (body) {
+    body.style.transform = `rotate(${normalizeHeading(position.heading ?? mapState.driverHeading)}deg)`;
   }
   if (speedBadge) {
-    speedBadge.textContent = currentRide?.driverName || 'Driver';
+    const speedMph = Number(currentRide?.driverLocation?.speed);
+    speedBadge.textContent = Number.isFinite(speedMph) && speedMph > 0
+      ? `${Math.round(speedMph)} mph`
+      : (currentRide?.driverName || 'Driver');
   }
 }
 
@@ -1943,12 +2182,18 @@ function syncMapMarkers(pickup, destination) {
     mapState.markers.rider.remove();
   }
 
+  const normalizedRideStatus = normalizeRideStatus(currentRide?.status);
+  const shouldDisplayDriverMarker = Boolean(currentRide?.driverLocation)
+    && ACTIVE_RIDE_STATUSES.includes(normalizedRideStatus)
+    && !TERMINAL_RIDE_STATUSES.includes(normalizedRideStatus);
   const driverLocation = currentRide?.driverLocation;
-  if (driverLocation && Number.isFinite(Number(driverLocation.lat)) && Number.isFinite(Number(driverLocation.lng))) {
+  if (shouldDisplayDriverMarker && driverLocation && Number.isFinite(Number(driverLocation.lat)) && Number.isFinite(Number(driverLocation.lng))) {
     if (!mapState.markers.driver) {
       mapState.markers.driver = new window.mapboxgl.Marker({ element: createDriverMarkerElement() });
     }
-    if (mapState.lastDriverPosition) {
+    if (Number.isFinite(Number(driverLocation.heading))) {
+      mapState.driverHeading = normalizeHeading(Number(driverLocation.heading));
+    } else if (mapState.lastDriverPosition) {
       mapState.driverHeading = calculateHeading(
         mapState.lastDriverPosition.lat,
         mapState.lastDriverPosition.lng,
@@ -1977,14 +2222,31 @@ function syncMapMarkers(pickup, destination) {
 async function refreshMapRoute(options = {}) {
   const { fitRoute = false, force = false } = options;
   const { pickup, destination } = getPickupAndDestination({ allowFallback: true });
-  const nextRouteKey = [pickup.lat, pickup.lng, destination.lat, destination.lng].map(value => Number(value).toFixed(5)).join(':');
+  const normalizedRideStatus = normalizeRideStatus(currentRide?.status);
+  const hasDriverLocation = Boolean(
+    currentRide?.driverLocation
+    && Number.isFinite(Number(currentRide.driverLocation.lat))
+    && Number.isFinite(Number(currentRide.driverLocation.lng))
+  );
+  const useDriverApproachRoute = hasDriverLocation && DRIVER_APPROACH_RIDE_STATUSES.includes(normalizedRideStatus);
+  const routeStart = useDriverApproachRoute
+    ? { lat: Number(currentRide.driverLocation.lat), lng: Number(currentRide.driverLocation.lng) }
+    : pickup;
+  const routeEnd = useDriverApproachRoute ? pickup : destination;
+  const nextRouteKey = [
+    Number(routeStart.lat).toFixed(5),
+    Number(routeStart.lng).toFixed(5),
+    Number(routeEnd.lat).toFixed(5),
+    Number(routeEnd.lng).toFixed(5),
+    normalizedRideStatus
+  ].join(':');
   mapState.lastRouteKey = nextRouteKey;
   if (!force && mapState.lastFetchedRouteKey === nextRouteKey) {
-    if (fitRoute || !mapState.hasFittedScene) fitMapToScene(pickup, destination);
+    if (fitRoute || !mapState.hasFittedScene || useDriverApproachRoute) fitMapToScene(pickup, destination);
     return;
   }
 
-  const route = await fetchDirectionsRoute(pickup, destination);
+  const route = await fetchDirectionsRoute(routeStart, routeEnd);
   if (nextRouteKey !== mapState.lastRouteKey) return;
   mapState.lastFetchedRouteKey = nextRouteKey;
   mapState.routeGeojson = {
@@ -1999,15 +2261,22 @@ async function refreshMapRoute(options = {}) {
     }]
   };
   mapState.routeInstructions = route.instructions;
-  mapState.routeSourceLabel = route.sourceLabel;
+  mapState.routeSourceLabel = useDriverApproachRoute ? 'Driver to pickup route' : route.sourceLabel;
   mapState.routeTrafficLabel = route.trafficLabel || 'Clear route';
   updateRouteSource();
   renderRouteInstructions(route.instructions);
-  safeSetText('route-source-badge', route.sourceLabel);
+  safeSetText('route-source-badge', mapState.routeSourceLabel);
   safeSetText('map-route-traffic', mapState.routeTrafficLabel);
 
   // Use actual Mapbox distance/duration to refresh fare estimate if data is valid
   if (Number.isFinite(route.distanceMiles) && Number.isFinite(route.etaMinutes) && route.distanceMiles > 0) {
+    if (useDriverApproachRoute) {
+    safeSetText('map-route-distance', formatMiles(route.distanceMiles));
+    animateNumericText('map-route-duration', formatMinutes(route.etaMinutes));
+    safeSetText('map-route-overview', `Driver to pickup • ${formatMiles(route.distanceMiles)} • ${formatMinutes(route.etaMinutes)}`);
+    animateNumericText('map-route-arrival', formatArrivalTimeFromMinutes(route.etaMinutes));
+    if (!etaCountdownIntervalId) animateNumericText('driver-eta', formatMinutes(route.etaMinutes));
+    } else {
     const mapboxRoute = { distanceMiles: route.distanceMiles, etaMinutes: route.etaMinutes };
     const updatedEstimate = {
       ok: true,
@@ -2017,9 +2286,10 @@ async function refreshMapRoute(options = {}) {
       ...buildEstimateFromRoute(mapboxRoute, selectedRideType)
     };
     renderFareEstimate(updatedEstimate);
+    }
   }
 
-  if (fitRoute || !mapState.hasFittedScene) fitMapToScene(pickup, destination);
+  if (fitRoute || !mapState.hasFittedScene || useDriverApproachRoute) fitMapToScene(pickup, destination);
 }
 
 function renderMapState(options = {}) {
@@ -2034,7 +2304,11 @@ function renderMapState(options = {}) {
   }
   flyToPrimaryLocation(pickup, destination);
   syncMapMarkers(pickup, destination);
-  refreshMapRoute({ fitRoute }).catch(() => {
+  const shouldTrackDriver = Boolean(
+    currentRide?.driverLocation
+    && DRIVER_APPROACH_RIDE_STATUSES.includes(normalizeRideStatus(currentRide?.status))
+  );
+  refreshMapRoute({ fitRoute: fitRoute || shouldTrackDriver }).catch(() => {
     const fallbackDirections = buildFallbackDirections(pickup, destination);
     renderRouteInstructions(fallbackDirections.instructions);
     safeSetText('route-source-badge', fallbackDirections.sourceLabel);
@@ -2142,7 +2416,7 @@ async function syncRides() {
   } catch (_error) {
     backendRides = [];
   } finally {
-    setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(currentRide.status)));
+    setPollingIndicator(Boolean(currentRide && ACTIVE_RIDE_STATUSES.includes(normalizeRideStatus(currentRide?.status))));
   }
   rides = mergeRides(backendRides, readSharedRideStore().rides);
   writeSharedRideStore({ rides });
@@ -2151,6 +2425,19 @@ async function syncRides() {
 }
 
 async function handleRequestRide() {
+  // Validate schedule time if scheduling
+  if (scheduleState.isScheduled) {
+    if (!scheduleState.scheduledDateTime) {
+      showPopup('Please select a date and time to schedule your ride.');
+      return;
+    }
+    const { valid, error } = validateScheduleTime(new Date(scheduleState.scheduledDateTime));
+    if (!valid) {
+      showPopup(error);
+      return;
+    }
+  }
+
   await Promise.all([
     resolveCoordinateInput('pickup-input', { fitRoute: true, showError: true }),
     resolveCoordinateInput('destination-input', { fitRoute: true, showError: true })
@@ -2165,7 +2452,7 @@ async function handleRequestRide() {
   const requestLabel = requestButton?.querySelector('.btn-label');
   const bookingErrorEl = document.getElementById('booking-error-message');
   if (bookingErrorEl) bookingErrorEl.classList.add('d-none');
-  if (requestLabel) requestLabel.textContent = 'Booking...';
+  if (requestLabel) requestLabel.textContent = scheduleState.isScheduled ? 'Scheduling...' : 'Booking...';
   setButtonLoading('request-ride-button', true);
   try {
     const ride = await requestRide(pickup, destination);
@@ -2175,18 +2462,30 @@ async function handleRequestRide() {
     if (requestButton && requestLabel) {
       const icon = requestButton.querySelector('.btn-icon');
       requestButton.classList.add('is-success');
-      requestLabel.textContent = 'Ride booked!';
+      if (scheduleState.isScheduled) {
+        requestLabel.textContent = 'Ride Scheduled!';
+        const dt = new Date(scheduleState.scheduledDateTime);
+        const dtStr = dt.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        showPopup(`Ride scheduled for ${dtStr}`);
+        // Add to scheduled rides list
+        scheduleState.scheduledRides.push({ ...currentRide, reminderSent: false });
+        renderScheduledRides();
+        console.log('[Schedule] Scheduled ride for:', scheduleState.scheduledDateTime);
+      } else {
+        requestLabel.textContent = 'Ride booked!';
+        showPopup('Searching for nearby drivers...');
+      }
       if (icon) icon.className = 'bi bi-check2-circle btn-icon';
       window.setTimeout(() => {
         if (icon) icon.className = 'bi bi-lightning-charge-fill btn-icon';
-        requestLabel.textContent = 'Book a ride';
+        requestLabel.textContent = scheduleState.isScheduled ? 'Schedule Ride' : 'Book a ride';
         requestButton.classList.remove('is-success');
       }, REQUEST_SUCCESS_ANIMATION_MS);
     }
-    showPopup('Searching for nearby drivers...');
+    showToast('Searching for nearby drivers...', 'info');
 
-    // Simulate driver assignment after 3-5 seconds
-    if (currentRide?.id) {
+    // Only simulate driver for immediate (non-scheduled) rides
+    if (!scheduleState.isScheduled && currentRide?.id) {
       simulateDriverAssignment(currentRide.id, pickup.lat, pickup.lng);
     }
   } catch (err) {
@@ -2197,7 +2496,7 @@ async function handleRequestRide() {
     } else {
       showPopup(errorMsg);
     }
-    if (requestLabel) requestLabel.textContent = 'Book a ride';
+    if (requestLabel) requestLabel.textContent = scheduleState.isScheduled ? 'Schedule Ride' : 'Book a ride';
   } finally {
     setButtonLoading('request-ride-button', false);
     renderRideState();
@@ -2206,19 +2505,27 @@ async function handleRequestRide() {
 
 async function handleCancelRide() {
   if (!currentRide?.id) return;
+  const rideId = currentRide.id;
+  console.log('[Cancel Ride] Cancelling ride:', rideId);
   setCancelModalOpen(false);
   stopStatusProgression();
   stopEtaCountdown();
   assignedDriver = null;
   setButtonLoading('cancel-ride-button', true);
   try {
-    const canceledRide = await cancelRide(currentRide.id);
+    const canceledRide = await cancelRide(rideId);
     if (canceledRide) {
-      currentRide = normalizeRide(canceledRide);
-      rides = mergeRides([currentRide], readSharedRideStore().rides);
+      console.log('[Cancel Ride] Ride cancelled:', rideId);
+      updateSharedRide(rideId, { status: 'canceled', lifecycleState: 'canceled', canceledAt: new Date().toISOString() });
+      currentRide = null;
+      rides = rides.filter(r => r.id !== rideId);
       renderRideState();
-      showPopup('Ride canceled.');
+      showToast('Ride cancelled', 'info');
     }
+  } catch (err) {
+    const errorMsg = (err instanceof Error && err.message) || 'Failed to cancel ride. Please try again.';
+    console.error('[Cancel Ride] Error cancelling ride:', rideId, err);
+    showToast(errorMsg, 'error');
   } finally {
     setButtonLoading('cancel-ride-button', false);
     renderRideState();
@@ -2246,7 +2553,7 @@ function startRiderLocationSync() {
     latestKnownRiderPosition = { lat, lng };
     if (Date.now() - lastLocationPushAt < MIN_LOCATION_PUSH_INTERVAL_MS) return;
     lastLocationPushAt = Date.now();
-    if (currentRide?.id && ACTIVE_RIDE_STATUSES.includes(currentRide.status)) {
+    if (currentRide?.id && ACTIVE_RIDE_STATUSES.includes(normalizeRideStatus(currentRide.status))) {
       const updated = updateSharedRide(currentRide.id, {
         riderLocation: { lat, lng, updatedAt: new Date().toISOString() }
       });
@@ -2401,13 +2708,18 @@ function renderDriverCard(driver, etaMinutes) {
       ...driver,
       vehicle: {
         label: String(driver.vehicle || '').trim(),
-        plateNumber: driver.plate || ''
+        plate: driver.plate || driver.plateNumber || ''
       }
     };
   renderDriverCardDetails(normalizedDriver, etaMinutes || 5);
 
   // Online indicator
   card.querySelector('.driver-online-dot')?.classList.add('is-online');
+
+  // Trigger slide-in animation
+  card.classList.remove('d-none');
+  card.classList.remove('slide-up');
+  void card.offsetWidth; // force reflow so the animation restarts from scratch
   card.classList.add('slide-up');
 }
 
@@ -2445,18 +2757,34 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
     assignedDriver = driver;
     const assignedDriverId = `driver_${Date.now()}`;
     const driverEta = MIN_DRIVER_ETA_MINUTES + Math.floor(Math.random() * (MAX_DRIVER_ETA_MINUTES - MIN_DRIVER_ETA_MINUTES));
+    const driverDistance = (0.3 + Math.random() * 2.5).toFixed(1);
+
+    const vehicleLabel = String(driver.vehicle || '').trim();
+    const yearMatch = vehicleLabel.match(/\b(19\d{2}|20\d{2})\b/);
+    const vehicleYear = yearMatch ? Number(yearMatch[1]) : null;
+    const vehicleWithoutYear = vehicleLabel.replace(/\s*\b\d{4}\b\s*/, ' ').trim();
+    const vehicleParts = vehicleWithoutYear.split(/\s+/).filter(Boolean);
+    const vehicleMake = vehicleParts[0] || '';
+    const vehicleModel = vehicleParts.length > 1 ? vehicleParts.slice(1).join(' ') : '';
 
     applyRideStatusUpdate(rideId, {
-      status: 'accepted',
+      status: 'assigned',
       driverId: assignedDriverId,
       driverName: driver.name,
+      distanceAway: Number(driverDistance),
       driver: {
         id: assignedDriverId,
         name: driver.name,
         rating: driver.rating,
+        photoUrl: driver.photoUrl || null,
+        distanceAway: Number(driverDistance),
         vehicle: {
-          label: String(driver.vehicle || '').trim(),
-          plateNumber: driver.plate || ''
+          make: vehicleMake,
+          model: vehicleModel,
+          year: vehicleYear && vehicleYear > MIN_VALID_VEHICLE_YEAR ? vehicleYear : null,
+          color: driver.color || '',
+          plate: driver.plate || '',
+          photoUrl: driver.vehiclePhotoUrl || null
         }
       },
       etaMinutes: driverEta,
@@ -2475,7 +2803,6 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
     renderDriverCard(driver, driverEta);
     startEtaCountdown(driverEta);
     simulateDriverMovementOnMap(pickupLat, pickupLng);
-    showPopup(`${driver.name} is on the way!`);
 
     // Simulate driver arriving
     statusProgressionTimerId = window.setTimeout(() => {
@@ -2483,7 +2810,6 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
       stopEtaCountdown();
       animateNumericText('driver-eta', 'Here now');
       animateNumericText('driver-countdown', 'Here now');
-      showPopup('Your driver has arrived at pickup!');
     }, driverEta * 60 * 1000);
   }, delay);
 }
@@ -2856,6 +3182,549 @@ function renderSafetyButtons() {
   safetyRow.classList.toggle('d-none', !isActive);
 }
 
+// ─── Saved Places ─────────────────────────────────────────────────────────────
+
+function loadSavedPlaces() {
+  const raw = localStorage.getItem(SAVED_PLACES_STORAGE_KEY);
+  savedPlaces = parseJson(raw, []);
+  if (!Array.isArray(savedPlaces)) savedPlaces = [];
+  console.log('[Saved Places] Loaded places:', savedPlaces.length);
+  return savedPlaces;
+}
+
+function persistSavedPlaces() {
+  localStorage.setItem(SAVED_PLACES_STORAGE_KEY, JSON.stringify(savedPlaces));
+}
+
+async function fetchSavedPlaces() {
+  loadSavedPlaces();
+  if (accessToken) {
+    try {
+      const { response, data } = await fetchJson('/api/riders/places', { headers: getAuthHeaders() });
+      if (response.ok && Array.isArray(data?.places)) {
+        savedPlaces = data.places;
+        persistSavedPlaces();
+        console.log('[Saved Places] Fetched from backend:', savedPlaces.length);
+      }
+    } catch (_error) {
+      // Use localStorage fallback silently
+    }
+  }
+  renderSavedPlacesList();
+  populateQuickPlaces();
+}
+
+async function saveSavedPlace(place) {
+  const idx = savedPlaces.findIndex(p => p.id === place.id);
+  if (idx >= 0) {
+    savedPlaces[idx] = { ...savedPlaces[idx], ...place };
+  } else {
+    savedPlaces.push({ ...place, createdAt: new Date().toISOString() });
+  }
+  persistSavedPlaces();
+  console.log('[Saved Places] Saved place:', place);
+  if (accessToken) {
+    try {
+      await fetchJson('/api/riders/places', {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ places: savedPlaces })
+      });
+    } catch (_error) {}
+  }
+  renderSavedPlacesList();
+  populateQuickPlaces();
+}
+
+async function deleteSavedPlace(placeId) {
+  savedPlaces = savedPlaces.filter(p => p.id !== placeId);
+  persistSavedPlaces();
+  console.log('[Saved Places] Deleted place:', placeId);
+  if (accessToken) {
+    try {
+      await fetchJson('/api/riders/places', {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ places: savedPlaces })
+      });
+    } catch (_error) {}
+  }
+  renderSavedPlacesList();
+  populateQuickPlaces();
+}
+
+function updatePlaceLastUsed(placeId) {
+  const place = savedPlaces.find(p => p.id === placeId);
+  if (place) {
+    place.lastUsed = new Date().toISOString();
+    persistSavedPlaces();
+    console.log('[Saved Places] Updated last used:', placeId);
+  }
+}
+
+function populateQuickPlaces() {
+  const typeOrder = { home: 0, work: 1, favorite: 2 };
+  const sorted = [...savedPlaces].sort((a, b) => {
+    const td = (typeOrder[a.type] ?? 2) - (typeOrder[b.type] ?? 2);
+    if (td !== 0) return td;
+    return (b.lastUsed || '') > (a.lastUsed || '') ? 1 : -1;
+  }).slice(0, 5);
+
+  ['pickup', 'destination'].forEach(field => {
+    const container = document.getElementById(`${field}-quick-places`);
+    if (!container) return;
+    if (!sorted.length) {
+      container.classList.add('d-none');
+      container.innerHTML = '';
+      return;
+    }
+    container.classList.remove('d-none');
+    container.innerHTML = sorted.map(place => {
+      const icon = place.type === 'home' ? 'house-fill' : place.type === 'work' ? 'briefcase-fill' : 'star-fill';
+      return `<button type="button" class="quick-place-btn" data-place-id="${escapeHtml(place.id)}" data-field="${field}" aria-label="${escapeHtml(place.label)} – set as ${field}"><i class="bi bi-${icon}"></i><span>${escapeHtml(place.label)}</span></button>`;
+    }).join('');
+    container.querySelectorAll('.quick-place-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        handleQuickPlaceClick(btn.getAttribute('data-place-id'), btn.getAttribute('data-field'));
+      });
+    });
+  });
+}
+
+function handleQuickPlaceClick(placeId, field) {
+  const place = savedPlaces.find(p => p.id === placeId);
+  if (!place || !place.address) return;
+  const inputId = `${field}-input`;
+  const input = document.getElementById(inputId);
+  if (input) {
+    input.value = place.address;
+    input.dataset.committedValue = place.address;
+  }
+  // Only pass resolved location if we have valid coordinates
+  if (place.coordinates && Number.isFinite(place.coordinates.lat) && Number.isFinite(place.coordinates.lng)) {
+    setResolvedLocation(inputId, { coordinates: place.coordinates, label: place.address }, place.address);
+    setInputFeedback(inputId, 'success', `${place.label} selected.`);
+    refreshFareEstimate({ fitRoute: true }).catch(() => {});
+  } else {
+    // No geocoded coordinates – trigger geocode resolution from the text
+    setInputFeedback(inputId, 'info', 'Resolving location…');
+    resolveCoordinateInput(inputId, { fitRoute: true, showError: false }).catch(() => {});
+  }
+  updatePlaceLastUsed(placeId);
+  console.log('[Saved Places] Quick place selected:', place.label, 'for', field);
+}
+
+function renderSavedPlacesList() {
+  const list = document.getElementById('saved-places-list');
+  const emptyState = document.getElementById('saved-places-empty');
+  if (!list) return;
+
+  if (!savedPlaces.length) {
+    list.innerHTML = '';
+    emptyState?.classList.remove('d-none');
+    return;
+  }
+  emptyState?.classList.add('d-none');
+
+  const typeOrder = { home: 0, work: 1, favorite: 2 };
+  const sorted = [...savedPlaces].sort((a, b) => (typeOrder[a.type] ?? 2) - (typeOrder[b.type] ?? 2));
+
+  list.innerHTML = sorted.map(place => {
+    const icon = place.type === 'home' ? 'house-fill' : place.type === 'work' ? 'briefcase-fill' : 'star-fill';
+    return `
+      <div class="saved-place-item">
+        <div class="saved-place-icon saved-place-icon--${escapeHtml(place.type)}">
+          <i class="bi bi-${icon}"></i>
+        </div>
+        <div class="saved-place-info">
+          <div class="saved-place-label">${escapeHtml(place.label)}</div>
+          <div class="saved-place-address">${escapeHtml(place.address)}</div>
+          ${place.notes ? `<div class="saved-place-notes">${escapeHtml(place.notes)}</div>` : ''}
+        </div>
+        <div class="saved-place-actions">
+          <button type="button" class="saved-place-edit-btn" data-place-id="${escapeHtml(place.id)}" aria-label="Edit ${escapeHtml(place.label)}">
+            <i class="bi bi-pencil-fill"></i>
+          </button>
+          <button type="button" class="saved-place-delete-btn" data-place-id="${escapeHtml(place.id)}" aria-label="Delete ${escapeHtml(place.label)}">
+            <i class="bi bi-trash-fill"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  list.querySelectorAll('.saved-place-edit-btn').forEach(btn => {
+    btn.addEventListener('click', () => openPlaceModal(btn.getAttribute('data-place-id')));
+  });
+  list.querySelectorAll('.saved-place-delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const placeId = btn.getAttribute('data-place-id');
+      const place = savedPlaces.find(p => p.id === placeId);
+      if (!place) return;
+      pendingDeletePlaceId = placeId;
+      const descEl = document.getElementById('delete-place-description');
+      if (descEl) descEl.textContent = `"${place.label}" will be removed from your saved places.`;
+      document.getElementById('delete-place-modal')?.classList.remove('d-none');
+    });
+  });
+}
+
+function openPlaceModal(editId = null) {
+  placeModalEditId = editId || null;
+  const modal = document.getElementById('place-modal');
+  const title = document.getElementById('place-modal-title');
+  const typeSelect = document.getElementById('place-type-select');
+  const labelInput = document.getElementById('place-label-input');
+  const addressInput = document.getElementById('place-address-input');
+  const notesInput = document.getElementById('place-notes-input');
+  const errorEl = document.getElementById('place-modal-error');
+  if (!modal) return;
+
+  if (editId) {
+    const place = savedPlaces.find(p => p.id === editId);
+    if (!place) return;
+    if (title) title.textContent = 'Edit Place';
+    if (typeSelect) typeSelect.value = place.type || 'favorite';
+    if (labelInput) labelInput.value = place.label || '';
+    if (addressInput) addressInput.value = place.address || '';
+    if (notesInput) notesInput.value = place.notes || '';
+  } else {
+    if (title) title.textContent = 'Add Place';
+    if (typeSelect) typeSelect.value = 'favorite';
+    if (labelInput) labelInput.value = '';
+    if (addressInput) addressInput.value = '';
+    if (notesInput) notesInput.value = '';
+  }
+  if (errorEl) errorEl.classList.add('d-none');
+  updatePlaceLabelVisibility();
+  modal.classList.remove('d-none');
+  console.log('[Saved Places] Opened place modal:', editId ? 'edit' : 'add');
+}
+
+function closePlaceModal() {
+  document.getElementById('place-modal')?.classList.add('d-none');
+  placeModalEditId = null;
+}
+
+function updatePlaceLabelVisibility() {
+  const typeSelect = document.getElementById('place-type-select');
+  const labelGroup = document.getElementById('place-label-group');
+  if (!typeSelect || !labelGroup) return;
+  const type = typeSelect.value;
+  labelGroup.style.display = type === 'favorite' ? '' : 'none';
+}
+
+async function handlePlaceModalSave() {
+  const typeSelect = document.getElementById('place-type-select');
+  const labelInput = document.getElementById('place-label-input');
+  const addressInput = document.getElementById('place-address-input');
+  const notesInput = document.getElementById('place-notes-input');
+  const errorEl = document.getElementById('place-modal-error');
+
+  const type = typeSelect?.value || 'favorite';
+  const rawLabel = String(labelInput?.value || '').trim();
+  const address = String(addressInput?.value || '').trim();
+  const notes = String(notesInput?.value || '').trim();
+
+  const label = type === 'home' ? 'Home' : type === 'work' ? 'Work' : rawLabel;
+
+  const showError = msg => {
+    if (errorEl) {
+      errorEl.textContent = msg;
+      errorEl.classList.remove('d-none');
+    }
+  };
+
+  if (!address) { showError('Please enter an address.'); return; }
+  if (type === 'favorite' && !rawLabel) { showError('Please enter a label for this place.'); return; }
+
+  // Check for duplicate home/work (exclude the current place being edited)
+  if (type === 'home' || type === 'work') {
+    const existing = savedPlaces.find(p => p.type === type && p.id !== placeModalEditId);
+    if (existing) { showError(`You already have a ${label} saved. Edit it instead.`); return; }
+  }
+
+  // Check max favorites (exclude the current place being edited)
+  if (type === 'favorite') {
+    const favCount = savedPlaces.filter(p => p.type === 'favorite' && p.id !== placeModalEditId).length;
+    if (favCount >= MAX_FAVORITE_PLACES) { showError(`You can save up to ${MAX_FAVORITE_PLACES} favorite places.`); return; }
+  }
+
+  // Geocode address to get coordinates
+  let coordinates = null;
+  try {
+    const token = mapState.token;
+    if (token) {
+      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json?access_token=${token}&limit=1`;
+      const res = await fetch(url);
+      const json = await res.json();
+      const feature = json?.features?.[0];
+      if (feature) {
+        coordinates = { lat: feature.center[1], lng: feature.center[0] };
+      }
+    }
+  } catch (_error) {}
+
+  const place = {
+    id: placeModalEditId || `place_${type}_${Date.now()}`,
+    label,
+    type,
+    address,
+    coordinates,
+    notes,
+    lastUsed: null
+  };
+
+  await saveSavedPlace(place);
+  closePlaceModal();
+  showPopup(`${label} saved!`);
+}
+
+// ─── Schedule Ride ─────────────────────────────────────────────────────────────
+
+function handleScheduleToggle(isScheduled) {
+  scheduleState.isScheduled = isScheduled;
+  const nowBtn = document.getElementById('ride-now-btn');
+  const laterBtn = document.getElementById('schedule-later-btn');
+  const pickerSection = document.getElementById('schedule-picker-section');
+  const requestBtn = document.getElementById('request-ride-button');
+  const requestLabel = requestBtn?.querySelector('.btn-label');
+
+  nowBtn?.classList.toggle('is-active', !isScheduled);
+  laterBtn?.classList.toggle('is-active', isScheduled);
+  nowBtn?.setAttribute('aria-pressed', String(!isScheduled));
+  laterBtn?.setAttribute('aria-pressed', String(isScheduled));
+
+  if (isScheduled) {
+    pickerSection?.classList.remove('d-none');
+    if (requestLabel) requestLabel.textContent = 'Schedule Ride';
+    // Set minimum date to today
+    const dateInput = document.getElementById('schedule-date');
+    if (dateInput) {
+      const now = new Date();
+      dateInput.min = now.toISOString().split('T')[0];
+      const maxDate = new Date(now);
+      maxDate.setDate(maxDate.getDate() + SCHEDULE_MAX_DAYS_AHEAD);
+      dateInput.max = maxDate.toISOString().split('T')[0];
+    }
+    // Set minimum time if today is selected
+    updateScheduleTimeMin();
+  } else {
+    pickerSection?.classList.add('d-none');
+    scheduleState.scheduledDateTime = null;
+    if (requestLabel) requestLabel.textContent = 'Book a ride';
+    document.getElementById('schedule-preview')?.classList.add('d-none');
+    document.getElementById('schedule-validation-msg')?.classList.add('d-none');
+  }
+  console.log('[Schedule] Toggle:', isScheduled ? 'Schedule Later' : 'Ride Now');
+}
+
+function updateScheduleTimeMin() {
+  const dateInput = document.getElementById('schedule-date');
+  const timeInput = document.getElementById('schedule-time');
+  if (!dateInput || !timeInput) return;
+  const now = new Date();
+  const selectedDate = dateInput.value;
+  const todayStr = now.toISOString().split('T')[0];
+  if (selectedDate === todayStr || !selectedDate) {
+    const minTime = new Date(now.getTime() + SCHEDULE_MIN_MINUTES_AHEAD * 60 * 1000);
+    timeInput.min = `${String(minTime.getHours()).padStart(2, '0')}:${String(minTime.getMinutes()).padStart(2, '0')}`;
+  } else {
+    timeInput.min = '00:00';
+  }
+}
+
+function handleDateTimeSelect() {
+  const dateInput = document.getElementById('schedule-date');
+  const timeInput = document.getElementById('schedule-time');
+  const preview = document.getElementById('schedule-preview');
+  const previewText = document.getElementById('schedule-preview-text');
+  const validationMsg = document.getElementById('schedule-validation-msg');
+  const validationText = document.getElementById('schedule-validation-text');
+
+  const dateVal = dateInput?.value;
+  const timeVal = timeInput?.value;
+
+  if (!dateVal || !timeVal) {
+    preview?.classList.add('d-none');
+    validationMsg?.classList.add('d-none');
+    scheduleState.scheduledDateTime = null;
+    return;
+  }
+
+  const scheduled = new Date(`${dateVal}T${timeVal}`);
+  const { valid, error } = validateScheduleTime(scheduled);
+
+  if (!valid) {
+    preview?.classList.add('d-none');
+    validationMsg?.classList.remove('d-none');
+    if (validationText) validationText.textContent = error;
+    scheduleState.scheduledDateTime = null;
+    return;
+  }
+
+  validationMsg?.classList.add('d-none');
+  scheduleState.scheduledDateTime = scheduled.toISOString();
+
+  const formattedDate = scheduled.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const formattedTime = scheduled.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (previewText) previewText.textContent = `${formattedDate} at ${formattedTime}`;
+  preview?.classList.remove('d-none');
+
+  console.log('[Schedule] Scheduled ride for:', scheduleState.scheduledDateTime);
+}
+
+function validateScheduleTime(datetime) {
+  const now = new Date();
+  const minTime = new Date(now.getTime() + SCHEDULE_MIN_MINUTES_AHEAD * 60 * 1000);
+  const maxTime = new Date(now.getTime() + SCHEDULE_MAX_DAYS_AHEAD * 24 * 60 * 60 * 1000);
+
+  if (datetime < minTime) {
+    return { valid: false, error: `Please schedule at least ${SCHEDULE_MIN_MINUTES_AHEAD} minutes from now.` };
+  }
+  if (datetime > maxTime) {
+    return { valid: false, error: `You can only schedule up to ${SCHEDULE_MAX_DAYS_AHEAD} days in advance.` };
+  }
+  return { valid: true, error: '' };
+}
+
+function applyScheduleQuickOption(offsetDays) {
+  const dateInput = document.getElementById('schedule-date');
+  const timeInput = document.getElementById('schedule-time');
+  if (!dateInput || !timeInput) return;
+
+  const target = new Date();
+  target.setDate(target.getDate() + offsetDays);
+  const dateStr = target.toISOString().split('T')[0];
+  dateInput.value = dateStr;
+
+  // Set a sensible default time for the offset
+  if (offsetDays === 0) {
+    // Today: use the minimum schedule-ahead constant plus a small buffer
+    const minTime = new Date(Date.now() + (SCHEDULE_MIN_MINUTES_AHEAD + 5) * 60 * 1000);
+    timeInput.value = `${String(minTime.getHours()).padStart(2, '0')}:${String(minTime.getMinutes()).padStart(2, '0')}`;
+  } else {
+    timeInput.value = '09:00';
+  }
+
+  document.querySelectorAll('.schedule-quick-btn').forEach(btn => {
+    btn.classList.toggle('is-active', Number(btn.getAttribute('data-offset')) === offsetDays);
+  });
+
+  updateScheduleTimeMin();
+  handleDateTimeSelect();
+}
+
+async function fetchScheduledRides() {
+  if (accessToken) {
+    try {
+      const { response, data } = await fetchJson('/api/scheduled/mine', { headers: getAuthHeaders() });
+      if (response.ok && Array.isArray(data)) {
+        scheduleState.scheduledRides = data;
+        console.log('[Schedule] Fetched scheduled rides:', scheduleState.scheduledRides.length);
+      }
+    } catch (_error) {}
+  }
+  // Also pull from local store
+  const localRides = readSharedRideStore().rides.filter(r => r.scheduledAt && r.status === 'scheduled');
+  const merged = [...scheduleState.scheduledRides];
+  localRides.forEach(lr => {
+    if (!merged.find(r => r.id === lr.id)) merged.push(lr);
+  });
+  scheduleState.scheduledRides = merged;
+  renderScheduledRides();
+}
+
+function renderScheduledRides() {
+  const list = document.getElementById('scheduled-rides-list');
+  const emptyState = document.getElementById('scheduled-rides-empty');
+  const countBadge = document.getElementById('scheduled-rides-count');
+  if (!list) return;
+
+  const rides = scheduleState.scheduledRides.filter(r => r.scheduledAt);
+  if (countBadge) {
+    countBadge.textContent = String(rides.length);
+    countBadge.classList.toggle('d-none', rides.length === 0);
+  }
+
+  if (!rides.length) {
+    list.innerHTML = '';
+    emptyState?.classList.remove('d-none');
+    return;
+  }
+  emptyState?.classList.add('d-none');
+
+  const sorted = [...rides].sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
+
+  list.innerHTML = sorted.map(ride => {
+    const dt = new Date(ride.scheduledAt);
+    const dateStr = dt.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    const timeStr = dt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const from = escapeHtml(ride.pickupLabel || ride.pickupAddress || 'Pickup');
+    const to = escapeHtml(ride.destinationLabel || ride.dropoffAddress || 'Destination');
+    const fare = ride.fareEstimate ? `$${Number(ride.fareEstimate).toFixed(2)}` : '';
+    return `
+      <div class="scheduled-ride-item" data-ride-id="${escapeHtml(ride.id)}">
+        <div class="scheduled-ride-time">
+          <div class="scheduled-ride-date">${escapeHtml(dateStr)}</div>
+          <div class="scheduled-ride-clock">${escapeHtml(timeStr)}</div>
+        </div>
+        <div class="scheduled-ride-info">
+          <div class="scheduled-ride-route">${from} → ${to}</div>
+          <div class="scheduled-ride-meta">${escapeHtml(ride.rideType || 'Economy')}${fare ? ` · ${fare}` : ''}</div>
+        </div>
+        <div class="scheduled-ride-actions">
+          <button type="button" class="scheduled-ride-cancel-btn" data-ride-id="${escapeHtml(ride.id)}" aria-label="Cancel scheduled ride">
+            <i class="bi bi-x-circle"></i> Cancel
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  list.querySelectorAll('.scheduled-ride-cancel-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      pendingDeleteScheduledId = btn.getAttribute('data-ride-id');
+      const modal = document.getElementById('cancel-scheduled-modal');
+      modal?.classList.remove('d-none');
+    });
+  });
+}
+
+async function handleCancelScheduledRide(rideId) {
+  if (!rideId) return;
+  console.log('[Schedule] Cancelling scheduled ride:', rideId);
+  if (accessToken) {
+    try {
+      await fetchJson(`/api/scheduled/${rideId}/cancel`, { method: 'POST', headers: getAuthHeaders() });
+    } catch (_error) {}
+  }
+  scheduleState.scheduledRides = scheduleState.scheduledRides.filter(r => r.id !== rideId);
+  // Also remove from shared ride store
+  const store = readSharedRideStore();
+  const updated = store.rides.map(r => r.id === rideId ? { ...r, status: 'canceled' } : r);
+  writeSharedRideStore({ rides: updated });
+  renderScheduledRides();
+  showPopup('Scheduled ride cancelled.');
+}
+
+function setupScheduleRideReminders() {
+  // Check every minute for rides happening in ~15 minutes
+  window.setInterval(() => {
+    const now = Date.now();
+    scheduleState.scheduledRides.forEach(ride => {
+      if (!ride.scheduledAt || ride.reminderSent) return;
+      const diff = new Date(ride.scheduledAt).getTime() - now;
+      if (diff > 0 && diff <= 15 * 60 * 1000) {
+        const timeStr = new Date(ride.scheduledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        showPopup(`Your ride departs at ${timeStr} – 15 minutes away!`);
+        ride.reminderSent = true;
+        console.log('[Schedule] Reminder sent for ride:', ride.id);
+      }
+    });
+  }, 60 * 1000);
+}
+
 function setupHandlers() {
   document.getElementById('logout-button')?.addEventListener('click', handleLogout);
   document.getElementById('request-ride-button')?.addEventListener('click', () => {
@@ -2865,7 +3734,7 @@ function setupHandlers() {
     handleCancelRideClick();
   });
   document.getElementById('cancel-modal-confirm')?.addEventListener('click', () => {
-    handleCancelRide().catch(() => showPopup('Unable to cancel ride.'));
+    handleCancelRide().catch(err => showToast((err instanceof Error && err.message) || 'Unable to cancel ride.', 'error'));
   });
   document.getElementById('cancel-modal-keep')?.addEventListener('click', () => {
     setCancelModalOpen(false);
@@ -3053,6 +3922,131 @@ function setupHandlers() {
     if (event.key === SHARED_RIDE_STORAGE_KEY) syncRides().catch(() => {});
   });
 
+  // ── Schedule Ride handlers ──────────────────────────────────────────────────
+  document.getElementById('ride-now-btn')?.addEventListener('click', () => handleScheduleToggle(false));
+  document.getElementById('schedule-later-btn')?.addEventListener('click', () => handleScheduleToggle(true));
+  document.getElementById('schedule-date')?.addEventListener('change', () => {
+    updateScheduleTimeMin();
+    handleDateTimeSelect();
+  });
+  document.getElementById('schedule-time')?.addEventListener('change', handleDateTimeSelect);
+  document.querySelectorAll('.schedule-quick-btn').forEach(btn => {
+    btn.addEventListener('click', () => applyScheduleQuickOption(Number(btn.getAttribute('data-offset') || 0)));
+  });
+
+  // Set "Next Day" label dynamically
+  const nextDayBtn = document.getElementById('schedule-quick-next-day');
+  if (nextDayBtn) {
+    const dayAfterTomorrow = new Date();
+    dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
+    nextDayBtn.textContent = dayAfterTomorrow.toLocaleDateString([], { weekday: 'short' });
+  }
+
+  // ── Saved Places handlers ───────────────────────────────────────────────────
+  document.getElementById('add-place-btn')?.addEventListener('click', () => openPlaceModal(null));
+  document.getElementById('place-modal-save')?.addEventListener('click', () => {
+    handlePlaceModalSave().catch(() => showPopup('Unable to save place.'));
+  });
+  document.getElementById('place-modal-cancel')?.addEventListener('click', closePlaceModal);
+  document.getElementById('place-modal')?.addEventListener('click', event => {
+    if (event.target === event.currentTarget) closePlaceModal();
+  });
+  document.getElementById('place-type-select')?.addEventListener('change', updatePlaceLabelVisibility);
+
+  // Place address autocomplete
+  document.getElementById('place-address-input')?.addEventListener('input', () => {
+    const input = document.getElementById('place-address-input');
+    const value = String(input?.value || '').trim();
+    if (geocodeDebounceTimers['place-address-input']) window.clearTimeout(geocodeDebounceTimers['place-address-input']);
+    if (value.length < MIN_GEOCODE_QUERY_LENGTH) {
+      document.getElementById('place-address-suggestions')?.classList.add('d-none');
+      return;
+    }
+    geocodeDebounceTimers['place-address-input'] = window.setTimeout(async () => {
+      const token = mapState.token;
+      if (!token) return;
+      try {
+        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(value)}.json?access_token=${token}&limit=${MAX_GEOCODE_SUGGESTIONS}&country=US&types=address,place,poi`;
+        const res = await fetch(url);
+        const json = await res.json();
+        const suggestions = document.getElementById('place-address-suggestions');
+        if (!suggestions) return;
+        const features = json?.features || [];
+        if (!features.length) { suggestions.classList.add('d-none'); return; }
+        suggestions.innerHTML = features.map(f =>
+          `<div class="suggestion-item" tabindex="0" role="option">${escapeHtml(f.place_name)}</div>`
+        ).join('');
+        suggestions.classList.remove('d-none');
+        suggestions.querySelectorAll('.suggestion-item').forEach((item, i) => {
+          item.addEventListener('click', () => {
+            if (input) input.value = features[i].place_name;
+            suggestions.classList.add('d-none');
+          });
+          item.addEventListener('keydown', e => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              if (input) input.value = features[i].place_name;
+              suggestions.classList.add('d-none');
+            }
+          });
+        });
+      } catch (_error) {}
+    }, GEOCODE_DEBOUNCE_MS);
+  });
+  document.getElementById('place-address-input')?.addEventListener('blur', () => {
+    window.setTimeout(() => document.getElementById('place-address-suggestions')?.classList.add('d-none'), SUGGESTION_HIDE_DELAY_MS);
+  });
+
+  // ── Cancel Scheduled Ride handlers ─────────────────────────────────────────
+  document.getElementById('cancel-scheduled-confirm')?.addEventListener('click', () => {
+    const rideId = pendingDeleteScheduledId;
+    pendingDeleteScheduledId = null;
+    document.getElementById('cancel-scheduled-modal')?.classList.add('d-none');
+    handleCancelScheduledRide(rideId).catch(() => showPopup('Unable to cancel scheduled ride.'));
+  });
+  document.getElementById('cancel-scheduled-keep')?.addEventListener('click', () => {
+    pendingDeleteScheduledId = null;
+    document.getElementById('cancel-scheduled-modal')?.classList.add('d-none');
+  });
+  document.getElementById('cancel-scheduled-modal')?.addEventListener('click', event => {
+    if (event.target === event.currentTarget) {
+      pendingDeleteScheduledId = null;
+      event.currentTarget.classList.add('d-none');
+    }
+  });
+
+  // ── Delete Place modal handlers ─────────────────────────────────────────────
+  document.getElementById('delete-place-confirm')?.addEventListener('click', () => {
+    const placeId = pendingDeletePlaceId;
+    pendingDeletePlaceId = null;
+    document.getElementById('delete-place-modal')?.classList.add('d-none');
+    if (placeId) deleteSavedPlace(placeId).catch(() => showPopup('Unable to delete place.'));
+  });
+  document.getElementById('delete-place-cancel')?.addEventListener('click', () => {
+    pendingDeletePlaceId = null;
+    document.getElementById('delete-place-modal')?.classList.add('d-none');
+  });
+  document.getElementById('delete-place-modal')?.addEventListener('click', event => {
+    if (event.target === event.currentTarget) {
+      pendingDeletePlaceId = null;
+      event.currentTarget.classList.add('d-none');
+    }
+  });
+
+  document.getElementById('payment-method-pill')?.addEventListener('click', togglePaymentDropdown);
+
+  document.querySelectorAll('[data-payment-method]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const methodId = btn.getAttribute('data-payment-method');
+      if (methodId) setPaymentMethod(methodId);
+      closePaymentDropdown();
+    });
+  });
+
+  document.addEventListener('click', event => {
+    const section = document.getElementById('payment-method-section');
+    if (section && !section.contains(event.target)) closePaymentDropdown();
+  });
+
   if (!mapState.resizeHandlerBound) {
     mapState.resizeHandlerBound = true;
     window.addEventListener('resize', () => resizeMapNow(50));
@@ -3075,6 +4069,8 @@ window.addEventListener('load', async () => {
   seedDefaultInputs();
   setupHandlers();
   showPromoSection(false); // Hidden until fare is estimated
+
+  initPaymentMethod();
   startSearchingDotsAnimation();
   clockIntervalId = window.setInterval(updateHeaderClock, 60000);
   await initializeMap();
@@ -3086,4 +4082,8 @@ window.addEventListener('load', async () => {
   window.setInterval(() => {
     syncRides().catch(() => {});
   }, RIDE_POLL_INTERVAL_MS);
+  // Phase 4: Initialize saved places and schedule features
+  await fetchSavedPlaces().catch(() => {});
+  await fetchScheduledRides().catch(() => {});
+  setupScheduleRideReminders();
 });

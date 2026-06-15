@@ -107,6 +107,45 @@
                 <h2 class="card-title">Where to next?</h2>
               </div>
 
+              <!-- Schedule Toggle -->
+              <div class="schedule-toggle-group" role="group" aria-label="Ride timing">
+                <button id="ride-now-btn" type="button" class="schedule-toggle-btn is-active" aria-pressed="true">
+                  <i class="bi bi-lightning-charge-fill"></i>
+                  <span>Ride Now</span>
+                </button>
+                <button id="schedule-later-btn" type="button" class="schedule-toggle-btn" aria-pressed="false">
+                  <i class="bi bi-calendar-event-fill"></i>
+                  <span>Schedule Later</span>
+                </button>
+              </div>
+
+              <!-- Schedule Picker (hidden until Schedule Later selected) -->
+              <div id="schedule-picker-section" class="schedule-picker-section d-none" aria-live="polite">
+                <div class="schedule-quick-options">
+                  <button type="button" class="schedule-quick-btn" data-offset="0">Today</button>
+                  <button type="button" class="schedule-quick-btn" data-offset="1">Tomorrow</button>
+                  <button type="button" class="schedule-quick-btn" data-offset="2" id="schedule-quick-next-day">Next Day</button>
+                </div>
+                <div class="schedule-inputs-row">
+                  <div class="schedule-field">
+                    <label for="schedule-date" class="form-label">Date</label>
+                    <input id="schedule-date" type="date" class="form-input schedule-date-input" />
+                  </div>
+                  <div class="schedule-field">
+                    <label for="schedule-time" class="form-label">Time</label>
+                    <input id="schedule-time" type="time" class="form-input schedule-time-input" />
+                  </div>
+                </div>
+                <div id="schedule-preview" class="schedule-preview d-none" aria-live="polite">
+                  <i class="bi bi-calendar-check-fill"></i>
+                  <span id="schedule-preview-text">--</span>
+                </div>
+                <div id="schedule-validation-msg" class="schedule-validation-msg d-none" aria-live="assertive">
+                  <i class="bi bi-exclamation-circle-fill"></i>
+                  <span id="schedule-validation-text"></span>
+                </div>
+              </div>
+
               <div class="form-group">
                 <label for="pickup-input" class="form-label">Pickup location</label>
                 <div class="input-wrapper location-input-wrapper">
@@ -129,6 +168,7 @@
                   <span class="input-message-icon" aria-hidden="true">ⓘ</span>
                   <span id="pickup-input-message-text"></span>
                 </div>
+                <div id="pickup-quick-places" class="quick-places-row d-none" aria-label="Saved pickup places"></div>
               </div>
 
               <div class="form-group">
@@ -153,6 +193,7 @@
                   <span class="input-message-icon" aria-hidden="true">ⓘ</span>
                   <span id="destination-input-message-text"></span>
                 </div>
+                <div id="destination-quick-places" class="quick-places-row d-none" aria-label="Saved destination places"></div>
               </div>
 
               <button id="current-location-button" type="button" class="btn btn-secondary btn-block">
@@ -313,6 +354,25 @@
               </div>
             </div>
 
+            <!-- Saved Places Card -->
+            <div class="card saved-places-card" id="saved-places-card">
+              <div class="saved-places-header">
+                <div>
+                  <p class="card-eyebrow">Quick access</p>
+                  <h2 class="card-title">My Places</h2>
+                </div>
+                <button id="add-place-btn" type="button" class="btn btn-secondary btn-sm">
+                  <i class="bi bi-plus-lg"></i>
+                  <span>Add Place</span>
+                </button>
+              </div>
+              <div id="saved-places-list" class="saved-places-list"></div>
+              <div id="saved-places-empty" class="saved-places-empty">
+                <i class="bi bi-geo-alt"></i>
+                <p>No saved places yet. Add Home or Work for quick access.</p>
+              </div>
+            </div>
+
           </section>
 
           <section class="right-panel" aria-label="Map and ride status">
@@ -394,6 +454,73 @@
               </div>
             </div>
 
+            <div id="driver-assigned-card" class="driver-assignment-section card d-none" aria-live="polite">
+              <div class="driver-card-heading">
+                <p class="card-eyebrow">Driver assigned</p>
+                <h2 class="card-title">Your Driver</h2>
+              </div>
+              <div class="driver-card-header">
+                <div class="driver-avatar-wrap">
+                  <div class="driver-avatar-circle">
+                    <img id="driver-avatar" class="driver-avatar-image d-none" alt="Driver profile photo">
+                    <span class="driver-avatar-initial">?</span>
+                  </div>
+                  <span class="driver-online-dot" aria-label="Driver online"></span>
+                </div>
+                <div class="driver-info-col">
+                  <div class="driver-info-name" id="driver-name">--</div>
+                  <div class="driver-rating-inline">
+                    <span class="driver-rating-badge"><span id="driver-rating">-- ⭐</span></span>
+                    <span class="driver-status-text" id="driver-status-text">--</span>
+                  </div>
+                  <div class="driver-info-plate">
+                    <i class="bi bi-credit-card-2-front" aria-hidden="true"></i>
+                    <span id="driver-plate">--</span>
+                  </div>
+                </div>
+                <div class="driver-eta-col">
+                  <div class="driver-countdown" id="driver-countdown">--</div>
+                  <div class="driver-eta-label">away</div>
+                </div>
+              </div>
+              <div class="driver-vehicle-row">
+                <div class="driver-vehicle-photo-wrap">
+                  <img id="driver-vehicle-photo" class="driver-vehicle-photo d-none" alt="Driver vehicle">
+                  <span id="driver-vehicle-icon" class="driver-vehicle-icon">🚗</span>
+                </div>
+                <div class="driver-vehicle-details">
+                  <div class="driver-info-vehicle" id="driver-vehicle">--</div>
+                  <div class="driver-vehicle-specs" id="driver-vehicle-specs"></div>
+                  <div class="driver-info-plate driver-vehicle-plate-row">
+                    <i class="bi bi-credit-card-2-front" aria-hidden="true"></i>
+                    <span id="driver-plate-vehicle">--</span>
+                  </div>
+                </div>
+              </div>
+              <div class="driver-trip-row">
+                <div class="driver-trip-chip">
+                  <i class="bi bi-clock" aria-hidden="true"></i>
+                  <span class="driver-trip-label">ETA</span>
+                  <strong id="driver-eta">--</strong>
+                </div>
+                <div class="driver-trip-chip">
+                  <i class="bi bi-geo-alt" aria-hidden="true"></i>
+                  <span class="driver-trip-label">Distance</span>
+                  <strong id="driver-distance-away">--</strong>
+                </div>
+              </div>
+              <div class="driver-actions-row">
+                <button id="btn-call-driver" type="button" class="driver-action-btn" aria-label="Call driver" title="Call driver">
+                  <i class="bi bi-telephone-fill"></i>
+                  <span>Call</span>
+                </button>
+                <button id="btn-message-driver" type="button" class="driver-action-btn" aria-label="Message driver" title="Message driver">
+                  <i class="bi bi-chat-dots-fill"></i>
+                  <span>Message</span>
+                </button>
+              </div>
+            </div>
+
             <div class="status-section">
               <div class="card status-card">
                 <div class="status-header">
@@ -413,6 +540,35 @@
                 <p id="searching-status" class="searching-status d-none" aria-live="polite">Searching for nearby drivers<span class="searching-dots" aria-hidden="true"></span></p>
 
                 <div id="booking-error-message" class="booking-error d-none" role="alert" aria-live="assertive"></div>
+
+                <div class="payment-method-section" id="payment-method-section">
+                  <div class="payment-method-header">
+                    <span class="payment-method-label">Pay with</span>
+                    <button type="button" class="payment-pill" id="payment-method-pill" aria-expanded="false" aria-controls="payment-method-dropdown" aria-haspopup="listbox">
+                      <span id="payment-method-icon" aria-hidden="true">💳</span>
+                      <span id="payment-method-text">Card</span>
+                      <i class="bi bi-chevron-down payment-pill-chevron" aria-hidden="true"></i>
+                    </button>
+                  </div>
+                  <div id="payment-method-dropdown" class="payment-method-dropdown d-none" role="listbox" aria-label="Select payment method">
+                    <button type="button" class="payment-option is-selected" data-payment-method="card" role="option" aria-selected="true">
+                      <span class="payment-option-icon" aria-hidden="true">💳</span>
+                      <span>Card</span>
+                    </button>
+                    <button type="button" class="payment-option" data-payment-method="apple_pay" role="option" aria-selected="false" id="payment-opt-apple-pay">
+                      <span class="payment-option-icon" aria-hidden="true">🍎</span>
+                      <span>Apple Pay</span>
+                    </button>
+                    <button type="button" class="payment-option" data-payment-method="google_pay" role="option" aria-selected="false" id="payment-opt-google-pay">
+                      <span class="payment-option-icon" aria-hidden="true">🔵</span>
+                      <span>Google Pay</span>
+                    </button>
+                    <button type="button" class="payment-option" data-payment-method="cash" role="option" aria-selected="false">
+                      <span class="payment-option-icon" aria-hidden="true">💵</span>
+                      <span>Cash</span>
+                    </button>
+                  </div>
+                </div>
 
                 <div class="button-group">
                   <button id="request-ride-button" type="button" class="btn btn-primary btn-block btn-lg" title="Enter a valid pickup and destination.">
@@ -512,13 +668,29 @@
                 </div>
               </div>
             </div>
+
+            <!-- Scheduled Rides Section -->
+            <div class="card scheduled-rides-card" id="scheduled-rides-card">
+              <div class="scheduled-rides-header">
+                <div>
+                  <p class="card-eyebrow">Upcoming trips</p>
+                  <h2 class="card-title">Scheduled Rides</h2>
+                </div>
+                <span id="scheduled-rides-count" class="scheduled-count-badge d-none">0</span>
+              </div>
+              <div id="scheduled-rides-list" class="scheduled-rides-list"></div>
+              <div id="scheduled-rides-empty" class="scheduled-rides-empty">
+                <i class="bi bi-calendar-x"></i>
+                <p>No scheduled rides. Toggle "Schedule Later" to plan ahead.</p>
+              </div>
+            </div>
           </section>
         </div>
       </div>
     </main>
   </div>
 
-  <div id="ride-popup" class="toast d-none" role="status" aria-live="polite"></div>
+  <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
   <div id="cancel-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="cancel-modal-title" aria-describedby="cancel-modal-description">
     <div class="modal-card">
       <h3 id="cancel-modal-title">Cancel this ride?</h3>
@@ -608,6 +780,63 @@
           <i class="bi bi-box-arrow-up" aria-hidden="true"></i>
           <span>Share</span>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Place Add/Edit Modal -->
+  <div id="place-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="place-modal-title">
+    <div class="modal-card place-modal-card">
+      <h3 id="place-modal-title">Add Place</h3>
+      <div class="form-group">
+        <label for="place-type-select" class="form-label">Place type</label>
+        <select id="place-type-select" class="form-input place-type-select">
+          <option value="home">🏠 Home</option>
+          <option value="work">💼 Work</option>
+          <option value="favorite">⭐ Favorite</option>
+        </select>
+      </div>
+      <div class="form-group" id="place-label-group">
+        <label for="place-label-input" class="form-label">Label</label>
+        <input id="place-label-input" type="text" class="form-input" placeholder="e.g. Gym, Mom's House" maxlength="32" />
+      </div>
+      <div class="form-group">
+        <label for="place-address-input" class="form-label">Address</label>
+        <input id="place-address-input" type="text" class="form-input" placeholder="Enter full address" autocomplete="off" />
+        <div id="place-address-suggestions" class="autocomplete-suggestions d-none" role="listbox" aria-label="Address suggestions"></div>
+      </div>
+      <div class="form-group">
+        <label for="place-notes-input" class="form-label">Notes (optional)</label>
+        <input id="place-notes-input" type="text" class="form-input" placeholder="e.g. Main entrance, Suite 200" maxlength="100" />
+      </div>
+      <div id="place-modal-error" class="place-modal-error d-none" aria-live="assertive"></div>
+      <div class="modal-actions">
+        <button id="place-modal-save" type="button" class="btn btn-primary btn-sm">Save Place</button>
+        <button id="place-modal-cancel" type="button" class="btn btn-secondary btn-sm">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cancel Scheduled Ride Modal -->
+  <div id="cancel-scheduled-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="cancel-scheduled-title">
+    <div class="modal-card">
+      <h3 id="cancel-scheduled-title">Cancel scheduled ride?</h3>
+      <p>This scheduled ride will be permanently cancelled.</p>
+      <div class="modal-actions">
+        <button id="cancel-scheduled-confirm" type="button" class="btn btn-danger btn-sm">Cancel Ride</button>
+        <button id="cancel-scheduled-keep" type="button" class="btn btn-secondary btn-sm">Keep Ride</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Place Confirmation Modal -->
+  <div id="delete-place-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="delete-place-title">
+    <div class="modal-card">
+      <h3 id="delete-place-title">Delete saved place?</h3>
+      <p id="delete-place-description">This place will be removed from your saved places.</p>
+      <div class="modal-actions">
+        <button id="delete-place-confirm" type="button" class="btn btn-danger btn-sm">Delete</button>
+        <button id="delete-place-cancel" type="button" class="btn btn-secondary btn-sm">Keep</button>
       </div>
     </div>
   </div>
