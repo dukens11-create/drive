@@ -234,10 +234,12 @@ function getDriverVehicleDisplay(vehicle = {}) {
   const make = String(vehicle.make || '').trim();
   const model = String(vehicle.model || '').trim();
   const year = Number(vehicle.year);
+  const maxValidYear = new Date().getFullYear() + 1;
   const color = String(vehicle.color || '').trim();
   const plateNumber = String(vehicle.plateNumber || '').trim();
   const title = label || (make && model ? `${make} ${model}` : 'Vehicle details pending');
-  const specs = [Number.isInteger(year) ? String(year) : '', color].filter(Boolean).join(' • ');
+  const normalizedYear = Number.isInteger(year) && year > 1900 && year <= maxValidYear ? String(year) : '';
+  const specs = [normalizedYear, color].filter(Boolean).join(' • ');
   return {
     title,
     specs,
@@ -1299,7 +1301,7 @@ function renderRideState() {
   const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status));
   const showCancelButton = canCancelRide;
   if (requestButton) {
-    requestButton.classList.remove('d-none');
+    requestButton.classList.toggle('d-none', showCancelButton);
   }
   if (cancelButton) {
     cancelButton.disabled = !canCancelRide;
@@ -2400,13 +2402,14 @@ function renderDriverCard(driver, etaMinutes) {
       ...driver,
       vehicle: {
         label: String(driver.vehicle || '').trim(),
-        plateNumber: driver.plate || ''
+        plateNumber: driver.plate || driver.plateNumber || ''
       }
     };
   renderDriverCardDetails(normalizedDriver, etaMinutes || 5);
 
   // Online indicator
   card.querySelector('.driver-online-dot')?.classList.add('is-online');
+  card.classList.remove('d-none');
   card.classList.add('slide-up');
 }
 
@@ -2789,11 +2792,14 @@ function triggerSpokenAlert(step) {
   if (!voiceAlertsEnabled) return;
   const driver = currentRide?.driver || assignedDriver || {};
   const driverName = driver.name || 'Your driver';
-  const vehicleYear = driver.vehicle?.year || '';
-  const vehicleMake = driver.vehicle?.make || '';
-  const vehicleLabel = typeof driver.vehicle === 'string' ? driver.vehicle : '';
-  const vehicleModel = driver.vehicle?.model || vehicleLabel || '';
-  const vehicleInfo = [vehicleYear, vehicleMake, vehicleModel].filter(Boolean).join(' ') || 'their vehicle';
+  const vehicleDisplay = getDriverVehicleDisplay(
+    driver.vehicle && typeof driver.vehicle === 'object'
+      ? driver.vehicle
+      : { label: driver.vehicle || '', plateNumber: driver.plate || driver.plateNumber || '' }
+  );
+  const vehicleInfo = [vehicleDisplay.specs, vehicleDisplay.title]
+    .filter(part => part && part !== 'Vehicle details pending')
+    .join(' ') || 'their vehicle';
   const eta = currentRide?.etaMinutes || currentRide?.minutes || 0;
   const etaText = eta > 0 ? formatMinutes(eta) : 'a moment';
   const fare = currentRide?.fare || currentRide?.fareEstimate || 0;
