@@ -209,7 +209,6 @@ function sanitizePhoneForUri(value) {
 
 function normalizeRideStatus(status) {
   const normalized = String(status || 'requested').trim().toLowerCase();
-  if (!normalized) return 'requested';
   if (normalized === 'accepted') return 'assigned';
   if (normalized === 'cancelled') return 'canceled';
   return normalized;
@@ -1313,7 +1312,7 @@ function renderRideState() {
     const coordinateText = currentRide.driverLocation
       ? `${Number(currentRide.driverLocation.lat).toFixed(5)}, ${Number(currentRide.driverLocation.lng).toFixed(5)}`
       : '';
-    safeSetText('driver-location', [distanceText, statusText || '', coordinateText].filter(Boolean).join(' • ') || '--');
+    safeSetText('driver-location', [distanceText, statusText, coordinateText].filter(Boolean).join(' • ') || '--');
     if (distanceText) animateNumericText('driver-countdown', distanceText);
     if (!etaCountdownIntervalId) animateNumericText('driver-eta', formatMinutes(currentRide.etaMinutes || currentRide.minutes || 0));
   }
@@ -1671,6 +1670,7 @@ function createRouteMarkerElement(kind) {
 function createDriverMarkerElement() {
   const element = document.createElement('div');
   element.className = 'driver-marker';
+  element.setAttribute('aria-label', 'Driver vehicle marker');
 
   const speedBadge = document.createElement('div');
   speedBadge.className = 'driver-marker-speed';
@@ -2011,12 +2011,12 @@ async function refreshMapRoute(options = {}) {
     : pickup;
   const routeEnd = useDriverApproachRoute ? pickup : destination;
   const nextRouteKey = [
-    routeStart.lat,
-    routeStart.lng,
-    routeEnd.lat,
-    routeEnd.lng,
+    Number(routeStart.lat).toFixed(5),
+    Number(routeStart.lng).toFixed(5),
+    Number(routeEnd.lat).toFixed(5),
+    Number(routeEnd.lng).toFixed(5),
     normalizedRideStatus
-  ].map(value => Number(value).toFixed(5)).join(':');
+  ].join(':');
   mapState.lastRouteKey = nextRouteKey;
   if (!force && mapState.lastFetchedRouteKey === nextRouteKey) {
     if (fitRoute || !mapState.hasFittedScene || useDriverApproachRoute) fitMapToScene(pickup, destination);
