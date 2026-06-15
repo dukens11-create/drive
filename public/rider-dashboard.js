@@ -41,6 +41,7 @@ const MAX_DRIVER_ETA_MINUTES = 8;
 const DRIVER_START_POSITION_OFFSET = 0.04; // ~2–3 miles in lat/lng degrees
 const DRIVER_ASSIGN_DELAY_MIN_MS = 3000;
 const DRIVER_ASSIGN_DELAY_MAX_MS = 5000;
+const MIN_VALID_VEHICLE_YEAR = 1900;
 const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'arrived_at_pickup', 'started'];
 const LONG_DISTANCE_WARNING_MINUTES = 360;
 const SUPPORTED_COUNTRY = 'United States';
@@ -220,14 +221,14 @@ function getDriverVehicleDisplay(vehicle = {}) {
   const color = String(vehicle.color || '').trim();
   const plateNumber = String(vehicle.plate || vehicle.plateNumber || vehicle.licensePlate || '').trim();
   const title = label || (make && model ? `${make} ${model}` : 'Vehicle details pending');
-  const specs = [Number.isInteger(year) && year > 1900 ? String(year) : '', color].filter(Boolean).join(' • ');
+  const specs = [Number.isInteger(year) && year > MIN_VALID_VEHICLE_YEAR ? String(year) : '', color].filter(Boolean).join(' • ');
   return {
     title,
     specs,
     plate: plateNumber ? `Plate: ${plateNumber}` : 'Plate: ___',
     make,
     model,
-    year: Number.isInteger(year) && year > 1900 ? year : null,
+    year: Number.isInteger(year) && year > MIN_VALID_VEHICLE_YEAR ? year : null,
     color,
     plateNumber
   };
@@ -1251,9 +1252,9 @@ async function cancelRide(rideId) {
 }
 
 function getStatusViewModel(ride) {
-  const status = String(ride?.status || 'idle');
+  const status = String(ride?.status || 'idle').toLowerCase();
   if (status === 'requested') return { pill: 'Searching', message: 'Searching for nearby drivers...', step: 'searching', headerStatus: 'Finding a driver' };
-  if (status === 'accepted' || status === 'ASSIGNED') return { pill: 'Assigned', message: 'Your driver is on the way to pickup.', step: 'assigned', headerStatus: 'Driver assigned' };
+  if (status === 'accepted' || status === 'assigned') return { pill: 'Assigned', message: 'Your driver is on the way to pickup.', step: 'assigned', headerStatus: 'Driver assigned' };
   if (status === 'arrived_at_pickup') return { pill: 'Arriving', message: 'Your driver has arrived at the pickup point.', step: 'arriving', headerStatus: 'Driver at pickup' };
   if (status === 'started') return { pill: 'In trip', message: 'You are on the way to your destination.', step: 'started', headerStatus: 'Ride in progress' };
   if (status === 'completed') return { pill: 'Completed', message: 'Ride completed successfully.', step: 'completed', headerStatus: 'Trip completed' };
@@ -1283,8 +1284,8 @@ function renderRideState() {
   document.getElementById('ride-empty-state')?.classList.toggle('d-none', rides.some(ride => ride.riderId === currentUser?.id));
 
   const assignedCard = document.getElementById('driver-assigned-card');
-  const ASSIGNED_STATUSES = ['accepted', 'ASSIGNED', 'arrived_at_pickup', 'started'];
-  const showDriverCard = Boolean(currentRide && ASSIGNED_STATUSES.includes(currentRide.status));
+  const rideStatus = String(currentRide?.status || '').toLowerCase();
+  const showDriverCard = Boolean(currentRide && ['accepted', 'assigned', 'arrived_at_pickup', 'started'].includes(rideStatus));
   const wasHidden = assignedCard?.classList.contains('d-none');
   if (assignedCard) assignedCard.classList.toggle('d-none', !showDriverCard);
   if (showDriverCard) {
@@ -1300,7 +1301,7 @@ function renderRideState() {
   const cancelButton = document.getElementById('cancel-ride-button');
   const requestButton = document.getElementById('request-ride-button');
   const buttonGroup = document.querySelector('.button-group');
-  const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status));
+  const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'assigned', 'arrived_at_pickup'].includes(rideStatus));
   const showCancelButton = canCancelRide;
   if (requestButton) {
     requestButton.classList.remove('d-none');
@@ -2445,10 +2446,12 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
     const driverDistance = (0.3 + Math.random() * 2.5).toFixed(1);
 
     const vehicleLabel = String(driver.vehicle || '').trim();
-    const vehicleParts = vehicleLabel.match(/^(.+?)\s+(\d{4})$/) || [];
-    const vehicleMakeModel = vehicleParts[1] || vehicleLabel;
-    const vehicleYear = vehicleParts[2] ? Number(vehicleParts[2]) : null;
-    const [vehicleMake, ...modelParts] = vehicleMakeModel.split(' ');
+    const yearMatch = vehicleLabel.match(/\b(\d{4})\b/);
+    const vehicleYear = yearMatch ? Number(yearMatch[1]) : null;
+    const vehicleWithoutYear = vehicleLabel.replace(/\s*\b\d{4}\b\s*/, ' ').trim();
+    const vehicleParts = vehicleWithoutYear.split(/\s+/).filter(Boolean);
+    const vehicleMake = vehicleParts[0] || '';
+    const vehicleModel = vehicleParts.length > 1 ? vehicleParts.slice(1).join(' ') : '';
 
     applyRideStatusUpdate(rideId, {
       status: 'accepted',
@@ -2462,9 +2465,9 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
         photoUrl: driver.photoUrl || null,
         distanceAway: Number(driverDistance),
         vehicle: {
-          make: vehicleMake || '',
-          model: modelParts.join(' ') || '',
-          year: vehicleYear,
+          make: vehicleMake,
+          model: vehicleModel,
+          year: vehicleYear && vehicleYear > MIN_VALID_VEHICLE_YEAR ? vehicleYear : null,
           color: driver.color || '',
           plate: driver.plate || '',
           photoUrl: driver.vehiclePhotoUrl || null
