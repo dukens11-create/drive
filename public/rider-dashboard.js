@@ -103,6 +103,7 @@ let latestKnownRiderPosition = null;
 let isFareEstimateLoading = false;
 let savedPlaces = [];
 let pendingDeleteScheduledId = null;
+let pendingDeletePlaceId = null;
 let placeModalEditId = null;
 const scheduleState = {
   isScheduled: false,
@@ -2627,10 +2628,17 @@ function handleQuickPlaceClick(placeId, field) {
     input.value = place.address;
     input.dataset.committedValue = place.address;
   }
-  setResolvedLocation(inputId, { coordinates: place.coordinates, label: place.address }, place.address);
-  setInputFeedback(inputId, 'success', `${place.label} selected.`);
+  // Only pass resolved location if we have valid coordinates
+  if (place.coordinates && Number.isFinite(place.coordinates.lat) && Number.isFinite(place.coordinates.lng)) {
+    setResolvedLocation(inputId, { coordinates: place.coordinates, label: place.address }, place.address);
+    setInputFeedback(inputId, 'success', `${place.label} selected.`);
+    refreshFareEstimate({ fitRoute: true }).catch(() => {});
+  } else {
+    // No geocoded coordinates – trigger geocode resolution from the text
+    setInputFeedback(inputId, 'info', 'Resolving location…');
+    resolveCoordinateInput(inputId, { fitRoute: true, showError: false }).catch(() => {});
+  }
   updatePlaceLastUsed(placeId);
-  refreshFareEstimate({ fitRoute: true }).catch(() => {});
   console.log('[Saved Places] Quick place selected:', place.label, 'for', field);
 }
 
@@ -2680,9 +2688,11 @@ function renderSavedPlacesList() {
     btn.addEventListener('click', () => {
       const placeId = btn.getAttribute('data-place-id');
       const place = savedPlaces.find(p => p.id === placeId);
-      if (place && window.confirm(`Delete "${place.label}"?`)) {
-        deleteSavedPlace(placeId).catch(() => showPopup('Unable to delete place.'));
-      }
+      if (!place) return;
+      pendingDeletePlaceId = placeId;
+      const descEl = document.getElementById('delete-place-description');
+      if (descEl) descEl.textContent = `"${place.label}" will be removed from your saved places.`;
+      document.getElementById('delete-place-modal')?.classList.remove('d-none');
     });
   });
 }
@@ -2756,20 +2766,20 @@ async function handlePlaceModalSave() {
   if (!address) { showError('Please enter an address.'); return; }
   if (type === 'favorite' && !rawLabel) { showError('Please enter a label for this place.'); return; }
 
-  // Check for duplicate home/work
-  if ((type === 'home' || type === 'work') && !placeModalEditId) {
-    const existing = savedPlaces.find(p => p.type === type);
+  // Check for duplicate home/work (exclude the current place being edited)
+  if (type === 'home' || type === 'work') {
+    const existing = savedPlaces.find(p => p.type === type && p.id !== placeModalEditId);
     if (existing) { showError(`You already have a ${label} saved. Edit it instead.`); return; }
   }
 
-  // Check max favorites
+  // Check max favorites (exclude the current place being edited)
   if (type === 'favorite' && !placeModalEditId) {
     const favCount = savedPlaces.filter(p => p.type === 'favorite').length;
     if (favCount >= MAX_FAVORITE_PLACES) { showError(`You can save up to ${MAX_FAVORITE_PLACES} favorite places.`); return; }
   }
 
   // Geocode address to get coordinates
-  let coordinates = { lat: 0, lng: 0 };
+  let coordinates = null;
   try {
     const token = mapState.token;
     if (token) {
@@ -2918,8 +2928,8 @@ function applyScheduleQuickOption(offsetDays) {
 
   // Set a sensible default time for the offset
   if (offsetDays === 0) {
-    // Today: 30 minutes from now
-    const minTime = new Date(Date.now() + 30 * 60 * 1000);
+    // Today: use the minimum schedule-ahead constant plus a small buffer
+    const minTime = new Date(Date.now() + (SCHEDULE_MIN_MINUTES_AHEAD + 5) * 60 * 1000);
     timeInput.value = `${String(minTime.getHours()).padStart(2, '0')}:${String(minTime.getMinutes()).padStart(2, '0')}`;
   } else {
     timeInput.value = '09:00';
@@ -3269,6 +3279,24 @@ function setupHandlers() {
   document.getElementById('cancel-scheduled-modal')?.addEventListener('click', event => {
     if (event.target === event.currentTarget) {
       pendingDeleteScheduledId = null;
+      event.currentTarget.classList.add('d-none');
+    }
+  });
+
+  // ── Delete Place modal handlers ─────────────────────────────────────────────
+  document.getElementById('delete-place-confirm')?.addEventListener('click', () => {
+    const placeId = pendingDeletePlaceId;
+    pendingDeletePlaceId = null;
+    document.getElementById('delete-place-modal')?.classList.add('d-none');
+    if (placeId) deleteSavedPlace(placeId).catch(() => showPopup('Unable to delete place.'));
+  });
+  document.getElementById('delete-place-cancel')?.addEventListener('click', () => {
+    pendingDeletePlaceId = null;
+    document.getElementById('delete-place-modal')?.classList.add('d-none');
+  });
+  document.getElementById('delete-place-modal')?.addEventListener('click', event => {
+    if (event.target === event.currentTarget) {
+      pendingDeletePlaceId = null;
       event.currentTarget.classList.add('d-none');
     }
   });

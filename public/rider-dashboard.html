@@ -598,6 +598,18 @@
     </div>
   </div>
 
+  <!-- Delete Place Confirmation Modal -->
+  <div id="delete-place-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="delete-place-title">
+    <div class="modal-card">
+      <h3 id="delete-place-title">Delete saved place?</h3>
+      <p id="delete-place-description">This place will be removed from your saved places.</p>
+      <div class="modal-actions">
+        <button id="delete-place-confirm" type="button" class="btn btn-danger btn-sm">Delete</button>
+        <button id="delete-place-cancel" type="button" class="btn btn-secondary btn-sm">Keep</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.js"></script>
   <script src="/rider-dashboard.js"></script>
 </body>
