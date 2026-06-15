@@ -2133,8 +2133,8 @@
                         <div class="panel-section">
                             <div class="section-header">
                                 <div>
-                                    <h2>Track Earnings</h2>
-                                    <span>Review total payouts and completed ride value in a cleaner summary.</span>
+                                    <h2>Earnings Overview</h2>
+                                    <span>Real-time earnings breakdown across today, this week, this month, and lifetime.</span>
                                 </div>
                             </div>
                             <div id="commission-banner" class="commission-banner">
@@ -2172,29 +2172,99 @@
                         <div class="panel-section">
                             <div class="section-header">
                                 <div>
-                                    <h2>Ride History</h2>
-                                    <span>Completed trips remain accessible from the earnings workspace.</span>
+                                    <h2>Wallet</h2>
+                                    <span>Your available balance, pending payouts, and bank account details.</span>
+                                </div>
+                            </div>
+                            <div id="wallet-info">Loading wallet...</div>
+                        </div>
+                        <div class="panel-section">
+                            <div class="section-header">
+                                <div>
+                                    <h2>Trip History</h2>
+                                    <span>Ride History — completed trips with earnings breakdown and receipt download.</span>
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <select id="trips-sort" class="form-select form-select-sm" style="width:auto">
+                                        <option value="newest">Newest first</option>
+                                        <option value="oldest">Oldest first</option>
+                                        <option value="highest_earnings">Highest earnings</option>
+                                        <option value="longest_distance">Longest distance</option>
+                                    </select>
                                 </div>
                             </div>
                             <div class="table-wrap">
                                 <table class="table table-sm table-striped align-middle">
                                     <thead>
                                         <tr>
-                                            <th>Ride</th>
-                                            <th>Pickup</th>
-                                            <th>Dropoff</th>
-                                            <th>Gross Fare</th>
-                                            <th>Commission</th>
-                                            <th>Your Earnings</th>
+                                            <th>Date</th>
+                                            <th>Pickup → Dropoff</th>
+                                            <th>Distance</th>
                                             <th>Duration</th>
-                                            <th>Passenger Rating</th>
+                                            <th>Earned</th>
+                                            <th>Rating</th>
+                                            <th>Receipt</th>
                                         </tr>
                                     </thead>
-                                    <tbody id="ride-history-body">
-                                        <tr><td colspan="8" class="text-muted">Loading completed rides...</td></tr>
+                                    <tbody id="trip-history-body">
+                                        <tr><td colspan="7" class="text-muted">Loading trips...</td></tr>
                                     </tbody>
                                 </table>
                             </div>
+                            <div id="trip-history-pagination" class="d-flex justify-content-end gap-2 mt-2"></div>
+                        </div>
+                        <div class="panel-section">
+                            <div class="section-header">
+                                <div>
+                                    <h2>Payouts</h2>
+                                    <span>History of all payouts to your bank account.</span>
+                                </div>
+                            </div>
+                            <div class="table-wrap">
+                                <table class="table table-sm table-striped align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Amount</th>
+                                            <th>Status</th>
+                                            <th>Bank (last 4)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="payouts-body">
+                                        <tr><td colspan="4" class="text-muted">Loading payouts...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="panel-section">
+                            <div class="section-header">
+                                <div>
+                                    <h2>Bank Account</h2>
+                                    <span>Add or update your bank account for payouts.</span>
+                                </div>
+                            </div>
+                            <form id="bank-account-form" class="row g-2 align-items-end">
+                                <div class="col-md-3">
+                                    <label class="form-label" for="bank-name">Bank Name</label>
+                                    <input id="bank-name" type="text" class="form-control" placeholder="Chase" required>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label" for="account-holder-name">Account Holder Name</label>
+                                    <input id="account-holder-name" type="text" class="form-control" placeholder="John Smith" required>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label" for="routing-number">Routing Number</label>
+                                    <input id="routing-number" type="text" class="form-control" placeholder="123456789" maxlength="9" required>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label" for="account-number">Account Number</label>
+                                    <input id="account-number" type="text" class="form-control" placeholder="XXXX" required>
+                                </div>
+                                <div class="col-md-2 d-grid">
+                                    <button class="primary-action" type="submit">Save Bank Account</button>
+                                </div>
+                            </form>
+                            <div id="bank-account-msg" class="mt-2"></div>
                         </div>
                     </section>
 

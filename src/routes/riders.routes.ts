@@ -34,5 +34,7 @@ router.put('/profile', controller.update_profile);
 router.get('/places', controller.get_places);
 router.put('/places', validateBody(placesSchema), controller.update_places);
 router.post('/location', validateBody(locationSchema), controller.location);
+router.get('/trips', controller.riderTrips);
+router.get('/trips/:rideId/receipt', controller.riderTripReceipt);
 
 export default router;

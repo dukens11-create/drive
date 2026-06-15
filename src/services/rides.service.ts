@@ -11,6 +11,7 @@ import {
   pushWalletTx,
   store,
   timestamp,
+  type DriverEarning,
   type Ride,
   type RideFareDetails,
   type RideLifecycleState,
@@ -1373,15 +1374,21 @@ export async function complete(body: any, _params?: any, _query?: any) {
   const driverPayoutCents = amountToCents(ride.fareDetails.driverEarnings);
   if (ride.driverId) {
     pushWalletTx(ride.driverId, 'credit', driverPayoutCents, `ride:${ride.id}:payout`);
-
-    // Append DriverEarning record with full breakdown
-    store.driverEarnings.push({
+    const driverEarning: DriverEarning = {
       id: makeId('earning'),
       driverId: ride.driverId,
       rideId: ride.id,
+      type: 'ride',
       amountCents: driverPayoutCents,
-      grossFare: ride.grossFare,
-      platformFee: ride.platformFee,
+      baseFareCents: amountToCents(ride.fareDetails.baseFare),
+      distanceFareCents: amountToCents(ride.fareDetails.distanceFare),
+      timeFareCents: amountToCents(ride.fareDetails.timeFare),
+      surgeFareCents: amountToCents(ride.fareDetails.surgeFare),
+      tipsCents: amountToCents(ride.fareDetails.tips),
+      serviceFeeCents: amountToCents(ride.fareDetails.serviceFee),
+      surgeMultiplier: ride.fareDetails.surgeMultiplier,
+      grossFare: ride.grossFare ?? grossCents,
+      platformFee: ride.platformFee ?? amountToCents(ride.fareDetails.serviceFee),
       platformFeePercent: commissionRate,
       rideType: ride.vehicleType || 'economy',
       tips: amountToCents(ride.fareDetails.tips),
@@ -1389,8 +1396,12 @@ export async function complete(body: any, _params?: any, _query?: any) {
       tolls: amountToCents(ride.fareDetails.tolls),
       completedAt,
       createdAt: completedAt
-    });
-
+    };
+    store.driverEarnings.push(driverEarning);
+    const profileToUpdate = store.drivers.get(ride.driverId);
+    if (profileToUpdate) {
+      profileToUpdate.earningsCents = (profileToUpdate.earningsCents || 0) + driverPayoutCents;
+    }
     await pushRideNotification(
       ride.driverId,
       'earnings',

@@ -165,19 +165,29 @@ export type ReferralEvent = {
   createdAt: string;
 };
 
+export type DriverEarningType = 'ride' | 'bonus' | 'referral' | 'adjustment';
+
 export type DriverEarning = {
   id: string;
   driverId: string;
-  rideId: string;
-  amountCents: number;         // driverPayout
-  grossFare: number;           // Subtotal (cents)
-  platformFee: number;         // Commission amount (cents)
-  platformFeePercent: number;  // Commission rate (0.08, 0.10, 0.12)
-  rideType: string;
-  tips: number;                // Tips in cents
-  taxes: number;               // Taxes in cents
-  tolls: number;               // Tolls in cents
-  completedAt: string;
+  rideId?: string;
+  type: DriverEarningType;
+  amountCents: number;
+  baseFareCents?: number;
+  distanceFareCents?: number;
+  timeFareCents?: number;
+  surgeFareCents?: number;
+  tipsCents?: number;
+  serviceFeeCents?: number;
+  surgeMultiplier?: number;
+  grossFare?: number;
+  platformFee?: number;
+  platformFeePercent?: number;
+  rideType?: string;
+  tips?: number;
+  taxes?: number;
+  tolls?: number;
+  completedAt?: string;
   createdAt: string;
 };
 

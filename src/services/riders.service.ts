@@ -265,3 +265,75 @@ export async function updatePlaces(body: any, _params?: any, _query?: any) {
 
   return { module: 'riders', action: 'update-places', ok: true, places: profile.savedPlaces };
 }
+
+export async function riderTrips(body: any, _params?: any, query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'riders', action: 'trips', error: 'actor ID is required' };
+  const profile = store.riders.get(userId);
+  if (!profile) return { module: 'riders', action: 'trips', error: 'rider not found' };
+
+  let rides = Array.from(store.rides.values()).filter(r => r.riderId === userId && r.status === 'completed');
+
+  const from = query?.from ? new Date(query.from) : null;
+  const to = query?.to ? new Date(query.to) : null;
+  if (from) rides = rides.filter(r => r.completedAt && new Date(r.completedAt) >= from!);
+  if (to) rides = rides.filter(r => r.completedAt && new Date(r.completedAt) <= to!);
+
+  const sort = query?.sort || 'newest';
+  if (sort === 'newest') rides.sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
+  else if (sort === 'oldest') rides.sort((a, b) => (a.completedAt || '').localeCompare(b.completedAt || ''));
+
+  const limit = Math.min(100, Math.max(1, Number(query?.limit || 20)));
+  const offset = Math.max(0, Number(query?.offset || 0));
+  const total = rides.length;
+  const page = rides.slice(offset, offset + limit).map(r => {
+    const driverUser = r.driverId ? store.users.get(r.driverId) : undefined;
+    return {
+      rideId: r.id,
+      driverId: r.driverId,
+      driverName: driverUser?.email?.split('@')[0] || 'Driver',
+      pickupAddress: r.pickupAddress,
+      dropoffAddress: r.dropoffAddress,
+      distance: r.miles,
+      duration: r.minutes,
+      fare: r.fareDetails?.total,
+      rating: r.rating,
+      completedAt: r.completedAt,
+      receiptUrl: `/api/riders/trips/${r.id}/receipt`
+    };
+  });
+
+  return { module: 'riders', action: 'trips', ok: true, total, limit, offset, trips: page };
+}
+
+export async function riderTripReceipt(body: any, params?: any, _query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'riders', action: 'trip-receipt', error: 'actor ID is required' };
+  const rideId = params?.rideId;
+  if (!rideId) return { module: 'riders', action: 'trip-receipt', error: 'rideId is required' };
+
+  const ride = store.rides.get(rideId);
+  if (!ride) return { module: 'riders', action: 'trip-receipt', error: 'ride not found' };
+  if (ride.riderId !== userId) return { module: 'riders', action: 'trip-receipt', error: 'access denied' };
+  if (ride.status !== 'completed') return { module: 'riders', action: 'trip-receipt', error: 'receipt only available for completed rides' };
+
+  const driverUser = ride.driverId ? store.users.get(ride.driverId) : undefined;
+  const riderUser = store.users.get(userId);
+
+  return {
+    module: 'riders',
+    action: 'trip-receipt',
+    ok: true,
+    receipt: {
+      rideId: ride.id,
+      riderName: riderUser?.email?.split('@')[0] || 'Rider',
+      driverName: driverUser?.email?.split('@')[0] || 'Driver',
+      pickupAddress: ride.pickupAddress,
+      dropoffAddress: ride.dropoffAddress,
+      distance: ride.miles,
+      duration: ride.minutes,
+      completedAt: ride.completedAt,
+      fareDetails: ride.fareDetails
+    }
+  };
+}
