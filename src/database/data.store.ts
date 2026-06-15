@@ -1399,6 +1399,7 @@ function createSeedRiderProfile(userId: string): RiderProfile {
   return {
     userId,
     favoriteLocations: [],
+    savedPlaces: [],
     rating: 5,
     reviewCount: 0
   };

@@ -183,6 +183,7 @@ function ensureRiderProfile(riderId: string): RiderProfile {
   const profile = {
     userId: riderId,
     favoriteLocations: [],
+    savedPlaces: [],
     rating: 5,
     reviewCount: 0
   };

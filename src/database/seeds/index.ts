@@ -138,6 +138,7 @@ async function runSeeds() {
   store.riders.set(riderId1, {
     userId: riderId1,
     favoriteLocations: [],
+    savedPlaces: [],
     rating: 5,
     reviewCount: 0
   });
@@ -155,6 +156,7 @@ async function runSeeds() {
   store.riders.set(riderId2, {
     userId: riderId2,
     favoriteLocations: [],
+    savedPlaces: [],
     rating: 5,
     reviewCount: 0
   });
