@@ -46,6 +46,8 @@ const MAX_DRIVER_ETA_MINUTES = 8;
 const DRIVER_START_POSITION_OFFSET = 0.04; // ~2–3 miles in lat/lng degrees
 const DRIVER_ASSIGN_DELAY_MIN_MS = 3000;
 const DRIVER_ASSIGN_DELAY_MAX_MS = 5000;
+const DRIVER_LOCATION_UPDATE_INTERVAL_MS = 2500;
+const MILES_PER_LAT_DEGREE = 69; // approximate miles per degree of latitude at mid-latitudes
 const MIN_VALID_VEHICLE_YEAR = 1900;
 const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'assigned', 'arrived_at_pickup', 'started'];
 const DRIVER_VISIBLE_RIDE_STATUSES = ['assigned', 'arrived_at_pickup', 'started'];
@@ -88,6 +90,28 @@ const MOCK_DRIVER_POOL = [
   { name: 'Chris A.', vehicle: 'Chevrolet Malibu 2023', plate: 'BVP 4417', rating: 4.92, avatarInitial: 'C' }
 ];
 
+const DEMO_DRIVER = {
+  driverId: 'driver_demo_1',
+  name: 'John Smith',
+  rating: 4.9,
+  photoUrl: '/assets/drivers/demo-driver.png',
+  phone: '555-555-5555',
+  vehicle: {
+    photoUrl: '/assets/vehicles/economy-car.png',
+    make: 'Toyota',
+    model: 'Camry',
+    year: '2022',
+    color: 'White',
+    plate: 'FLP-123'
+  },
+  etaMinutes: 4,
+  distanceAway: '0.8 mi',
+  location: {
+    lat: 37.7749,
+    lng: -122.4194
+  }
+};
+
 let currentUser = null;
 let accessToken = '';
 let refreshToken = '';
@@ -110,6 +134,8 @@ let searchingDotsIntervalId = null;
 let etaCountdownIntervalId = null;
 let statusProgressionTimerId = null;
 let assignedDriver = null;
+let currentDriver = null;
+let driverLocationSimIntervalId = null;
 let estimateRetryCount = 0;
 let estimateRetryTimerId = null;
 let latestKnownRiderPosition = null;
@@ -2391,6 +2417,12 @@ function syncMapMarkers(pickup, destination) {
   } else if (mapState.markers.driver) {
     mapState.markers.driver.remove();
     mapState.lastDriverPosition = null;
+    // Also remove the driver-car symbol layer/source if present
+    const map = mapState.map;
+    if (map) {
+      if (map.getLayer('driver-car')) map.removeLayer('driver-car');
+      if (map.getSource('driver-car')) map.removeSource('driver-car');
+    }
   }
 }
 
@@ -2761,7 +2793,9 @@ async function handleCancelRide() {
   setCancelModalOpen(false);
   stopStatusProgression();
   stopEtaCountdown();
+  stopDriverLocationSim();
   assignedDriver = null;
+  currentDriver = null;
   setButtonLoading('cancel-ride-button', true);
   try {
     const canceledRide = await cancelRide(rideId);
@@ -2978,6 +3012,143 @@ function pickRandomDriver() {
   return MOCK_DRIVER_POOL[index];
 }
 
+function addDriverMarkerToMap(driver) {
+  if (!mapState.mapLoaded || !mapState.map) return;
+  const map = mapState.map;
+  const driverLat = Number(driver?.location?.lat || driver?.lat || 0);
+  const driverLng = Number(driver?.location?.lng || driver?.lng || 0);
+  if (!Number.isFinite(driverLat) || !Number.isFinite(driverLng)) return;
+
+  const geojsonData = {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      properties: { driverName: driver?.name || 'Driver' },
+      geometry: { type: 'Point', coordinates: [driverLng, driverLat] }
+    }]
+  };
+
+  const setupSymbolLayer = () => {
+    if (map.getSource('driver-car')) {
+      map.getSource('driver-car').setData(geojsonData);
+      if (!map.getLayer('driver-car')) {
+        map.addLayer({
+          id: 'driver-car',
+          type: 'symbol',
+          source: 'driver-car',
+          layout: {
+            'icon-image': 'driver-car-icon',
+            'icon-size': 0.6,
+            'icon-allow-overlap': true,
+            'icon-anchor': 'bottom'
+          }
+        });
+      }
+    } else {
+      map.addSource('driver-car', { type: 'geojson', data: geojsonData });
+      if (!map.getLayer('driver-car')) {
+        map.addLayer({
+          id: 'driver-car',
+          type: 'symbol',
+          source: 'driver-car',
+          layout: {
+            'icon-image': 'driver-car-icon',
+            'icon-size': 0.6,
+            'icon-allow-overlap': true,
+            'icon-anchor': 'bottom'
+          }
+        });
+      }
+    }
+  };
+
+  if (map.hasImage('driver-car-icon')) {
+    setupSymbolLayer();
+  } else {
+    map.loadImage('/assets/vehicles/economy-car.png', (error, image) => {
+      if (error || !image) {
+        // Fall back to DOM marker if image cannot be loaded
+        simulateDriverMovementOnMap(driverLat, driverLng);
+        return;
+      }
+      if (!map.hasImage('driver-car-icon')) {
+        map.addImage('driver-car-icon', image);
+      }
+      setupSymbolLayer();
+    });
+  }
+
+  mapState.lastDriverPosition = { lat: driverLat, lng: driverLng };
+}
+
+function updateDriverMarkerLocation(newLat, newLng) {
+  if (!mapState.mapLoaded || !mapState.map) return;
+  if (!Number.isFinite(newLat) || !Number.isFinite(newLng)) return;
+  const map = mapState.map;
+  if (map.getSource('driver-car')) {
+    map.getSource('driver-car').setData({
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Point', coordinates: [newLng, newLat] }
+      }]
+    });
+  } else if (mapState.markers.driver) {
+    if (mapState.lastDriverPosition) {
+      animateDriverMarkerTo(mapState.markers.driver, mapState.lastDriverPosition, { lat: newLat, lng: newLng });
+    } else {
+      mapState.markers.driver.setLngLat([newLng, newLat]);
+    }
+  }
+  mapState.lastDriverPosition = { lat: newLat, lng: newLng };
+}
+
+function stopDriverLocationSim() {
+  if (driverLocationSimIntervalId) {
+    window.clearInterval(driverLocationSimIntervalId);
+    driverLocationSimIntervalId = null;
+  }
+}
+
+function simulateDriverLocationUpdates(pickupLat, pickupLng) {
+  stopDriverLocationSim();
+  if (!mapState.lastDriverPosition) return;
+  let currentLat = mapState.lastDriverPosition.lat;
+  let currentLng = mapState.lastDriverPosition.lng;
+  let etaSeconds = (currentDriver?.etaMinutes || 4) * 60;
+
+  driverLocationSimIntervalId = window.setInterval(() => {
+    // Move 5% closer to pickup each interval
+    const stepFraction = 0.05;
+    currentLat += (pickupLat - currentLat) * stepFraction;
+    currentLng += (pickupLng - currentLng) * stepFraction;
+
+    updateDriverMarkerLocation(currentLat, currentLng);
+
+    // Update ETA
+    etaSeconds = Math.max(0, etaSeconds - DRIVER_LOCATION_UPDATE_INTERVAL_MS / 1000);
+    const etaMins = Math.ceil(etaSeconds / 60);
+    if (etaCountdownIntervalId === null) {
+      animateNumericText('driver-eta', formatMinutes(etaMins));
+      animateNumericText('driver-countdown', formatMinutes(etaMins));
+    }
+
+    // Update distance using approximate miles per degree of latitude
+    const dLat = pickupLat - currentLat;
+    const dLng = pickupLng - currentLng;
+    const distanceDeg = Math.sqrt(dLat * dLat + dLng * dLng);
+    const distanceMi = (distanceDeg * MILES_PER_LAT_DEGREE).toFixed(1);
+    safeSetText('driver-distance-away', `${distanceMi} mi`);
+
+    if (etaSeconds <= 0) {
+      stopDriverLocationSim();
+    }
+  }, DRIVER_LOCATION_UPDATE_INTERVAL_MS);
+}
+
+// Fallback: creates a DOM-element driver marker when the image-based symbol layer
+// (driver-car) cannot be loaded (e.g. missing PNG asset or map not ready).
 function simulateDriverMovementOnMap(pickupLat, pickupLng) {
   if (!mapState.mapLoaded || !mapState.map) return;
   const startLat = pickupLat + (Math.random() - 0.5) * DRIVER_START_POSITION_OFFSET;
@@ -3003,38 +3174,39 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
   stopStatusProgression();
 
   statusProgressionTimerId = window.setTimeout(() => {
-    const driver = pickRandomDriver();
+    // Use the DEMO_DRIVER as the assigned driver
+    const driver = {
+      ...DEMO_DRIVER,
+      driverId: `driver_${Date.now()}`,
+      location: {
+        lat: pickupLat + (Math.random() - 0.5) * DRIVER_START_POSITION_OFFSET,
+        lng: pickupLng + (Math.random() - 0.5) * DRIVER_START_POSITION_OFFSET
+      }
+    };
     assignedDriver = driver;
-    const assignedDriverId = `driver_${Date.now()}`;
-    const driverEta = MIN_DRIVER_ETA_MINUTES + Math.floor(Math.random() * (MAX_DRIVER_ETA_MINUTES - MIN_DRIVER_ETA_MINUTES));
-    const driverDistance = (0.3 + Math.random() * 2.5).toFixed(1);
-
-    const vehicleLabel = String(driver.vehicle || '').trim();
-    const yearMatch = vehicleLabel.match(/\b(19\d{2}|20\d{2})\b/);
-    const vehicleYear = yearMatch ? Number(yearMatch[1]) : null;
-    const vehicleWithoutYear = vehicleLabel.replace(/\s*\b\d{4}\b\s*/, ' ').trim();
-    const vehicleParts = vehicleWithoutYear.split(/\s+/).filter(Boolean);
-    const vehicleMake = vehicleParts[0] || '';
-    const vehicleModel = vehicleParts.length > 1 ? vehicleParts.slice(1).join(' ') : '';
+    currentDriver = driver;
+    const driverEta = driver.etaMinutes || MIN_DRIVER_ETA_MINUTES;
+    const driverDistance = driver.distanceAway || '0.8 mi';
 
     applyRideStatusUpdate(rideId, {
       status: 'assigned',
-      driverId: assignedDriverId,
+      driverId: driver.driverId,
       driverName: driver.name,
-      distanceAway: Number(driverDistance),
+      distanceAway: driverDistance,
       driver: {
-        id: assignedDriverId,
+        id: driver.driverId,
         name: driver.name,
         rating: driver.rating,
-        photoUrl: driver.photoUrl || null,
-        distanceAway: Number(driverDistance),
+        photoUrl: driver.photoUrl,
+        phone: driver.phone,
+        distanceAway: driverDistance,
         vehicle: {
-          make: vehicleMake,
-          model: vehicleModel,
-          year: vehicleYear && vehicleYear > MIN_VALID_VEHICLE_YEAR ? vehicleYear : null,
-          color: driver.color || '',
-          plate: driver.plate || '',
-          photoUrl: driver.vehiclePhotoUrl || null
+          make: driver.vehicle.make,
+          model: driver.vehicle.model,
+          year: Number(driver.vehicle.year) || null,
+          color: driver.vehicle.color,
+          plate: driver.vehicle.plate,
+          photoUrl: driver.vehicle.photoUrl
         }
       },
       etaMinutes: driverEta,
@@ -3052,12 +3224,17 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
 
     renderDriverCard(driver, driverEta);
     startEtaCountdown(driverEta);
-    simulateDriverMovementOnMap(pickupLat, pickupLng);
+
+    // Add car icon marker to map using map.loadImage()
+    addDriverMarkerToMap(driver);
+    // Start periodic location updates simulating approach to pickup
+    simulateDriverLocationUpdates(pickupLat, pickupLng);
 
     // Simulate driver arriving
     statusProgressionTimerId = window.setTimeout(() => {
       applyRideStatusUpdate(currentRide?.id, { status: 'arrived_at_pickup', etaMinutes: 0 });
       stopEtaCountdown();
+      stopDriverLocationSim();
       animateNumericText('driver-eta', 'Here now');
       animateNumericText('driver-countdown', 'Here now');
     }, driverEta * 60 * 1000);
@@ -4311,6 +4488,9 @@ function setupHandlers() {
   document.getElementById('cancel-ride-button')?.addEventListener('click', () => {
     handleCancelRideClick();
   });
+  document.getElementById('btn-cancel-ride-from-card')?.addEventListener('click', () => {
+    handleCancelRideClick();
+  });
   document.getElementById('cancel-modal-confirm')?.addEventListener('click', () => {
     handleCancelRide().catch(err => showToast((err instanceof Error && err.message) || 'Unable to cancel ride.', 'error'));
   });
@@ -4646,6 +4826,7 @@ function setupHandlers() {
     if (etaCountdownIntervalId) window.clearInterval(etaCountdownIntervalId);
     if (statusProgressionTimerId) window.clearTimeout(statusProgressionTimerId);
     if (estimateRetryTimerId) window.clearTimeout(estimateRetryTimerId);
+    if (driverLocationSimIntervalId) window.clearInterval(driverLocationSimIntervalId);
     if (mapState.routeAnimationTimer) window.clearInterval(mapState.routeAnimationTimer);
     if (mapState.pendingDriverAnimation) window.cancelAnimationFrame(mapState.pendingDriverAnimation);
     Object.values(geocodeDebounceTimers).forEach(timer => window.clearTimeout(timer));
