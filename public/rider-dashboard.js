@@ -2564,7 +2564,7 @@ function showReceiptModal(ride) {
   safeSetText('receipt-driver-rating', `${driverRating} \u2b50`);
   safeSetText('receipt-driver-vehicle', vehicleDisplay.title);
   safeSetText('receipt-driver-plate', vehicleDisplay.plate);
-  safeSetText('receipt-driver-initial', driverName[0] || '?');
+  safeSetText('receipt-driver-initial', (driverName && driverName[0]) || '?');
   safeSetText('receipt-distance', formatMiles(ride.miles));
   safeSetText('receipt-duration', formatMinutes(ride.minutes));
   safeSetText('receipt-payment-method', labelForPaymentMethod(ride.paymentMethod));
@@ -2685,7 +2685,7 @@ function showRatingModal(ride) {
   const driverRating = Number(driver.rating || 4.9).toFixed(2);
   safeSetText('rating-driver-name', driverName);
   safeSetText('rating-driver-current-rating', `${driverRating} \u2b50`);
-  safeSetText('rating-driver-initial', driverName[0] || '?');
+  safeSetText('rating-driver-initial', (driverName && driverName[0]) || '?');
   selectedStarRating = 0;
   updateStarDisplay(0);
   const commentEl = document.getElementById('rating-comment');
@@ -2790,8 +2790,8 @@ function buildHistoryCardHtml(ride) {
   const destination = truncateAddress(ride.destinationLabel);
   const datetime = formatTripDateTime(ride.completedAt || ride.updatedAt || ride.canceledAt);
   const statusClass = ride.status === 'completed' ? 'history-status-badge--completed' : 'history-status-badge--canceled';
-  const statusLabel = ride.status === 'completed' ? 'Completed' : 'Cancelled';
-  const initial = driverName[0] || '?';
+  const statusLabel = ride.status === 'completed' ? 'Completed' : 'Canceled';
+  const initial = (driverName && driverName[0]) || '?';
   const ratingStr = driverRating !== '0.0' ? ` \u00b7 ${escapeHtml(driverRating)} \u2b50` : '';
   return `<li class="history-trip-card" data-ride-id="${escapeHtml(ride.id)}" role="button" tabindex="0" aria-label="Trip on ${escapeHtml(datetime)}">
   <div class="history-trip-header">
@@ -2859,6 +2859,7 @@ function switchPanelTab(tab) {
 }
 
 function setupHandlers() {
+  document.getElementById('logout-button')?.addEventListener('click', handleLogout);
   document.getElementById('request-ride-button')?.addEventListener('click', () => {
     handleRequestRide().catch(() => showPopup('Unable to book a ride.'));
   });
