@@ -5,6 +5,7 @@ import { checkSuspension } from './suspension.middleware';
 export function requireAuth(req: any, res: any, next: any) {
   const header = req.headers.authorization;
   if (typeof header !== 'string' || !header.startsWith('Bearer ')) {
+    console.warn('[AUTH] Missing Authorization header');
     return res.status(401).json({
       error: 'Missing token',
       errorCode: 'AUTH_TOKEN_MISSING',
@@ -13,6 +14,7 @@ export function requireAuth(req: any, res: any, next: any) {
   }
   try {
     const token = header.slice('Bearer '.length).trim();
+    console.log('[AUTH] Backend verifying token', { tokenLength: token.length });
     const payload = jwt.verify(token, env.jwtSecret, {
       issuer: 'flupflap-ride-api',
       audience: 'flupflap-ride-clients'
@@ -27,8 +29,12 @@ export function requireAuth(req: any, res: any, next: any) {
     }
 
     req.user = { id: payload.sub, role: payload.role, email: payload.email, phone: payload.phone };
+    console.log('[AUTH] Backend auth decoded user', req.user);
     checkSuspension(req, res, next);
-  } catch {
+  } catch (error) {
+    console.warn('[AUTH] Backend token verification failed', {
+      message: error instanceof Error ? error.message : 'unknown error'
+    });
     res.status(401).json({
       error: 'Invalid token',
       errorCode: 'AUTH_TOKEN_INVALID',

@@ -64,6 +64,27 @@ test('seeded rider and driver test accounts can login', async () => {
   assert.equal(driver.user?.role, 'driver');
 });
 
+test('driver login access tokens are accepted by protected driver routes', async () => {
+  const driver = await authService.login({
+    email: 'driver@test.com',
+    password: env.testDriverSeedPassword
+  });
+  assert.equal(driver.ok, true);
+  assert.equal(typeof driver.accessToken, 'string');
+
+  await withServer(async baseUrl => {
+    const response = await fetch(`${baseUrl}/api/drivers/me`, {
+      headers: {
+        authorization: 'Bearer ' + driver.accessToken
+      }
+    });
+    assert.equal(response.status, 200);
+    const payload = await response.json() as { ok: boolean; profile: { userId: string } };
+    assert.equal(payload.ok, true);
+    assert.equal(payload.profile.userId, driver.user?.id);
+  });
+});
+
 test('auth middleware returns explicit missing-token diagnostics', async () => {
   await withServer(async baseUrl => {
     const response = await fetch(`${baseUrl}/api/auth/sessions`);

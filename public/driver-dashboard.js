@@ -58,6 +58,130 @@ const RIDE_REQUEST_HISTORY_LIMIT = 60;
 const RIDE_REQUEST_ANALYTICS_LIMIT = 120;
 const RIDE_POPUP_TERMINAL_STATE_MS = 1500;
 const RIDE_ALERT_MUTE_WINDOW_MS = 5 * 60 * 1000;
+const LOGIN_REDIRECT_PATH = '/drivers.html';
+const AUTH_TOKEN_STORAGE_KEYS = ['drive_token', 'authToken', 'accessToken', 'token', 'drive.accessToken'];
+const AUTH_REFRESH_TOKEN_STORAGE_KEYS = ['refreshToken', 'drive.refreshToken'];
+const AUTH_USER_STORAGE_KEYS = ['user', 'drive_user', 'drive.user'];
+
+function getFirstStoredValue(keys) {
+  for (const key of keys) {
+    const value = String(localStorage.getItem(key) || '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+function logAuthStorageState() {
+  const snapshot = {
+    token: localStorage.getItem('token'),
+    authToken: localStorage.getItem('authToken'),
+    accessToken: localStorage.getItem('accessToken'),
+    driveToken: localStorage.getItem('drive_token'),
+    driveAccessToken: localStorage.getItem('drive.accessToken'),
+    user: localStorage.getItem('user'),
+    driveUser: localStorage.getItem('drive_user'),
+    driveDotUser: localStorage.getItem('drive.user')
+  };
+  console.log('localStorage', snapshot);
+  console.log('[AUTH] localStorage keys', Object.keys(localStorage));
+  return snapshot;
+}
+
+function getAuthToken() {
+  for (const key of AUTH_TOKEN_STORAGE_KEYS) {
+    const value = String(localStorage.getItem(key) || '').trim();
+    if (value) {
+      console.log(`[AUTH] Token found in "${key}" (${value.length} chars)`);
+      return value;
+    }
+  }
+  console.warn('[AUTH] Token missing in localStorage');
+  return '';
+}
+
+function getStoredRefreshToken() {
+  return getFirstStoredValue(AUTH_REFRESH_TOKEN_STORAGE_KEYS);
+}
+
+function getStoredUserPayload() {
+  const userPayload = getFirstStoredValue(AUTH_USER_STORAGE_KEYS);
+  console.log(`[AUTH] User payload ${userPayload ? 'found' : 'missing'}`);
+  return userPayload;
+}
+
+function redirectToDriverLogin(message = 'Please log in again.') {
+  console.warn('[AUTH] Redirecting to driver login', { message });
+  const alertDiv = document.getElementById('driver-alert');
+  if (alertDiv) {
+    alertDiv.className = 'alert alert-warning floating-alert';
+    alertDiv.classList.remove('d-none');
+    alertDiv.textContent = message;
+  }
+  sessionStorage.setItem('authRedirectMessage', message);
+  window.setTimeout(() => {
+    window.location.replace(LOGIN_REDIRECT_PATH);
+  }, 150);
+}
+
+function setupSession() {
+  logAuthStorageState();
+  accessToken = getAuthToken() || null;
+  refreshToken = getStoredRefreshToken() || null;
+  const userStr = getStoredUserPayload();
+
+  console.log('[AUTH] Session validation starting', {
+    hasToken: Boolean(accessToken),
+    tokenLength: accessToken?.length || 0,
+    hasRefreshToken: Boolean(refreshToken),
+    hasUser: Boolean(userStr)
+  });
+
+  if (!accessToken) {
+    redirectToDriverLogin('Please log in again.');
+    return false;
+  }
+
+  if (!userStr) {
+    redirectToDriverLogin('Please log in again.');
+    return false;
+  }
+
+  try {
+    currentUser = JSON.parse(userStr);
+  } catch (error) {
+    console.error('[AUTH] Unable to parse stored driver session', { error, userStr });
+    redirectToDriverLogin('Please log in again.');
+    return false;
+  }
+
+  const role = String(currentUser?.role || '').toLowerCase();
+  console.log('[AUTH] Session user parsed', {
+    userId: currentUser?.id || null,
+    role
+  });
+
+  if (!currentUser?.id || role !== 'driver') {
+    console.warn('[AUTH] Invalid driver session role payload', { user: currentUser });
+    redirectToDriverLogin('Please log in again.');
+    return false;
+  }
+
+  if (!localStorage.getItem('accessToken')) localStorage.setItem('accessToken', accessToken);
+  if (refreshToken && !localStorage.getItem('refreshToken')) localStorage.setItem('refreshToken', refreshToken);
+  if (!localStorage.getItem('user')) localStorage.setItem('user', userStr);
+
+  console.log('[AUTH] Session setup complete', {
+    userId: currentUser.id,
+    tokenLength: accessToken.length,
+    hasRefreshToken: Boolean(refreshToken)
+  });
+  return true;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const ok = setupSession();
+  console.log('[AUTH] DOMContentLoaded setup complete', { ok });
+});
 
 const DEFAULT_FALLBACK_LAT = 37.7749;
 const DEFAULT_FALLBACK_LNG = -122.4194;
@@ -122,6 +246,7 @@ const SIMULATION_WAYPOINTS = [
 // ─── App State ────────────────────────────────────────────────────────────────
 let currentUser = null;
 let accessToken = null;
+let refreshToken = null;
 let currentProfile = null;
 let isProfileLoading = false;
 let nearbyRideRequests = [];
@@ -285,8 +410,12 @@ let rideRequestPopupState = {
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 function showAlert(kind, message) {
+  const logger = kind === 'danger' ? console.error : kind === 'warning' ? console.warn : console.log;
+  logger(`[ALERT] ${kind}: ${message}`);
   const alertDiv = document.getElementById('driver-alert');
+  if (!alertDiv) return;
   alertDiv.className = `alert alert-${kind} floating-alert`;
+  alertDiv.setAttribute('role', 'alert');
   alertDiv.classList.remove('d-none');
   alertDiv.textContent = message;
   if (alertTimeoutId) clearTimeout(alertTimeoutId);
@@ -309,13 +438,62 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
-async function fetchJson(url, options) {
-  const response = await fetch(url, options);
+async function fetchJson(url, options = {}) {
+  const method = String(options?.method || 'GET').toUpperCase();
+  const token = getAuthToken();
+  const isFormDataBody = typeof FormData !== 'undefined' && options?.body instanceof FormData;
+  const headers = new Headers(options?.headers || {});
+
+  accessToken = token || null;
+  if (token) {
+    headers.set('Authorization', 'Bearer ' + token);
+  } else {
+    headers.delete('Authorization');
+  }
+  if (!isFormDataBody && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  console.log('[AUTH] Request token status', {
+    found: Boolean(token),
+    length: token.length
+  });
+  console.log('[API] Request', {
+    url,
+    method,
+    tokenSent: Boolean(token),
+    tokenLength: token.length
+  });
+
+  if (!token && String(url).includes('/api/')) {
+    showAlert('warning', 'Please log in again.');
+    redirectToDriverLogin('Please log in again.');
+    throw new Error('Authentication token missing');
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers
+  });
   let data;
   try {
     data = await response.json();
   } catch (_error) {
-    throw new Error('Unexpected server response.');
+    data = null;
+  }
+  console.log('[API] Response', {
+    url,
+    method,
+    status: response.status,
+    data
+  });
+  if (response.status === 401) {
+    console.warn('[AUTH] Backend rejected token', {
+      url,
+      method,
+      status: response.status,
+      error: data?.error || data?.message || 'Unauthorized'
+    });
   }
   return { response, data };
 }
@@ -5069,12 +5247,26 @@ async function loadVehicleProfile() {
 async function uploadVehiclePhoto(file) {
   const formData = new FormData();
   formData.append('photo', file);
+  const token = getAuthToken();
+  if (!token) {
+    showAlert('warning', 'Please log in again.');
+    redirectToDriverLogin('Please log in again.');
+    throw new Error('Authentication token missing');
+  }
+  console.log('[AUTH] Token sent for vehicle photo upload', { length: token.length });
+  console.log('[API] Request', { url: `${API_BASE_URL}/api/drivers/vehicle/photo`, method: 'POST' });
   const response = await fetch(`${API_BASE_URL}/api/drivers/vehicle/photo`, {
     method: 'POST',
-    headers: { Authorization: 'Bearer ' + accessToken },
+    headers: { Authorization: 'Bearer ' + token },
     body: formData
   });
   const payload = await response.json().catch(() => null);
+  console.log('[API] Response', {
+    url: `${API_BASE_URL}/api/drivers/vehicle/photo`,
+    method: 'POST',
+    status: response.status,
+    data: payload
+  });
   if (!response.ok || !payload?.ok || !payload?.photoUrl) {
     throw new Error(payload?.error || 'Vehicle photo upload failed');
   }
@@ -5273,8 +5465,17 @@ function handleSupportSubmit(event) {
 async function toggleAvailability() {
   const current = getCurrentAvailability();
   const next = isOnlineAvailabilityStatus(current) ? 'offline' : 'online';
+  const token = getAuthToken();
+
+  if (!token) {
+    showAlert('warning', 'Please log in again.');
+    redirectToDriverLogin('Please log in again.');
+    return;
+  }
 
   try {
+    accessToken = token;
+    console.log('[AUTH] Token sent for availability update', { length: token.length, nextStatus: next });
     console.log(next === 'online' ? '[DRIVER] Go Online clicked' : '[DRIVER] Go Offline clicked');
     if (next === 'online') {
       await ensureDriverLocation();
@@ -5345,7 +5546,7 @@ function handleLogout() {
   stopLocationTracking();
   if (gpsSimulationIntervalId !== null) { window.clearInterval(gpsSimulationIntervalId); gpsSimulationIntervalId = null; }
   if (wakeLockSentinel && typeof wakeLockSentinel.release === 'function') wakeLockSentinel.release().catch(() => {});
-  ['accessToken', 'refreshToken', 'user', 'drive.accessToken', 'drive.refreshToken', 'drive.user'].forEach(key => {
+  ['token', 'authToken', 'accessToken', 'drive_token', 'refreshToken', 'user', 'drive_user', 'drive.accessToken', 'drive.refreshToken', 'drive.user'].forEach(key => {
     localStorage.removeItem(key);
   });
   window.location.href = '/index.html';
@@ -5508,40 +5709,7 @@ function startUiRefreshLoop() {
 
 // ─── Page Lifecycle ───────────────────────────────────────────────────────────
 window.addEventListener('load', async () => {
-  accessToken = localStorage.getItem('accessToken') || localStorage.getItem('drive.accessToken');
-  const refreshToken = localStorage.getItem('refreshToken') || localStorage.getItem('drive.refreshToken');
-  const userStr = localStorage.getItem('user') || localStorage.getItem('drive.user');
-
-  if (accessToken) {
-    console.log('[DRIVER] Access token found on page load');
-  } else {
-    console.warn('[DRIVER] Access token missing on page load');
-  }
-
-  if (!accessToken || !refreshToken || !userStr) {
-    console.error('Driver dashboard auth session is incomplete — redirecting to login', {
-      hasAccessToken: Boolean(accessToken),
-      hasRefreshToken: Boolean(refreshToken),
-      hasUser: Boolean(userStr)
-    });
-    sessionStorage.setItem('authRedirectMessage', 'Session expired. Please log in again.');
-    window.location.href = '/drivers.html';
-    return;
-  }
-
-  try {
-    currentUser = JSON.parse(userStr);
-  } catch (error) {
-    console.error('Unable to parse stored driver session', { error, userStr });
-    handleLogout();
-    return;
-  }
-
-  if (!currentUser?.id || (currentUser.role?.toLowerCase() || '') !== 'driver') {
-    console.error('Invalid driver session role payload', { user: currentUser });
-    console.log('[DRIVER] Auth redirect: role is not driver, redirecting to login');
-    sessionStorage.setItem('authRedirectMessage', 'Session expired. Please log in again.');
-    window.location.replace('/drivers.html');
+  if (!setupSession()) {
     return;
   }
 
