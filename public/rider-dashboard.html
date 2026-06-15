@@ -519,6 +519,26 @@
                   <i class="bi bi-chat-dots-fill"></i>
                   <span>Message</span>
                 </button>
+                <button id="btn-share-trip" type="button" class="driver-action-btn" aria-label="Share your trip" title="Share your trip">
+                  <i class="bi bi-share-fill"></i>
+                  <span>Share Trip</span>
+                </button>
+                <button id="btn-cancel-ride-from-card" type="button" class="driver-action-btn driver-action-btn--danger" aria-label="Cancel ride" title="Cancel ride">
+                  <i class="bi bi-x-circle-fill"></i>
+                  <span>Cancel Ride</span>
+                </button>
+              </div>
+              <div class="safety-actions-row d-none" id="safety-actions-row">
+                <button id="btn-sos" type="button" class="safety-btn safety-btn--sos" aria-label="Emergency SOS" title="Emergency SOS">
+                  <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
+                  <span>SOS</span>
+                </button>
+              </div>
+              <div id="voice-feedback" class="voice-feedback d-none" aria-live="polite">
+                <span class="voice-feedback-icon"><i class="bi bi-mic-fill"></i></span>
+                <span id="voice-feedback-text" class="voice-feedback-text">Listening…</span>
+              </div>
+              <div class="voice-controls-row" id="voice-controls-row">
                 <button id="btn-voice-command" type="button" class="driver-action-btn voice-btn" aria-label="Voice command" title="Voice command">
                   <i class="bi bi-mic-fill"></i>
                   <span>Voice</span>
@@ -527,12 +547,6 @@
                   <i class="bi bi-volume-up-fill"></i>
                   <span>Alerts</span>
                 </button>
-              </div>
-              <div id="voice-feedback" class="voice-feedback d-none" aria-live="polite">
-                <span class="voice-feedback-icon"><i class="bi bi-mic-fill"></i></span>
-                <span id="voice-feedback-text" class="voice-feedback-text">Listening…</span>
-              </div>
-              <div class="voice-controls-row" id="voice-controls-row">
                 <label class="voice-volume-label" for="voice-volume-slider">
                   <i class="bi bi-speaker-fill"></i> Alerts volume
                 </label>
@@ -614,63 +628,6 @@
                   </button>
                 </div>
 
-                <div id="driver-assigned-card" class="driver-card d-none" aria-live="polite">
-                  <div class="driver-card-header">
-                    <div class="driver-avatar-wrap">
-                      <div class="driver-avatar-circle">
-                        <img id="driver-avatar" class="driver-avatar-image d-none" alt="Driver profile photo">
-                        <span class="driver-avatar-initial">?</span>
-                      </div>
-                      <span class="driver-online-dot" aria-label="Driver online"></span>
-                    </div>
-                    <div class="driver-info-col">
-                      <div class="driver-info-name" id="driver-name">--</div>
-                      <div class="driver-info-vehicle" id="driver-vehicle">--</div>
-                      <div class="driver-info-plate">
-                        <i class="bi bi-credit-card-2-front" aria-hidden="true"></i>
-                        <span id="driver-plate">--</span>
-                      </div>
-                    </div>
-                    <div class="driver-eta-col">
-                      <div class="driver-countdown" id="driver-countdown">--</div>
-                      <div class="driver-eta-label">away</div>
-                    </div>
-                  </div>
-                  <div class="driver-vehicle-row">
-                    <div class="driver-vehicle-photo-wrap">
-                      <img id="driver-vehicle-photo" class="driver-vehicle-photo d-none" alt="Driver vehicle">
-                      <span id="driver-vehicle-icon" class="driver-vehicle-icon">🚗</span>
-                    </div>
-                    <div class="driver-vehicle-details">
-                      <div class="driver-vehicle-specs" id="driver-vehicle-specs"></div>
-                    </div>
-                  </div>
-                  <div class="driver-meta-row">
-                    <span class="driver-rating-badge">
-                      <span id="driver-rating">-- ⭐</span>
-                    </span>
-                    <span class="driver-location-text" id="driver-location">--</span>
-                  </div>
-                  <div class="driver-actions-row">
-                    <button id="btn-call-driver" type="button" class="driver-action-btn" aria-label="Call driver" title="Call driver">
-                      <i class="bi bi-telephone-fill"></i>
-                    </button>
-                    <button id="btn-message-driver" type="button" class="driver-action-btn" aria-label="Message driver" title="Message driver">
-                      <i class="bi bi-chat-dots-fill"></i>
-                    </button>
-                    <span class="driver-eta-chip">ETA: <span id="driver-eta">--</span></span>
-                  </div>
-                  <div class="safety-actions-row" id="safety-actions-row">
-                    <button id="btn-sos" type="button" class="safety-btn safety-btn--sos" aria-label="Emergency SOS" title="Emergency SOS">
-                      <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
-                      <span>SOS</span>
-                    </button>
-                    <button id="btn-share-trip" type="button" class="safety-btn safety-btn--share" aria-label="Share your trip" title="Share your trip">
-                      <i class="bi bi-share-fill" aria-hidden="true"></i>
-                      <span>Share Trip</span>
-                    </button>
-                  </div>
-                </div>
 
                 <ol id="trip-timeline" class="trip-timeline" aria-label="Trip progress timeline">
                   <li data-step="searching" class="timeline-step">
