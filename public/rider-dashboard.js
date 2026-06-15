@@ -1255,7 +1255,7 @@ function getStatusViewModel(ride) {
   if (status === 'arrived_at_pickup') return { pill: 'Arriving', message: 'Your driver has arrived at the pickup point.', step: 'arriving', headerStatus: 'Driver at pickup' };
   if (status === 'started') return { pill: 'In trip', message: 'You are on the way to your destination.', step: 'started', headerStatus: 'Ride in progress' };
   if (status === 'completed') return { pill: 'Completed', message: 'Ride completed successfully.', step: 'completed', headerStatus: 'Trip completed' };
-  if (status === 'canceled') return { pill: 'Canceled', message: 'Ride canceled.', step: null, headerStatus: 'Ride canceled' };
+  if (status === 'canceled') return { pill: 'Canceled', message: 'Ride canceled.', step: 'canceled', headerStatus: 'Ride canceled' };
   return { pill: 'Idle', message: 'Enter pickup and destination to request a ride.', step: null, headerStatus: 'Ready to ride' };
 }
 
@@ -1316,7 +1316,8 @@ function renderRideState() {
   // Phase 6: Trigger spoken alerts on status transitions
   if (currentRide?.status && currentRide.status !== lastSpokenRideStatus) {
     lastSpokenRideStatus = currentRide.status;
-    triggerSpokenAlert(state.step);
+    const spokenAlertState = state.step || currentRide.status;
+    triggerSpokenAlert(spokenAlertState);
   }
 
   // Phase 6: Show/hide voice controls with driver card
