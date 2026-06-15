@@ -46,6 +46,7 @@ const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'arrived_at_pickup', 'sta
 const TOAST_MAX_VISIBLE = 3;
 const LONG_DISTANCE_WARNING_MINUTES = 360;
 const SUPPORTED_COUNTRY = 'United States';
+const MINIMUM_STRIPE_AMOUNT_CENTS = 50;
 const MAX_RIDE_DISTANCE_MILES = {
   ECONOMY: 80,
   COMFORT: 150,
@@ -1586,7 +1587,10 @@ const PAYMENT_METHOD_OPTIONS = [
 ];
 
 function getSelectedPaymentConfig() {
-  return PAYMENT_METHOD_OPTIONS.find(m => m.id === selectedPaymentMethod) || PAYMENT_METHOD_OPTIONS[0];
+  const selected = PAYMENT_METHOD_OPTIONS.find(m => m.id === selectedPaymentMethod);
+  if (selected) return selected;
+  console.warn('[Payment] Unknown payment method selected, defaulting to card', { selectedPaymentMethod });
+  return PAYMENT_METHOD_OPTIONS[0];
 }
 
 function renderPaymentMethodPill() {
@@ -1627,7 +1631,7 @@ function setPaymentStatus(message = '', status = '') {
 async function getStripePublishableKey() {
   if (stripePublishableKeyPromise) return stripePublishableKeyPromise;
   stripePublishableKeyPromise = (async () => {
-    const metaKey = String(document.querySelector('meta[name="stripe-publishable-key"]')?.content || '').trim();
+    const metaKey = (document.querySelector('meta[name="stripe-publishable-key"]')?.getAttribute('content') ?? '').trim();
     if (metaKey) return metaKey;
     try {
       const { response, data } = await fetchJson('/api/config');
@@ -1638,6 +1642,14 @@ async function getStripePublishableKey() {
     return '';
   })();
   return stripePublishableKeyPromise;
+}
+
+function getPaymentAmountCents(ride) {
+  const fare = Number(ride?.fareEstimate ?? latestEstimate?.fareEstimate);
+  if (!Number.isFinite(fare) || fare <= 0) {
+    throw new Error('Could not determine fare for payment. Please update pickup or destination to refresh the fare estimate.');
+  }
+  return Math.max(MINIMUM_STRIPE_AMOUNT_CENTS, Math.round(fare * 100));
 }
 
 async function initializeStripe() {
@@ -1669,7 +1681,10 @@ async function ensurePaymentElement() {
       fontFamily: 'system-ui, -apple-system, sans-serif'
     }
   };
-  const amountCents = Math.max(100, Math.round(Number(latestEstimate?.fareEstimate || 1) * 100));
+  const fallbackFare = Number(latestEstimate?.fareEstimate);
+  const amountCents = Number.isFinite(fallbackFare) && fallbackFare > 0
+    ? Math.max(MINIMUM_STRIPE_AMOUNT_CENTS, Math.round(fallbackFare * 100))
+    : MINIMUM_STRIPE_AMOUNT_CENTS;
   stripeElements = stripeClient.elements({
     appearance,
     mode: 'payment',
@@ -2401,7 +2416,7 @@ async function syncRides() {
 
 async function createRidePaymentIntent(ride) {
   if (!ride?.id || !currentUser?.id) return null;
-  const amountCents = Math.max(1, Math.round(Number(ride.fareEstimate || latestEstimate?.fareEstimate || 0) * 100));
+  const amountCents = getPaymentAmountCents(ride);
   const { response, data } = await fetchJson('/api/payments/create-ride-payment', {
     method: 'POST',
     headers: getAuthHeaders(),
@@ -2483,7 +2498,11 @@ async function handleRequestRide() {
       const paymentSucceeded = await confirmStripeRidePayment();
       if (!paymentSucceeded) {
         if (ride?.id && accessToken) {
-          await cancelRide(ride.id).catch(() => null);
+          await cancelRide(ride.id).catch(error => {
+            console.warn('[Payment] Failed to cancel ride after payment failure', { rideId: ride.id, error });
+            showToast('Payment failed and automatic ride cancellation did not complete. Please cancel the ride manually.', 'error');
+            return null;
+          });
         }
         throw new Error('Payment failed. Ride cancelled.');
       }

@@ -49,6 +49,9 @@ function normalizeRequestedVehicleType(input: unknown): VehicleType | null {
 function normalizeRidePaymentMethod(input: unknown): 'card' | 'apple_pay' | 'google_pay' | 'cash' {
   const normalized = String(input || '').trim().toLowerCase();
   if (normalized === 'apple_pay' || normalized === 'google_pay' || normalized === 'cash') return normalized;
+  if (normalized && normalized !== 'card') {
+    logger.warn('unknown ride payment method, defaulting to card', { input: normalized });
+  }
   return 'card';
 }
 
