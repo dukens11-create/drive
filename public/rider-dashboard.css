@@ -1549,6 +1549,7 @@ input {
 .driver-action-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 8px 18px;
   border-radius: 999px;
@@ -2386,6 +2387,124 @@ input {
   color: #dc2626;
   font-size: 0.875rem;
   font-weight: 500;
+}
+
+/* ── Phase 6: Voice / TTS ────────────────────────────────────────────── */
+
+/* Voice command button states */
+.voice-btn {
+  position: relative;
+}
+.voice-btn.is-listening {
+  background: rgba(27, 128, 255, 0.20);
+  border-color: rgba(27, 128, 255, 0.60);
+  color: #1B80FF;
+}
+.voice-btn.is-listening::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid rgba(27, 128, 255, 0.50);
+  animation: voice-pulse 1.2s ease-out infinite;
+}
+.voice-btn.is-processing {
+  background: rgba(100, 100, 100, 0.12);
+  border-color: rgba(100, 100, 100, 0.30);
+  color: #555;
+  cursor: wait;
+}
+.voice-btn.is-error {
+  background: rgba(220, 38, 38, 0.12);
+  border-color: rgba(220, 38, 38, 0.35);
+  color: #dc2626;
+}
+
+@keyframes voice-pulse {
+  0%   { transform: scale(1); opacity: 0.7; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+
+/* Mute button states */
+.mute-btn.is-muted {
+  background: rgba(220, 38, 38, 0.10);
+  border-color: rgba(220, 38, 38, 0.30);
+  color: #dc2626;
+}
+
+/* Voice feedback bar */
+.voice-feedback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(27, 128, 255, 0.07);
+  border: 1px solid rgba(27, 128, 255, 0.18);
+  font-size: 0.82rem;
+  color: var(--primary-dark);
+  min-height: 36px;
+  transition: opacity 0.2s ease;
+}
+.voice-feedback.is-error {
+  background: rgba(220, 38, 38, 0.07);
+  border-color: rgba(220, 38, 38, 0.20);
+  color: #dc2626;
+}
+.voice-feedback-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+.voice-feedback-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Voice controls row (volume + toggle) */
+.voice-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+}
+.voice-volume-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #555;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.voice-volume-slider {
+  flex: 1;
+  min-width: 60px;
+  accent-color: #1B80FF;
+  cursor: pointer;
+}
+.voice-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #555;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.voice-toggle-label input[type="checkbox"] {
+  accent-color: #1B80FF;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
 }
 
 /* ── Schedule Toggle ──────────────────────────────────────── */

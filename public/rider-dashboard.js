@@ -114,6 +114,23 @@ let estimateRetryCount = 0;
 let estimateRetryTimerId = null;
 let latestKnownRiderPosition = null;
 let isFareEstimateLoading = false;
+
+// Phase 6: Voice / TTS state
+let voiceAlertsEnabled = localStorage.getItem('drive.voiceAlertsEnabled') !== 'false';
+let isMuted = false;
+let voiceVolume = 0.8;
+let isListening = false;
+let recognition = null;
+let lastSpokenRideStatus = '';
+const alertQueue = [];
+let isSpeaking = false;
+const MIN_VOICE_COMMAND_CONFIDENCE = 0.5;
+const CANCELLATION_CONFIRMATION_RESPONSES = new Set(['yes', 'yes please', 'confirm', 'confirmed']);
+const voiceCommands = {
+  where_driver: ["where is my driver", "where's my driver", "eta", "how far"],
+  cancel_ride: ['cancel my ride', 'cancel', 'i want to cancel'],
+  call_driver: ['call my driver', 'call driver', 'contact driver']
+};
 let savedPlaces = [];
 let pendingDeleteScheduledId = null;
 let pendingDeletePlaceId = null;
@@ -267,10 +284,12 @@ function getDriverVehicleDisplay(vehicle = {}) {
   const make = String(vehicle.make || '').trim();
   const model = String(vehicle.model || '').trim();
   const year = Number(vehicle.year);
+  const maxValidYear = new Date().getFullYear() + 1;
   const color = String(vehicle.color || '').trim();
   const plateNumber = String(vehicle.plate || vehicle.plateNumber || vehicle.licensePlate || '').trim();
   const title = label || (make && model ? `${make} ${model}` : 'Vehicle details pending');
-  const specs = [Number.isInteger(year) && year > MIN_VALID_VEHICLE_YEAR ? String(year) : '', color].filter(Boolean).join(' • ');
+  const normalizedYear = Number.isInteger(year) && year > MIN_VALID_VEHICLE_YEAR && year <= maxValidYear ? String(year) : '';
+  const specs = [normalizedYear, color].filter(Boolean).join(' • ');
   return {
     title,
     specs,
@@ -1351,7 +1370,7 @@ function getStatusViewModel(ride) {
   if (status === 'arrived_at_pickup') return { pill: 'Arriving', message: 'Your driver has arrived at the pickup point.', step: 'arriving', headerStatus: 'Driver at pickup' };
   if (status === 'started') return { pill: 'In trip', message: 'You are on the way to your destination.', step: 'started', headerStatus: 'Ride in progress' };
   if (status === 'completed') return { pill: 'Completed', message: 'Ride completed successfully.', step: 'completed', headerStatus: 'Trip completed' };
-  if (status === 'canceled') return { pill: 'Canceled', message: 'Ride canceled.', step: null, headerStatus: 'Ride canceled' };
+  if (status === 'canceled') return { pill: 'Canceled', message: 'Ride canceled.', step: 'canceled', headerStatus: 'Ride canceled' };
   return { pill: 'Idle', message: 'Enter pickup and destination to request a ride.', step: null, headerStatus: 'Ready to ride' };
 }
 
@@ -1435,6 +1454,17 @@ function renderRideState() {
   }
 
   renderMapState({ fitRoute: previousStatus !== mapState.lastRideStatus });
+
+  // Phase 6: Trigger spoken alerts on status transitions
+  if (currentRide?.status && currentRide.status !== lastSpokenRideStatus) {
+    lastSpokenRideStatus = currentRide.status;
+    const spokenAlertState = state.step || currentRide.status;
+    triggerSpokenAlert(spokenAlertState);
+  }
+
+  // Phase 6: Show/hide voice controls with driver card
+  const voiceControlsRow = document.getElementById('voice-controls-row');
+  if (voiceControlsRow) voiceControlsRow.classList.toggle('d-none', !showDriverCard);
 }
 
 function showToast(message, type = 'info', duration = 4000) {
@@ -2901,18 +2931,17 @@ function renderDriverCard(driver, etaMinutes) {
       ...driver,
       vehicle: {
         label: String(driver.vehicle || '').trim(),
-        plate: driver.plate || driver.plateNumber || ''
+        plate: driver.plate || driver.plateNumber || '',
+        plateNumber: driver.plate || driver.plateNumber || ''
       }
     };
   renderDriverCardDetails(normalizedDriver, etaMinutes || 5);
 
   // Online indicator
   card.querySelector('.driver-online-dot')?.classList.add('is-online');
-
-  // Trigger slide-in animation
   card.classList.remove('d-none');
   card.classList.remove('slide-up');
-  void card.offsetWidth; // force reflow so the animation restarts from scratch
+  void card.offsetWidth;
   card.classList.add('slide-up');
 }
 
@@ -3005,6 +3034,341 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
       animateNumericText('driver-countdown', 'Here now');
     }, driverEta * 60 * 1000);
   }, delay);
+}
+
+// ── Phase 6: Text-to-Speech (Spoken Alerts) ──────────────────────────────────
+
+function speak(text, options = {}) {
+  if (!voiceAlertsEnabled || isMuted) {
+    console.log('[Voice Alert] Suppressed (muted or disabled):', text);
+    return;
+  }
+  if (!window.speechSynthesis) {
+    console.warn('[Voice Alert] SpeechSynthesis not available');
+    return;
+  }
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'en-US';
+  utterance.rate = options.rate || 1.0;
+  utterance.pitch = options.pitch || 1.0;
+  utterance.volume = voiceVolume;
+  utterance.onstart = () => {
+    console.log('[Voice Alert] Speaking:', text);
+    isSpeaking = true;
+  };
+  utterance.onend = () => {
+    isSpeaking = false;
+    if (alertQueue.length > 0) {
+      const next = alertQueue.shift();
+      speak(next.text, next.options);
+    }
+  };
+  utterance.onerror = (event) => {
+    console.error('[Voice Alert] Error:', event.error);
+    isSpeaking = false;
+  };
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utterance);
+}
+
+function queueAlert(text, options = {}) {
+  console.log('[Voice Alert] Triggered:', text);
+  if (isSpeaking) {
+    alertQueue.push({ text, options });
+  } else {
+    speak(text, options);
+  }
+}
+
+function toggleVoiceAlerts() {
+  voiceAlertsEnabled = !voiceAlertsEnabled;
+  localStorage.setItem('drive.voiceAlertsEnabled', voiceAlertsEnabled ? 'true' : 'false');
+  const toggle = document.getElementById('voice-alerts-toggle');
+  if (toggle) toggle.checked = voiceAlertsEnabled;
+  console.log('[Voice Alert] Alerts', voiceAlertsEnabled ? 'enabled' : 'disabled');
+}
+
+function toggleMute() {
+  isMuted = !isMuted;
+  const btn = document.getElementById('btn-mute-alerts');
+  const icon = btn?.querySelector('i');
+  if (btn) btn.classList.toggle('is-muted', isMuted);
+  if (icon) icon.className = isMuted ? 'bi bi-volume-mute-fill' : 'bi bi-volume-up-fill';
+  if (btn) btn.title = isMuted ? 'Unmute spoken alerts' : 'Mute spoken alerts';
+  if (btn) btn.setAttribute('aria-label', isMuted ? 'Unmute spoken alerts' : 'Mute spoken alerts');
+  if (isMuted && window.speechSynthesis) window.speechSynthesis.cancel();
+  console.log('[Voice Alert] Mute:', isMuted);
+}
+
+function setVoiceVolume(percent) {
+  voiceVolume = Math.max(0, Math.min(1, percent / 100));
+  console.log('[Voice Alert] Volume set to:', voiceVolume);
+}
+
+function cancelAllAlerts() {
+  alertQueue.length = 0;
+  isSpeaking = false;
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
+}
+
+// ── Phase 6: Voice Commands (Speech Recognition) ─────────────────────────────
+
+function setVoiceButtonState(state) {
+  const btn = document.getElementById('btn-voice-command');
+  const icon = btn?.querySelector('i');
+  if (!btn) return;
+  btn.classList.remove('is-listening', 'is-processing', 'is-error');
+  if (state === 'listening') {
+    btn.classList.add('is-listening');
+    if (icon) icon.className = 'bi bi-mic-fill';
+    btn.title = 'Stop listening';
+    btn.setAttribute('aria-label', 'Stop voice command');
+  } else if (state === 'processing') {
+    btn.classList.add('is-processing');
+    if (icon) icon.className = 'bi bi-hourglass-split';
+    btn.title = 'Processing…';
+    btn.setAttribute('aria-label', 'Processing voice command');
+  } else if (state === 'error') {
+    btn.classList.add('is-error');
+    if (icon) icon.className = 'bi bi-mic-mute-fill';
+    btn.title = 'Voice command error';
+    btn.setAttribute('aria-label', 'Voice command error');
+  } else {
+    if (icon) icon.className = 'bi bi-mic-fill';
+    btn.title = 'Voice command';
+    btn.setAttribute('aria-label', 'Voice command');
+  }
+}
+
+function setVoiceFeedback(text, isError = false) {
+  const el = document.getElementById('voice-feedback');
+  const textEl = document.getElementById('voice-feedback-text');
+  if (!el || !textEl) return;
+  textEl.textContent = text || '';
+  el.classList.toggle('d-none', !text);
+  el.classList.toggle('is-error', Boolean(isError));
+}
+
+function matchVoiceCommand(transcript) {
+  const lower = transcript.toLowerCase();
+  for (const [cmd, phrases] of Object.entries(voiceCommands)) {
+    if (phrases.some(phrase => lower.includes(phrase))) return cmd;
+  }
+  return null;
+}
+
+function executeVoiceCommand(command) {
+  console.log('[Voice] Command executed:', command);
+  switch (command) {
+    case 'where_driver': {
+      const eta = currentRide?.etaMinutes || currentRide?.minutes || 0;
+      const etaText = eta > 0 ? `${Math.round(eta)} minute${Math.round(eta) !== 1 ? 's' : ''}` : 'a moment';
+      const msg = `Your driver is ${etaText} away`;
+      setVoiceFeedback(msg);
+      speak(msg);
+      break;
+    }
+    case 'cancel_ride': {
+      const msg = 'Confirming cancellation. Say yes to confirm or no to cancel.';
+      setVoiceFeedback(msg);
+      speak(msg);
+      // Listen for confirmation
+      window.setTimeout(() => listenForCancellationConfirm(), 3500);
+      break;
+    }
+    case 'call_driver': {
+      setVoiceFeedback('Calling your driver');
+      speak('Calling your driver');
+      window.setTimeout(() => {
+        const driverPhone = sanitizePhoneForUri(currentRide?.driver?.phone || currentRide?.driverPhone || '');
+        if (driverPhone) {
+          window.location.href = `tel:${driverPhone}`;
+        } else {
+          showPopup('Driver phone number is unavailable.');
+        }
+      }, 1200);
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+function listenForCancellationConfirm() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) return;
+  const confirmRec = new SpeechRec();
+  confirmRec.lang = 'en-US';
+  confirmRec.continuous = false;
+  confirmRec.interimResults = false;
+  confirmRec.onresult = (event) => {
+    const transcript = (event.results[0]?.[0]?.transcript || '').toLowerCase().replace(/[.!?]/g, '').trim();
+    console.log('[Voice] Cancellation confirmation:', transcript);
+    if (CANCELLATION_CONFIRMATION_RESPONSES.has(transcript)) {
+      setVoiceFeedback('Cancelling your ride…');
+      speak('Your ride has been cancelled');
+      handleCancelRide().catch(() => {});
+    } else {
+      setVoiceFeedback('Cancellation aborted.');
+      speak('OK, keeping your ride.');
+      window.setTimeout(() => setVoiceFeedback(''), 3000);
+    }
+  };
+  confirmRec.onerror = () => {
+    setVoiceFeedback('Could not hear confirmation.', true);
+    window.setTimeout(() => setVoiceFeedback(''), 3000);
+  };
+  try {
+    confirmRec.start();
+  } catch (_e) {
+    const message = 'Could not start cancellation confirmation.';
+    setVoiceFeedback(message, true);
+    speak('Could not start confirmation. Please try again.');
+    window.setTimeout(() => setVoiceFeedback(''), 3000);
+  }
+}
+
+function handleVoiceResult(event) {
+  const transcript = Array.from(event.results)
+    .map(result => result[0].transcript)
+    .join('')
+    .toLowerCase();
+  const confidence = event.results[event.results.length - 1]?.[0]?.confidence ?? 1;
+  console.log('[Speech Recognition] Recognized:', transcript, 'confidence:', confidence);
+  setVoiceFeedback(`Listening… you said: "${transcript}"`);
+
+  const isFinal = event.results[event.results.length - 1]?.isFinal;
+  if (!isFinal) return;
+
+  setVoiceButtonState('processing');
+  const command = matchVoiceCommand(transcript);
+  if (command && confidence >= MIN_VOICE_COMMAND_CONFIDENCE) {
+    executeVoiceCommand(command);
+  } else if (command) {
+    const msg = "I didn't quite catch that. Please try again.";
+    setVoiceFeedback(msg, true);
+    speak(msg);
+  } else {
+    const msg = "I didn't understand. You can say 'where is my driver', 'cancel my ride', or 'call my driver'.";
+    setVoiceFeedback(msg, true);
+    speak(msg);
+  }
+  window.setTimeout(() => {
+    setVoiceButtonState('idle');
+    setVoiceFeedback('');
+  }, 5000);
+}
+
+function handleVoiceError(event) {
+  console.error('[Speech Recognition] Error:', event.error);
+  isListening = false;
+  setVoiceButtonState('error');
+  let msg = '';
+  if (event.error === 'no-speech') {
+    msg = "Sorry, I didn't hear that. Please try again.";
+  } else if (event.error === 'not-allowed' || event.error === 'permission-denied') {
+    msg = 'Please enable microphone access to use voice commands.';
+  } else {
+    msg = 'Voice command error. Please try again.';
+  }
+  setVoiceFeedback(msg, true);
+  speak(msg);
+  window.setTimeout(() => {
+    setVoiceButtonState('idle');
+    setVoiceFeedback('');
+  }, 5000);
+}
+
+function initializeVoiceRecognition() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) {
+    console.warn('[Speech Recognition] Not supported in this browser');
+    const btn = document.getElementById('btn-voice-command');
+    if (btn) {
+      btn.disabled = true;
+      btn.title = 'Voice commands not supported on this browser';
+    }
+    return;
+  }
+  recognition = new SpeechRec();
+  recognition.lang = 'en-US';
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.onstart = () => {
+    console.log('[Speech Recognition] Listening started');
+    isListening = true;
+    setVoiceButtonState('listening');
+    setVoiceFeedback('Listening…');
+  };
+  recognition.onresult = (event) => handleVoiceResult(event);
+  recognition.onerror = (event) => handleVoiceError(event);
+  recognition.onend = () => {
+    console.log('[Speech Recognition] Listening ended');
+    isListening = false;
+    if (document.getElementById('btn-voice-command')?.classList.contains('is-listening')) {
+      setVoiceButtonState('idle');
+    }
+  };
+}
+
+function handleVoiceClick() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) {
+    showPopup('Voice commands not supported on this browser.');
+    return;
+  }
+  if (!recognition) initializeVoiceRecognition();
+  if (!recognition) return;
+  if (isListening) {
+    recognition.stop();
+    isListening = false;
+    setVoiceButtonState('idle');
+    setVoiceFeedback('');
+  } else {
+    try {
+      recognition.start();
+    } catch (err) {
+      console.error('[Voice] Could not start recognition:', err);
+      showPopup('Could not start voice recognition. Please try again.');
+    }
+  }
+}
+
+function triggerSpokenAlert(step) {
+  if (!voiceAlertsEnabled) return;
+  const driver = currentRide?.driver || assignedDriver || {};
+  const driverName = driver.name || 'Your driver';
+  const vehicleDisplay = getDriverVehicleDisplay(
+    driver.vehicle && typeof driver.vehicle === 'object'
+      ? driver.vehicle
+      : { label: driver.vehicle || '', plateNumber: driver.plate || driver.plateNumber || '' }
+  );
+  const vehicleInfo = [vehicleDisplay.specs, vehicleDisplay.title]
+    .filter(part => part && part !== 'Vehicle details pending')
+    .join(' ') || 'their vehicle';
+  const eta = currentRide?.etaMinutes || currentRide?.minutes || 0;
+  const etaText = eta > 0 ? formatMinutes(eta) : 'a moment';
+  const fare = currentRide?.fare || currentRide?.fareEstimate || 0;
+
+  switch (step) {
+    case 'assigned':
+      queueAlert(`A driver has been assigned. ${driverName} is on the way in ${vehicleInfo}.`);
+      break;
+    case 'arriving':
+      queueAlert('Your driver has arrived at your pickup location.');
+      break;
+    case 'started':
+      queueAlert(`Your ride has started. Estimated arrival time: ${etaText}.`);
+      break;
+    case 'completed':
+      queueAlert(`Your ride is complete. Thank you for riding with us. Your fare is ${formatCurrency(fare)}.`);
+      break;
+    case 'canceled':
+      queueAlert('Your ride has been cancelled.');
+      break;
+    default:
+      break;
+  }
 }
 
 // ─── Saved Places ─────────────────────────────────────────────────────────────
@@ -3618,6 +3982,16 @@ function setupHandlers() {
     }
     window.location.href = `sms:${driverPhone}`;
   });
+  document.getElementById('btn-voice-command')?.addEventListener('click', handleVoiceClick);
+  document.getElementById('btn-mute-alerts')?.addEventListener('click', toggleMute);
+  document.getElementById('voice-alerts-toggle')?.addEventListener('change', (event) => {
+    voiceAlertsEnabled = Boolean(event.target?.checked);
+    localStorage.setItem('drive.voiceAlertsEnabled', voiceAlertsEnabled ? 'true' : 'false');
+    console.log('[Voice Alert] Alerts', voiceAlertsEnabled ? 'enabled' : 'disabled');
+  });
+  document.getElementById('voice-volume-slider')?.addEventListener('input', (event) => {
+    setVoiceVolume(Number(event.target?.value || 80));
+  });
 
   document.querySelectorAll('[data-ride-type]').forEach(button => {
     button.addEventListener('click', () => {
@@ -3827,6 +4201,8 @@ function setupHandlers() {
     if (mapState.routeAnimationTimer) window.clearInterval(mapState.routeAnimationTimer);
     if (mapState.pendingDriverAnimation) window.cancelAnimationFrame(mapState.pendingDriverAnimation);
     Object.values(geocodeDebounceTimers).forEach(timer => window.clearTimeout(timer));
+    cancelAllAlerts();
+    if (recognition && isListening) { try { recognition.stop(); } catch (_e) { /* ignore */ } }
   });
 }
 
@@ -3834,6 +4210,11 @@ window.addEventListener('load', async () => {
   if (!setupSession()) return;
   seedDefaultInputs();
   setupHandlers();
+  initializeVoiceRecognition();
+  const toggle = document.getElementById('voice-alerts-toggle');
+  if (toggle) toggle.checked = voiceAlertsEnabled;
+  const slider = document.getElementById('voice-volume-slider');
+  if (slider) slider.value = String(Math.round(voiceVolume * 100));
   await initPaymentMethod();
   startSearchingDotsAnimation();
   clockIntervalId = window.setInterval(updateHeaderClock, 60000);
