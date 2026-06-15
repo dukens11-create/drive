@@ -43,6 +43,7 @@ const DRIVER_ASSIGN_DELAY_MIN_MS = 3000;
 const DRIVER_ASSIGN_DELAY_MAX_MS = 5000;
 const MIN_VALID_VEHICLE_YEAR = 1900;
 const ACTIVE_RIDE_STATUSES = ['requested', 'accepted', 'arrived_at_pickup', 'started'];
+const TOAST_MAX_VISIBLE = 3;
 const LONG_DISTANCE_WARNING_MINUTES = 360;
 const SUPPORTED_COUNTRY = 'United States';
 const MAX_RIDE_DISTANCE_MILES = {
@@ -82,6 +83,7 @@ let currentUser = null;
 let accessToken = '';
 let refreshToken = '';
 let selectedRideType = 'ECONOMY';
+let selectedPaymentMethod = localStorage.getItem('drive.paymentMethod') || 'card';
 let rides = [];
 let currentRide = null;
 let riderLocationWatchId = null;
@@ -97,6 +99,7 @@ let estimateRetryCount = 0;
 let estimateRetryTimerId = null;
 let latestKnownRiderPosition = null;
 let isFareEstimateLoading = false;
+const activeToasts = [];
 const geocodeDebounceTimers = {};
 const locationSuggestions = {
   'pickup-input': [],
@@ -1161,6 +1164,7 @@ async function requestRide(pickup, destination) {
     status: 'requested',
     lifecycleState: 'requested',
     etaMinutes: estimate.route.etaMinutes,
+    paymentMethod: selectedPaymentMethod,
     riderLocation: mapState.markers.rider
       ? { lat: mapState.markers.rider.getLngLat().lat, lng: mapState.markers.rider.getLngLat().lng, updatedAt: new Date().toISOString() }
       : null,
@@ -1187,10 +1191,12 @@ async function requestRide(pickup, destination) {
       duration: estimate.route.etaMinutes,
       miles: estimate.route.distanceMiles,
       minutes: estimate.route.etaMinutes,
-      riderId: currentUser.id
+      riderId: currentUser.id,
+      paymentMethod: selectedPaymentMethod
     };
     try {
       console.log('[Ride Booking] Payload:', requestBody);
+      console.log('[Payment] Selected method:', selectedPaymentMethod);
       const { response, data } = await fetchJson('/api/rides', {
         method: 'POST',
         headers: getAuthHeaders(),
@@ -1304,7 +1310,7 @@ function renderRideState() {
   const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'assigned', 'arrived_at_pickup'].includes(rideStatus));
   const showCancelButton = canCancelRide;
   if (requestButton) {
-    requestButton.classList.remove('d-none');
+    requestButton.classList.toggle('d-none', showCancelButton);
   }
   if (cancelButton) {
     cancelButton.disabled = !canCancelRide;
@@ -1318,15 +1324,66 @@ function renderRideState() {
 
   const previousStatus = mapState.lastRideStatus;
   mapState.lastRideStatus = currentRide?.status || 'idle';
+
+  if (previousStatus !== mapState.lastRideStatus) {
+    const driverName = currentRide?.driver?.name || currentRide?.driverName || assignedDriver?.name || 'Your driver';
+    const driverRating = currentRide?.driver?.rating || assignedDriver?.rating || '';
+    if (mapState.lastRideStatus === 'accepted') {
+      const ratingText = driverRating ? ` (⭐ ${driverRating})` : '';
+      showToast(`Driver found! ${driverName}${ratingText} is on the way`, 'success');
+    } else if (mapState.lastRideStatus === 'arrived_at_pickup') {
+      showToast(`${driverName} has arrived at your pickup location`, 'success');
+    } else if (mapState.lastRideStatus === 'started') {
+      showToast("You're on the way to your destination", 'info');
+    } else if (mapState.lastRideStatus === 'completed') {
+      showToast('Ride completed! Rate your experience', 'success', 6000);
+    } else if (mapState.lastRideStatus === 'canceled') {
+      showToast('Ride cancelled', 'info');
+    }
+  }
+
   renderMapState({ fitRoute: previousStatus !== mapState.lastRideStatus });
 }
 
+function showToast(message, type = 'info', duration = 4000) {
+  console.log('[Toast] Showing:', message, type);
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  while (activeToasts.length >= TOAST_MAX_VISIBLE) {
+    const oldest = activeToasts.shift();
+    oldest?.remove();
+  }
+
+  const iconMap = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
+  const iconLabel = { info: 'Info', success: 'Success', error: 'Error', warning: 'Warning' };
+  const toast = document.createElement('div');
+  toast.className = `toast-item toast-item--${type}`;
+  toast.setAttribute('role', 'status');
+  toast.innerHTML =
+    `<span class="toast-icon" role="img" aria-label="${iconLabel[type] || 'Info'}">${iconMap[type] || 'ℹ️'}</span>` +
+    `<span class="toast-message">${message}</span>` +
+    `<button class="toast-close" aria-label="Dismiss notification" type="button">×</button>`;
+
+  const dismiss = () => {
+    if (!toast.isConnected) return;
+    toast.classList.add('toast-item--leaving');
+    window.setTimeout(() => {
+      toast.remove();
+      const idx = activeToasts.indexOf(toast);
+      if (idx !== -1) activeToasts.splice(idx, 1);
+    }, 320);
+  };
+
+  toast.querySelector('.toast-close')?.addEventListener('click', dismiss);
+  container.appendChild(toast);
+  activeToasts.push(toast);
+
+  if (duration > 0) window.setTimeout(dismiss, duration);
+}
+
 function showPopup(message) {
-  const popup = document.getElementById('ride-popup');
-  if (!popup) return;
-  popup.textContent = message;
-  popup.classList.remove('d-none');
-  window.setTimeout(() => popup.classList.add('d-none'), POPUP_DISPLAY_DURATION_MS);
+  showToast(message, 'info', POPUP_DISPLAY_DURATION_MS);
 }
 
 function setFareLoading(isLoading) {
@@ -1510,6 +1567,74 @@ function setCancelModalOpen(isOpen) {
   const modal = document.getElementById('cancel-modal');
   if (!modal) return;
   modal.classList.toggle('d-none', !isOpen);
+}
+
+const PAYMENT_METHOD_OPTIONS = [
+  { id: 'card', label: 'Card', icon: '💳' },
+  { id: 'apple_pay', label: 'Apple Pay', icon: '🍎' },
+  { id: 'google_pay', label: 'Google Pay', icon: '🔵' },
+  { id: 'cash', label: 'Cash', icon: '💵' }
+];
+
+function renderPaymentMethodPill() {
+  const method = PAYMENT_METHOD_OPTIONS.find(m => m.id === selectedPaymentMethod) || PAYMENT_METHOD_OPTIONS[0];
+  const iconEl = document.getElementById('payment-method-icon');
+  const textEl = document.getElementById('payment-method-text');
+  if (iconEl) iconEl.textContent = method.icon;
+  if (textEl) textEl.textContent = method.label;
+}
+
+function setPaymentMethod(methodId) {
+  selectedPaymentMethod = methodId;
+  localStorage.setItem('drive.paymentMethod', methodId);
+  console.log('[Payment] Selected method:', selectedPaymentMethod);
+  renderPaymentMethodPill();
+  document.querySelectorAll('[data-payment-method]').forEach(btn => {
+    const isSelected = btn.getAttribute('data-payment-method') === methodId;
+    btn.classList.toggle('is-selected', isSelected);
+    btn.setAttribute('aria-selected', String(isSelected));
+  });
+}
+
+function togglePaymentDropdown() {
+  const pill = document.getElementById('payment-method-pill');
+  const dropdown = document.getElementById('payment-method-dropdown');
+  if (!pill || !dropdown) return;
+  const isOpen = !dropdown.classList.contains('d-none');
+  dropdown.classList.toggle('d-none', isOpen);
+  pill.setAttribute('aria-expanded', String(!isOpen));
+}
+
+function closePaymentDropdown() {
+  const pill = document.getElementById('payment-method-pill');
+  const dropdown = document.getElementById('payment-method-dropdown');
+  if (!dropdown || dropdown.classList.contains('d-none')) return;
+  dropdown.classList.add('d-none');
+  if (pill) pill.setAttribute('aria-expanded', 'false');
+}
+
+function initPaymentMethod() {
+  const ua = navigator.userAgent;
+  const applePayOpt = document.getElementById('payment-opt-apple-pay');
+  const googlePayOpt = document.getElementById('payment-opt-google-pay');
+  const isIOS = /iPhone|iPad/i.test(ua);
+  const isAndroid = /Android/i.test(ua);
+  if (applePayOpt) applePayOpt.style.display = isIOS ? '' : 'none';
+  if (googlePayOpt) googlePayOpt.style.display = isAndroid ? '' : 'none';
+
+  const validMethods = PAYMENT_METHOD_OPTIONS.filter(m => {
+    if (m.id === 'apple_pay') return isIOS;
+    if (m.id === 'google_pay') return isAndroid;
+    return true;
+  }).map(m => m.id);
+
+  if (!validMethods.includes(selectedPaymentMethod)) {
+    selectedPaymentMethod = 'card';
+    localStorage.setItem('drive.paymentMethod', 'card');
+  }
+
+  renderPaymentMethodPill();
+  setPaymentMethod(selectedPaymentMethod);
 }
 
 function startSearchingDotsAnimation() {
@@ -2176,7 +2301,7 @@ async function handleRequestRide() {
         requestButton.classList.remove('is-success');
       }, REQUEST_SUCCESS_ANIMATION_MS);
     }
-    showPopup('Searching for nearby drivers...');
+    showToast('Searching for nearby drivers...', 'info');
 
     // Simulate driver assignment after 3-5 seconds
     if (currentRide?.id) {
@@ -2199,19 +2324,27 @@ async function handleRequestRide() {
 
 async function handleCancelRide() {
   if (!currentRide?.id) return;
+  const rideId = currentRide.id;
+  console.log('[Cancel Ride] Cancelling ride:', rideId);
   setCancelModalOpen(false);
   stopStatusProgression();
   stopEtaCountdown();
   assignedDriver = null;
   setButtonLoading('cancel-ride-button', true);
   try {
-    const canceledRide = await cancelRide(currentRide.id);
+    const canceledRide = await cancelRide(rideId);
     if (canceledRide) {
-      currentRide = normalizeRide(canceledRide);
-      rides = mergeRides([currentRide], readSharedRideStore().rides);
+      console.log('[Cancel Ride] Ride cancelled:', rideId);
+      updateSharedRide(rideId, { status: 'canceled', lifecycleState: 'canceled', canceledAt: new Date().toISOString() });
+      currentRide = null;
+      rides = rides.filter(r => r.id !== rideId);
       renderRideState();
-      showPopup('Ride canceled.');
+      showToast('Ride cancelled', 'info');
     }
+  } catch (err) {
+    const errorMsg = (err instanceof Error && err.message) || 'Failed to cancel ride. Please try again.';
+    console.error('[Cancel Ride] Error cancelling ride:', rideId, err);
+    showToast(errorMsg, 'error');
   } finally {
     setButtonLoading('cancel-ride-button', false);
     renderRideState();
@@ -2489,7 +2622,6 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
     renderDriverCard(driver, driverEta);
     startEtaCountdown(driverEta);
     simulateDriverMovementOnMap(pickupLat, pickupLng);
-    showPopup(`${driver.name} is on the way!`);
 
     // Simulate driver arriving
     statusProgressionTimerId = window.setTimeout(() => {
@@ -2497,7 +2629,6 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
       stopEtaCountdown();
       animateNumericText('driver-eta', 'Here now');
       animateNumericText('driver-countdown', 'Here now');
-      showPopup('Your driver has arrived at pickup!');
     }, driverEta * 60 * 1000);
   }, delay);
 }
@@ -2511,7 +2642,7 @@ function setupHandlers() {
     handleCancelRideClick();
   });
   document.getElementById('cancel-modal-confirm')?.addEventListener('click', () => {
-    handleCancelRide().catch(() => showPopup('Unable to cancel ride.'));
+    handleCancelRide().catch(err => showToast((err instanceof Error && err.message) || 'Unable to cancel ride.', 'error'));
   });
   document.getElementById('cancel-modal-keep')?.addEventListener('click', () => {
     setCancelModalOpen(false);
@@ -2640,6 +2771,21 @@ function setupHandlers() {
     if (event.key === SHARED_RIDE_STORAGE_KEY) syncRides().catch(() => {});
   });
 
+  document.getElementById('payment-method-pill')?.addEventListener('click', togglePaymentDropdown);
+
+  document.querySelectorAll('[data-payment-method]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const methodId = btn.getAttribute('data-payment-method');
+      if (methodId) setPaymentMethod(methodId);
+      closePaymentDropdown();
+    });
+  });
+
+  document.addEventListener('click', event => {
+    const section = document.getElementById('payment-method-section');
+    if (section && !section.contains(event.target)) closePaymentDropdown();
+  });
+
   if (!mapState.resizeHandlerBound) {
     mapState.resizeHandlerBound = true;
     window.addEventListener('resize', () => resizeMapNow(50));
@@ -2661,6 +2807,7 @@ window.addEventListener('load', async () => {
   if (!setupSession()) return;
   seedDefaultInputs();
   setupHandlers();
+  initPaymentMethod();
   startSearchingDotsAnimation();
   clockIntervalId = window.setInterval(updateHeaderClock, 60000);
   await initializeMap();
