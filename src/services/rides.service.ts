@@ -1375,7 +1375,7 @@ export async function complete(body: any, _params?: any, _query?: any) {
   if (ride.driverId) {
     pushWalletTx(ride.driverId, 'credit', driverPayoutCents, `ride:${ride.id}:payout`);
     const driverEarning: DriverEarning = {
-      id: makeId('earn'),
+      id: makeId('earning'),
       driverId: ride.driverId,
       rideId: ride.id,
       type: 'ride',
