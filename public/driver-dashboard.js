@@ -5828,13 +5828,9 @@ function startUiRefreshLoop() {
 
 // ─── Page Lifecycle ───────────────────────────────────────────────────────────
 window.addEventListener('load', async () => {
-<<<<<<< HEAD
   if (!setupSession()) {
     return;
   }
-=======
-  if (!setupSession()) return;
->>>>>>> origin/main
 
   // Wire up static UI controls
   document.addEventListener('pointerdown', () => {
