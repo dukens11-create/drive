@@ -30,6 +30,13 @@ export function createApp() {
         origin: allowedCorsOrigins.length > 0 ? allowedCorsOrigins : true
       }
     });
+    const dispatchIo = new Server(httpServer, {
+      cors: {
+        credentials: true,
+        origin: allowedCorsOrigins.length > 0 ? allowedCorsOrigins : true
+      },
+      path: '/ws'
+    });
     initializeFCM();
 
     app.use(helmet({
@@ -205,6 +212,7 @@ export function createApp() {
     });
 
     registerTrackingSocket(io);
+    registerTrackingSocket(dispatchIo, 'dispatch');
     registerChatSocket(io);
     app.use(errorHandler);
 

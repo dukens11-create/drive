@@ -24,10 +24,12 @@ const DRIVER_REALTIME_CACHE_KEY = 'driverRealtimeCache';
 const DRIVER_OFFLINE_LOCATION_QUEUE_KEY = 'driverOfflineLocationQueue';
 const MAX_OFFLINE_LOCATION_QUEUE = 50;
 const REALTIME_POLL_INTERVAL_MS = 12_000;
+const DISPATCH_SOCKET_PATH = '/ws';
+const DISPATCH_RECONNECT_DELAY_MS = 3000;
 const ALERT_DISPLAY_DURATION = 4200;
 const PROFILE_LOAD_MAX_RETRIES = 2;
 const PROFILE_RETRY_DELAY_MS = 800;
-const INCOMING_REQUESTS_POLL_INTERVAL_MS = 5000;
+const INCOMING_REQUESTS_POLL_INTERVAL_MS = 3000;
 const GPS_LOG_KEY = 'driverGpsLog';
 const LAST_KNOWN_LOCATION_KEY = 'driverLastKnownLocation';
 const MAX_GPS_LOG_ENTRIES = 200;
@@ -133,6 +135,7 @@ let payoutsData = [];
 let realtimeSubscriptions = [];
 let realtimePollers = [];
 let realtimeSocket = null;
+let dispatchReconnectTimeoutId = null;
 let alertTimeoutId = null;
 let pendingRideActionHandler = null;
 let vehiclePhotoFile = null;
@@ -379,6 +382,21 @@ function getRealtimeConfig() {
   return parseStoredJson(DRIVER_REALTIME_CONFIG_KEY, {});
 }
 
+function getDispatchSocketOrigin() {
+  const fallbackOrigin = window.location.origin;
+  try {
+    return new URL(API_BASE_URL || fallbackOrigin, fallbackOrigin).origin;
+  } catch (_error) {
+    return fallbackOrigin;
+  }
+}
+
+function getDispatchWebSocketUrl() {
+  const socketUrl = new URL(DISPATCH_SOCKET_PATH, getDispatchSocketOrigin());
+  socketUrl.protocol = socketUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+  return socketUrl.toString();
+}
+
 function setRealtimeStatus(message, kind = 'info') {
   if (!message) return;
   showAlert(kind, message);
@@ -599,11 +617,31 @@ function addRealtimePoller(path, applyPayload) {
   realtimePollers.push(timer);
 }
 
-function clearRealtimeConnections() {
+function stopDispatchReconnectTimer() {
+  if (dispatchReconnectTimeoutId !== null) {
+    window.clearTimeout(dispatchReconnectTimeoutId);
+    dispatchReconnectTimeoutId = null;
+  }
+}
+
+function destroyRealtimeSocket() {
   if (realtimeSocket) {
+    realtimeSocket.removeAllListeners?.();
     realtimeSocket.disconnect();
     realtimeSocket = null;
   }
+}
+
+function stopIncomingRequestsPolling() {
+  if (incomingRequestsPollIntervalId !== null) {
+    window.clearInterval(incomingRequestsPollIntervalId);
+    incomingRequestsPollIntervalId = null;
+  }
+}
+
+function clearRealtimeConnections() {
+  stopDispatchReconnectTimer();
+  destroyRealtimeSocket();
   realtimeSubscriptions.forEach(unsub => {
     if (typeof unsub === 'function') unsub();
   });
@@ -612,39 +650,78 @@ function clearRealtimeConnections() {
   realtimePollers = [];
 }
 
+function isDispatchEligible() {
+  return Boolean(accessToken) && isOnlineAvailabilityStatus(getCurrentAvailability());
+}
+
+function scheduleDispatchReconnect() {
+  if (!navigator.onLine || !isDispatchEligible() || dispatchReconnectTimeoutId !== null) return;
+  setRealtimeStatus('Reconnecting dispatch...', 'warning');
+  dispatchReconnectTimeoutId = window.setTimeout(() => {
+    dispatchReconnectTimeoutId = null;
+    if (!navigator.onLine || !isDispatchEligible() || realtimeSocket) return;
+    startSocketRealtimeSync();
+  }, DISPATCH_RECONNECT_DELAY_MS);
+}
+
+function handleDispatchSocketFailure(error, { closed = false } = {}) {
+  const message = error?.message || error?.description || error?.type || 'Unknown error';
+  if (error) {
+    console.log(`❌ WebSocket error: ${message}`);
+  }
+  if (closed) {
+    console.log('🔌 WebSocket closed');
+  }
+  destroyRealtimeSocket();
+  if (!isDispatchEligible()) return;
+  startIncomingRequestsPolling({ logFallback: true });
+  scheduleDispatchReconnect();
+}
+
+function handleDispatchRideRequestMessage(payload) {
+  console.log('🎯 Ride request received');
+  const requestRide = payload?.ride ? normalizeRide(payload.ride, 0) : normalizeRide(payload, 0);
+  if (!requestRide?.id) return;
+  console.log(`[DRIVER] Received ride request for ride ${requestRide.id}`);
+  if (payload?.expiresAt) {
+    const expiresAtMs = new Date(payload.expiresAt).getTime();
+    if (Number.isFinite(expiresAtMs)) rideRequestExpirations.set(requestRide.id, expiresAtMs);
+  }
+  nearbyRideRequests = mergeRidesById([requestRide], nearbyRideRequests);
+  refreshRideRequestFeedState(nearbyRideRequests);
+  renderAvailableRideRequests();
+}
+
 function startSocketRealtimeSync() {
-  if (!accessToken) return false;
+  if (!isDispatchEligible()) return false;
   if (typeof window.io === 'undefined') {
-    setRealtimeStatus('Realtime websocket client unavailable. Falling back to cached sync.', 'warning');
+    handleDispatchSocketFailure(new Error('Socket.IO client unavailable'));
     return false;
   }
+  console.log('🔌 Connecting to WebSocket...', getDispatchWebSocketUrl());
   try {
-    realtimeSocket = window.io({
-      auth: { token: accessToken }
+    realtimeSocket = window.io(getDispatchSocketOrigin(), {
+      auth: { token: accessToken },
+      path: DISPATCH_SOCKET_PATH,
+      reconnection: false,
+      transports: ['websocket']
     });
-  } catch (_error) {
-    setRealtimeStatus('Realtime websocket failed to initialize. Falling back to cached sync.', 'warning');
+  } catch (error) {
+    handleDispatchSocketFailure(error);
     return false;
   }
   realtimeSocket.on('connect', () => {
+    stopDispatchReconnectTimer();
+    stopIncomingRequestsPolling();
     realtimeSocket.emit('dispatch:subscribe');
-    setRealtimeStatus('Realtime dispatch connected.', 'success');
+    console.log('✅ WebSocket connected');
+    setRealtimeStatus('Dispatch connected', 'success');
   });
   realtimeSocket.on('dispatch:rides', payload => {
     applyRealtimeRides(payload?.items ?? payload);
   });
-  realtimeSocket.on('dispatch:ride_request', payload => {
-    const requestRide = payload?.ride ? normalizeRide(payload.ride, 0) : normalizeRide(payload, 0);
-    if (!requestRide?.id) return;
-    console.log(`[DRIVER] Received ride request for ride ${requestRide.id}`);
-    if (payload?.expiresAt) {
-      const expiresAtMs = new Date(payload.expiresAt).getTime();
-      if (Number.isFinite(expiresAtMs)) rideRequestExpirations.set(requestRide.id, expiresAtMs);
-    }
-    nearbyRideRequests = mergeRidesById([requestRide], nearbyRideRequests);
-    refreshRideRequestFeedState(nearbyRideRequests);
-    renderAvailableRideRequests();
-  });
+  realtimeSocket.on('dispatch:ride_request', handleDispatchRideRequestMessage);
+  realtimeSocket.on('ride_request_created', handleDispatchRideRequestMessage);
   realtimeSocket.on('dispatch:ride_assigned', payload => {
     const assignedRide = payload?.ride ? normalizeRide(payload.ride, 0) : null;
     if (!assignedRide?.id) return;
@@ -676,22 +753,23 @@ function startSocketRealtimeSync() {
   realtimeSocket.on('dispatch:location', payload => {
     applyRealtimeLocation(payload);
   });
-  realtimeSocket.on('connect_error', () => {
-    setRealtimeStatus('Realtime dispatch connection failed. Using cached sync fallback.', 'warning');
+  realtimeSocket.on('connect_error', error => {
+    handleDispatchSocketFailure(error);
   });
   realtimeSocket.on('disconnect', () => {
-    setRealtimeStatus(
-      navigator.onLine
-        ? 'Realtime dispatch disconnected. Using cached sync fallback.'
-        : 'Offline mode: realtime dispatch paused while your device is offline.',
-      'warning'
-    );
+    handleDispatchSocketFailure(null, { closed: true });
   });
   return true;
 }
 
 function startRealtimeSync() {
   clearRealtimeConnections();
+  stopIncomingRequestsPolling();
+  if (!isDispatchEligible()) {
+    incomingRideRequests = [];
+    renderIncomingRequests();
+    return false;
+  }
   const socketEnabled = startSocketRealtimeSync();
   const driverBasePath = getDriverRealtimeBasePath();
   const databaseUrl = getFirebaseDatabaseUrl();
@@ -3639,7 +3717,11 @@ function renderIncomingRequests() {
 }
 
 async function fetchIncomingRequests() {
-  if (!accessToken) return;
+  if (!accessToken || !isDispatchEligible()) {
+    incomingRideRequests = [];
+    renderIncomingRequests();
+    return;
+  }
   try {
     const { data } = await fetchJson(`${API_BASE_URL}/api/driver/ride-requests?status=SEARCHING&limit=20`, {
       headers: { Authorization: 'Bearer ' + accessToken }
@@ -3657,8 +3739,12 @@ async function fetchIncomingRequests() {
   renderIncomingRequests();
 }
 
-function startIncomingRequestsPolling() {
-  if (incomingRequestsPollIntervalId) window.clearInterval(incomingRequestsPollIntervalId);
+function startIncomingRequestsPolling({ logFallback = false } = {}) {
+  if (!isDispatchEligible()) return;
+  if (logFallback && incomingRequestsPollIntervalId === null) {
+    console.log('📡 Using polling fallback');
+  }
+  stopIncomingRequestsPolling();
   fetchIncomingRequests().catch(() => {});
   incomingRequestsPollIntervalId = window.setInterval(() => {
     fetchIncomingRequests().catch(() => {});
@@ -5213,6 +5299,15 @@ async function toggleAvailability() {
     currentProfile = data.profile || currentProfile;
     renderProfile();
     renderAvailabilityControls();
+    if (isOnlineAvailabilityStatus(next)) {
+      fetchIncomingRequests().catch(() => {});
+      startRealtimeSync();
+    } else {
+      stopIncomingRequestsPolling();
+      clearRealtimeConnections();
+      incomingRideRequests = [];
+      renderIncomingRequests();
+    }
     showAlert('success', `You are now ${next}.`);
     console.log(next === 'online'
       ? `[DRIVER] Driver ${currentUser?.id || currentProfile?.userId || 'unknown'} is now ONLINE`
@@ -5539,7 +5634,6 @@ window.addEventListener('load', async () => {
   await ensureDriverLocation();
   await requestWakeLock();
   startUiRefreshLoop();
-  startIncomingRequestsPolling();
   startRealtimeSync();
   await startLocationTracking();
   flushOfflineLocationQueue().catch(() => {});
@@ -5583,12 +5677,20 @@ window.addEventListener('load', async () => {
   document.getElementById('trips-sort')?.addEventListener('change', () => loadTripHistory(0));
 
   window.addEventListener('online', () => {
+    const dispatchEligible = isDispatchEligible();
     flushOfflineLocationQueue().catch(() => {});
-    startRealtimeSync();
+    if (dispatchEligible) {
+      startRealtimeSync();
+    }
     requestWakeLock();
-    setRealtimeStatus('Back online: syncing rides, location, and earnings.', 'success');
+    setRealtimeStatus(
+      dispatchEligible ? 'Reconnecting dispatch...' : 'Back online: syncing rides, location, and earnings.',
+      dispatchEligible ? 'warning' : 'success'
+    );
   });
   window.addEventListener('offline', () => {
+    stopIncomingRequestsPolling();
+    clearRealtimeConnections();
     setRealtimeStatus('Offline mode: showing cached dashboard data.', 'warning');
   });
   window.addEventListener('storage', event => {

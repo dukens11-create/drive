@@ -46,9 +46,23 @@ type RiderRealtimeProfile = {
 };
 
 let realtimeServer: Server | null = null;
+let dispatchRealtimeServer: Server | null = null;
+
+function forEachRealtimeServer(callback: (server: Server) => void) {
+  if (realtimeServer) callback(realtimeServer);
+  if (dispatchRealtimeServer) callback(dispatchRealtimeServer);
+}
 
 function emitToRoom(room: string, event: string, payload: unknown) {
-  realtimeServer?.to(room).emit(event, payload);
+  forEachRealtimeServer(server => {
+    server.to(room).emit(event, payload);
+  });
+}
+
+function emitToAll(event: string, payload: unknown) {
+  forEachRealtimeServer(server => {
+    server.emit(event, payload);
+  });
 }
 
 function isDispatchVisibleDriver(profile: any) {
@@ -103,7 +117,7 @@ function publishDispatchEvent(type: string, payload: Record<string, unknown>, ro
   if (store.dispatchEvents.length > DISPATCH_EVENT_STORE_LIMIT) {
     store.dispatchEvents.splice(0, store.dispatchEvents.length - DISPATCH_EVENT_STORE_LIMIT);
   }
-  realtimeServer?.emit('dispatch:event', event);
+  emitToAll('dispatch:event', event);
   roomIds.forEach(roomId => emitToRoom(roomId, 'dispatch:event', event));
   return event;
 }
@@ -195,7 +209,11 @@ function getDriverRealtimeEarnings(driverId: string): DriverRealtimeEarnings {
   };
 }
 
-export function registerRealtimeDispatchServer(io: Server) {
+export function registerRealtimeDispatchServer(io: Server, channel: 'default' | 'dispatch' = 'default') {
+  if (channel === 'dispatch') {
+    dispatchRealtimeServer = io;
+    return;
+  }
   realtimeServer = io;
 }
 
@@ -358,7 +376,12 @@ export function publishRideRealtimeUpdate(ride: Ride, reason = 'trip_update') {
 }
 
 export function publishDispatchRideRequest(driverId: string, payload: Record<string, unknown>) {
-  emitToRoom(`driver:${driverId}`, 'dispatch:ride_request', payload);
+  const realtimePayload = {
+    type: 'ride_request_created',
+    ...payload
+  };
+  emitToRoom(`driver:${driverId}`, 'dispatch:ride_request', realtimePayload);
+  emitToRoom(`driver:${driverId}`, 'ride_request_created', realtimePayload);
 }
 
 export function publishDispatchRequestExpired(driverId: string, payload: Record<string, unknown>) {
