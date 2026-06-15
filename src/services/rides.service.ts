@@ -812,17 +812,17 @@ export async function sharedRide(_body: any, params?: any, query?: any) {
   const token = String(query?.token || '').trim();
   if (!token) return { module: 'rides', action: 'share-read', error: 'token is required' };
 
+  pruneExpiredSharedRideTokens();
+  const tokenRecord = sharedRideTokens.get(rideId);
+  if (!tokenRecord || tokenRecord.token !== token) {
+    return { module: 'rides', action: 'share-read', error: 'invalid token' };
+  }
+
   const ride = getRide(rideId);
-  if (!ride) return { module: 'rides', action: 'share-read', error: 'ride not found' };
+  if (!ride) return { module: 'rides', action: 'share-read', error: 'invalid token' };
   if (ride.status === 'completed' || ride.status === 'canceled') {
     sharedRideTokens.delete(ride.id);
     return { module: 'rides', action: 'share-read', error: 'share link expired' };
-  }
-
-  pruneExpiredSharedRideTokens();
-  const tokenRecord = sharedRideTokens.get(ride.id);
-  if (!tokenRecord || tokenRecord.token !== token) {
-    return { module: 'rides', action: 'share-read', error: 'invalid token' };
   }
 
   return { module: 'rides', action: 'share-read', ok: true, ride: toSharedRideView(ride), expiresAt: tokenRecord.expiresAt };
