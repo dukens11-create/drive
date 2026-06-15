@@ -659,7 +659,7 @@ function scheduleDispatchReconnect() {
   setRealtimeStatus('Reconnecting dispatch...', 'warning');
   dispatchReconnectTimeoutId = window.setTimeout(() => {
     dispatchReconnectTimeoutId = null;
-    if (!navigator.onLine || !isDispatchEligible()) return;
+    if (!navigator.onLine || !isDispatchEligible() || realtimeSocket) return;
     startSocketRealtimeSync();
   }, DISPATCH_RECONNECT_DELAY_MS);
 }
@@ -674,7 +674,7 @@ function handleDispatchSocketFailure(error, { closed = false } = {}) {
   }
   destroyRealtimeSocket();
   if (!isDispatchEligible()) return;
-  startIncomingRequestsPolling();
+  startIncomingRequestsPolling({ logFallback: true });
   scheduleDispatchReconnect();
 }
 
@@ -700,7 +700,6 @@ function startSocketRealtimeSync() {
   }
   console.log('🔌 Connecting to WebSocket...', getDispatchWebSocketUrl());
   try {
-    destroyRealtimeSocket();
     realtimeSocket = window.io(getDispatchSocketOrigin(), {
       auth: { token: accessToken },
       path: DISPATCH_SOCKET_PATH,
@@ -3740,9 +3739,9 @@ async function fetchIncomingRequests() {
   renderIncomingRequests();
 }
 
-function startIncomingRequestsPolling() {
+function startIncomingRequestsPolling({ logFallback = false } = {}) {
   if (!isDispatchEligible()) return;
-  if (incomingRequestsPollIntervalId === null) {
+  if (logFallback && incomingRequestsPollIntervalId === null) {
     console.log('📡 Using polling fallback');
   }
   stopIncomingRequestsPolling();
@@ -5668,14 +5667,15 @@ window.addEventListener('load', async () => {
   document.getElementById('trips-sort')?.addEventListener('change', () => loadTripHistory(0));
 
   window.addEventListener('online', () => {
+    const dispatchEligible = isDispatchEligible();
     flushOfflineLocationQueue().catch(() => {});
-    if (isDispatchEligible()) {
+    if (dispatchEligible) {
       startRealtimeSync();
     }
     requestWakeLock();
     setRealtimeStatus(
-      isDispatchEligible() ? 'Reconnecting dispatch...' : 'Back online: syncing rides, location, and earnings.',
-      isDispatchEligible() ? 'warning' : 'success'
+      dispatchEligible ? 'Reconnecting dispatch...' : 'Back online: syncing rides, location, and earnings.',
+      dispatchEligible ? 'warning' : 'success'
     );
   });
   window.addEventListener('offline', () => {

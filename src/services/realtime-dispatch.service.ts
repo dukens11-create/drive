@@ -49,9 +49,8 @@ let realtimeServer: Server | null = null;
 let dispatchRealtimeServer: Server | null = null;
 
 function forEachRealtimeServer(callback: (server: Server) => void) {
-  [realtimeServer, dispatchRealtimeServer].forEach(server => {
-    if (server) callback(server);
-  });
+  if (realtimeServer) callback(realtimeServer);
+  if (dispatchRealtimeServer) callback(dispatchRealtimeServer);
 }
 
 function emitToRoom(room: string, event: string, payload: unknown) {
