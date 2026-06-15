@@ -141,6 +141,9 @@ let pendingRideActionHandler = null;
 let vehiclePhotoFile = null;
 let vehiclePhotoUrl = '';
 let incomingRequestsPollIntervalId = null;
+const DRIVER_SESSION_TOKEN_KEYS = ['accessToken', 'drive.accessToken', 'authToken', 'token', 'drive_token'];
+const DRIVER_SESSION_USER_KEYS = ['user', 'drive.user'];
+const SESSION_EXPIRED_MESSAGE = 'Session expired. Please log in again.';
 
 let mapState = {
   zoom: 15,
@@ -249,14 +252,18 @@ async function submitRideDecline(ride, reason = 'declined') {
   if (!ride?.id || !accessToken || reason === 'expired') return;
   console.log(`[DRIVER] Decline clicked for ride ${ride.id}`);
   try {
-    const { data } = await fetchJson(`${API_BASE_URL}/api/rides/${encodeURIComponent(ride.id)}/decline`, {
+    const url = `${API_BASE_URL}/api/rides/${encodeURIComponent(ride.id)}/decline`;
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + accessToken
+    };
+    logApiRequest(url, headers);
+    const { response, data } = await fetchJson(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + accessToken
-      },
+      headers,
       body: JSON.stringify({ rideId: ride.id, reason })
     });
+    logApiResponse(response, data);
     if (data?.ok) {
       console.log(`[DRIVER] Ride ${ride.id} declined successfully`);
       return;
@@ -318,6 +325,65 @@ async function fetchJson(url, options) {
     throw new Error('Unexpected server response.');
   }
   return { response, data };
+}
+
+function logApiRequest(url, headers = {}) {
+  const authorizationHeader = headers.Authorization || headers.authorization || '';
+  console.log(`[API] Request sent to ${url} with Authorization header: ${authorizationHeader || 'none'}`);
+}
+
+function logApiResponse(response, data) {
+  const status = Number(response?.status || 0);
+  console.log(`[API] Response: status=${status || 'n/a'}, data=${JSON.stringify(data || {})}`);
+}
+
+function getCookieValue(name) {
+  const escapedName = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!escapedName) return '';
+  const match = document.cookie.match(new RegExp(`(?:^|; )${escapedName}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
+function readSessionValue(keys = []) {
+  for (const key of keys) {
+    const localValue = String(localStorage.getItem(key) || '').trim();
+    if (localValue) return localValue;
+    const sessionValue = String(sessionStorage.getItem(key) || '').trim();
+    if (sessionValue) return sessionValue;
+    const cookieValue = String(getCookieValue(key) || '').trim();
+    if (cookieValue) return cookieValue;
+  }
+  return '';
+}
+
+function parseSessionUser(rawUser) {
+  if (!rawUser) return null;
+  try {
+    const parsedUser = JSON.parse(rawUser);
+    return parsedUser && typeof parsedUser === 'object' ? parsedUser : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function redirectToDriverLogin() {
+  console.log('[AUTH] Token missing. Redirecting to login.');
+  const target = `/drivers.html?message=${encodeURIComponent(SESSION_EXPIRED_MESSAGE)}`;
+  window.location.replace(target);
+}
+
+function setupSession() {
+  accessToken = readSessionValue(DRIVER_SESSION_TOKEN_KEYS);
+  const userRaw = readSessionValue(DRIVER_SESSION_USER_KEYS);
+  currentUser = parseSessionUser(userRaw);
+  if (accessToken) {
+    console.log(`[AUTH] Token found: ${accessToken.slice(0, 20)}...`);
+  }
+  if (!accessToken || !currentUser?.id || String(currentUser?.role || '').toLowerCase() !== 'driver') {
+    redirectToDriverLogin();
+    return false;
+  }
+  return true;
 }
 
 function sleep(ms) {
@@ -1674,6 +1740,7 @@ function refreshRideRequestFeedState(rides) {
 
   if (rideRequestFeedInitialized && newRideRequests.length) {
     newRideRequests.forEach(ride => {
+      console.log(`[REQUEST] Incoming request received: ride_id=${ride.id}, fare=$${Number(ride.fareEstimate || 0).toFixed(2)}`);
       emitRideRequestAction('requesting', ride, {
         remainingMs: RIDE_REQUEST_ALERT_WINDOW_MS
       });
@@ -3294,11 +3361,15 @@ async function requestWakeLock() {
 // ─── Backend Sync ─────────────────────────────────────────────────────────────
 async function syncDriverLocation(lat, lng, accuracy) {
   if (!accessToken) return;
-  await fetchJson(`${API_BASE_URL}/api/drivers/location`, {
+  const url = `${API_BASE_URL}/api/drivers/location`;
+  const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + accessToken };
+  logApiRequest(url, headers);
+  const { response, data } = await fetchJson(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + accessToken },
+    headers,
     body: JSON.stringify({ lat, lng, accuracy })
   });
+  logApiResponse(response, data);
 }
 
 // ─── Profile & Availability ───────────────────────────────────────────────────
@@ -3728,6 +3799,10 @@ async function fetchIncomingRequests() {
     });
     if (data?.ok && Array.isArray(data.rides)) {
       incomingRideRequests = data.rides;
+      incomingRideRequests.forEach(ride => {
+        const rideId = ride.rideId || ride.id || 'unknown';
+        console.log(`[REQUEST] Incoming request received: ride_id=${rideId}, fare=$${Number(ride.fareEstimate || 0).toFixed(2)}`);
+      });
     } else {
       incomingRideRequests = [];
     }
@@ -4067,6 +4142,7 @@ async function performRideFlowAction(actionPath, successMessage, payload = {}) {
     });
     renderRideDetailsModal(refreshedRide);
     showAlert('success', successMessage);
+    console.log(`[TRIP] Success: Ride status is now ${refreshedRide.status}`);
   } catch (_error) {
     showAlert('danger', 'Unable to update ride status.');
   }
@@ -4074,14 +4150,14 @@ async function performRideFlowAction(actionPath, successMessage, payload = {}) {
 
 function handleArrivedAtPickup() {
   if (selectedRideForDetails?.id) {
-    console.log(`[DRIVER] Arrived at pickup for ride ${selectedRideForDetails.id}`);
+    console.log(`[TRIP] Marking arrived at pickup: ${selectedRideForDetails.id}`);
   }
   performRideFlowAction('arrive', 'Marked as arrived at pickup.');
 }
 
 function handleStartTrip() {
   if (selectedRideForDetails?.id) {
-    console.log(`[DRIVER] Starting trip for ride ${selectedRideForDetails.id}`);
+    console.log(`[TRIP] Starting trip: ${selectedRideForDetails.id}`);
   }
   openRideActionConfirmation({
     title: 'Start Trip',
@@ -4092,7 +4168,7 @@ function handleStartTrip() {
 
 function handleEndTrip() {
   if (selectedRideForDetails?.id) {
-    console.log(`[DRIVER] Completing trip for ride ${selectedRideForDetails.id}`);
+    console.log(`[TRIP] Completing trip: ${selectedRideForDetails.id}`);
   }
   openRideActionConfirmation({
     title: 'End Trip',
@@ -4179,46 +4255,40 @@ async function acceptRideById(rawRideId, options = {}) {
   acceptingRideIds.add(rideId);
   try {
     console.log(`[DRIVER] Accept clicked for ride ${rideId}`);
-    const { data } = await fetchJson(`${API_BASE_URL}/api/rides/${encodeURIComponent(rideId)}/accept`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + accessToken
-      },
-      body: JSON.stringify({ rideId })
-    });
-    if (!data?.ok) {
-      console.log(`[DRIVER] Accept failed: ${data?.error || 'Unable to accept ride.'}`);
-      showAlert('danger', data.error || 'Unable to accept ride.');
+    const acceptResult = await submitRideAccept({ id: rideId });
+    if (!acceptResult?.ride) {
+      showAlert('danger', acceptResult?.error || 'Unable to accept ride.');
       return false;
     }
+    const acceptedRideFromApi = acceptResult.ride;
     showAlert('success', `Ride ${rideId} accepted.`);
     const acceptedRide = getRideById(rideId) || normalizeRide({ id: rideId, status: 'accepted' }, 0);
+    const acceptedRidePatch = normalizeRide({ ...acceptedRide, ...acceptedRideFromApi }, 0);
     upsertSharedRide({
-      ...acceptedRide,
-      status: 'accepted',
-      lifecycleState: acceptedRide.lifecycleState || 'arriving',
-      driverId: currentUser?.id || acceptedRide.driverId || null,
-      driverName: acceptedRide.driverName || getDriverDisplayName(currentUser?.email),
-      etaMinutes: Number.isFinite(routeCache.pickupEta) ? Number(routeCache.pickupEta) : Number(acceptedRide.minutes || 0)
+      ...acceptedRidePatch,
+      status: acceptedRidePatch.status || 'accepted',
+      lifecycleState: acceptedRidePatch.lifecycleState || acceptedRidePatch.status || 'arriving',
+      driverId: currentUser?.id || acceptedRidePatch.driverId || null,
+      driverName: acceptedRidePatch.driverName || getDriverDisplayName(currentUser?.email),
+      etaMinutes: Number.isFinite(routeCache.pickupEta) ? Number(routeCache.pickupEta) : Number(acceptedRidePatch.minutes || 0)
     });
     if (options?.riderName) {
       console.log(`[DRIVER] Accepted ride: ${rideId}, Rider: ${options.riderName}`);
     } else {
-      console.log(`[DRIVER] Accepted ride: ${rideId}, Rider: ${acceptedRide.passengerName || acceptedRide.riderName || 'Rider'}`);
+      console.log(`[DRIVER] Accepted ride: ${rideId}, Rider: ${acceptedRidePatch.passengerName || acceptedRidePatch.riderName || 'Rider'}`);
     }
     console.log(`[DRIVER] Ride ${rideId} accepted successfully`);
-    emitRideRequestAction('accepted', acceptedRide, { source: options.source || 'manual' });
+    emitRideRequestAction('accepted', acceptedRidePatch, { source: options.source || 'manual' });
     // [REALTIME] Replace publishSharedRideStatus with a Firebase/Supabase write so
     // the rider dashboard sees "Driver assigned" in real time.
     publishSharedRideStatus(rideId, 'accepted', {
-      eta: Math.round(Number(acceptedRide.minutes || 8)),
-      distanceKm: getRidePickupDistanceKm(acceptedRide)
+      eta: Math.round(Number(acceptedRidePatch.minutes || 8)),
+      distanceKm: getRidePickupDistanceKm(acceptedRidePatch)
     });
     if (rideRequestPopupState.rideId === rideId) {
-      setRideRequestPopupPhase('accepted', acceptedRide);
+      setRideRequestPopupPhase('accepted', acceptedRidePatch);
     }
-    renderRideDetailsModal(acceptedRide);
+    renderRideDetailsModal(acceptedRidePatch);
     await Promise.all([loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
     document.getElementById('accept-ride-form')?.reset();
     return true;
@@ -4233,6 +4303,38 @@ async function acceptRideById(rawRideId, options = {}) {
     return false;
   } finally {
     acceptingRideIds.delete(rideId);
+  }
+}
+
+async function submitRideAccept(ride) {
+  if (!ride?.id || !accessToken) {
+    return { ride: null, error: 'Missing ride ID or access token.' };
+  }
+  console.log(`[ACCEPT] Accepting ride ${ride.id}`);
+  const url = `${API_BASE_URL}/api/rides/${encodeURIComponent(ride.id)}/accept`;
+  const headers = {
+    'Content-Type': 'application/json',
+    Authorization: 'Bearer ' + accessToken
+  };
+  logApiRequest(url, headers);
+  try {
+    const { response, data } = await fetchJson(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ rideId: ride.id })
+    });
+    logApiResponse(response, data);
+    if (data?.ok && data?.ride) {
+      console.log(`[ACCEPT] Success: Ride ${ride.id} accepted. Driver status is now ${data.ride.status}`);
+      return { ride: data.ride, error: '' };
+    }
+    const failedMessage = data?.error || 'Unable to accept ride.';
+    console.log(`[ACCEPT] Failed: ${failedMessage}`);
+    return { ride: null, error: failedMessage };
+  } catch (error) {
+    const errorMessage = error?.message || 'Unable to accept ride.';
+    console.log(`[ACCEPT] Error: ${errorMessage}`);
+    return { ride: null, error: errorMessage };
   }
 }
 
@@ -5055,9 +5157,13 @@ function populateVehicleForm(vehicle) {
 async function loadVehicleProfile() {
   if (!accessToken) return;
   try {
-    const { response, data } = await fetchJson(`${API_BASE_URL}/api/drivers/vehicle`, {
-      headers: { Authorization: 'Bearer ' + accessToken }
+    const url = `${API_BASE_URL}/api/drivers/vehicle`;
+    const headers = { Authorization: 'Bearer ' + accessToken };
+    logApiRequest(url, headers);
+    const { response, data } = await fetchJson(url, {
+      headers
     });
+    logApiResponse(response, data);
     if (!response.ok || !data?.ok || !data?.vehicle) return;
     populateVehicleForm(data.vehicle);
     if (currentProfile) currentProfile.vehicle = data.vehicle;
@@ -5277,20 +5383,25 @@ async function toggleAvailability() {
   try {
     console.log(next === 'online' ? '[DRIVER] Go Online clicked' : '[DRIVER] Go Offline clicked');
     if (next === 'online') {
+      console.log('[ONLINE] Driver going online. Calling /api/drivers/availability');
       await ensureDriverLocation();
       await startLocationTracking();
       await requestWakeLock();
     } else {
       stopLocationTracking();
     }
-    const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/availability`, {
+    const url = `${API_BASE_URL}/api/drivers/availability`;
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + accessToken
+    };
+    logApiRequest(url, headers);
+    const { response, data } = await fetchJson(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + accessToken
-      },
+      headers,
       body: JSON.stringify({ status: next })
     });
+    logApiResponse(response, data);
     if (!data?.ok) {
       if (next === 'online') stopLocationTracking();
       showAlert('warning', data?.error || `Unable to go ${next}.`);
@@ -5309,6 +5420,9 @@ async function toggleAvailability() {
       renderIncomingRequests();
     }
     showAlert('success', `You are now ${next}.`);
+    if (next === 'online') {
+      console.log(`[ONLINE] Success: Driver status is now ${data?.profile?.availabilityStatus || currentProfile?.availabilityStatus || 'online'}`);
+    }
     console.log(next === 'online'
       ? `[DRIVER] Driver ${currentUser?.id || currentProfile?.userId || 'unknown'} is now ONLINE`
       : `[DRIVER] Driver ${currentUser?.id || currentProfile?.userId || 'unknown'} is now OFFLINE`);
@@ -5508,42 +5622,7 @@ function startUiRefreshLoop() {
 
 // ─── Page Lifecycle ───────────────────────────────────────────────────────────
 window.addEventListener('load', async () => {
-  accessToken = localStorage.getItem('accessToken') || localStorage.getItem('drive.accessToken');
-  const refreshToken = localStorage.getItem('refreshToken') || localStorage.getItem('drive.refreshToken');
-  const userStr = localStorage.getItem('user') || localStorage.getItem('drive.user');
-
-  if (accessToken) {
-    console.log('[DRIVER] Access token found on page load');
-  } else {
-    console.warn('[DRIVER] Access token missing on page load');
-  }
-
-  if (!accessToken || !refreshToken || !userStr) {
-    console.error('Driver dashboard auth session is incomplete — redirecting to login', {
-      hasAccessToken: Boolean(accessToken),
-      hasRefreshToken: Boolean(refreshToken),
-      hasUser: Boolean(userStr)
-    });
-    sessionStorage.setItem('authRedirectMessage', 'Session expired. Please log in again.');
-    window.location.href = '/drivers.html';
-    return;
-  }
-
-  try {
-    currentUser = JSON.parse(userStr);
-  } catch (error) {
-    console.error('Unable to parse stored driver session', { error, userStr });
-    handleLogout();
-    return;
-  }
-
-  if (!currentUser?.id || (currentUser.role?.toLowerCase() || '') !== 'driver') {
-    console.error('Invalid driver session role payload', { user: currentUser });
-    console.log('[DRIVER] Auth redirect: role is not driver, redirecting to login');
-    sessionStorage.setItem('authRedirectMessage', 'Session expired. Please log in again.');
-    window.location.replace('/drivers.html');
-    return;
-  }
+  if (!setupSession()) return;
 
   // Wire up static UI controls
   document.addEventListener('pointerdown', () => {
