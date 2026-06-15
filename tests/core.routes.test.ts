@@ -357,7 +357,14 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
       'trip-timeline',
       'Driver',
       'Rider',
-      'Admin'
+      'Admin',
+      'btn-voice-command',
+      'btn-mute-alerts',
+      'voice-feedback',
+      'voice-alerts-toggle',
+      'voice-volume-slider',
+      'Spoken alerts',
+      'Estimated time of arrival'
     ].forEach(token => {
       assert.match(body, new RegExp(token));
     });
@@ -395,6 +402,13 @@ test('GET /rider-dashboard.js includes Mapbox route rendering and fare breakdown
       'fare-taxes',
       'MAX_RIDE_DISTANCE_MILES',
       'MINIMUM_FARES',
+      'SpeechSynthesisUtterance',
+      'SpeechRecognition',
+      'voice-alerts-toggle',
+      'btn-voice-command',
+      'MIN_VOICE_COMMAND_CONFIDENCE',
+      'CANCELLATION_CONFIRMATION_RESPONSES',
+      'triggerSpokenAlert(spokenAlertState)',
       'International ride requests are currently unavailable.',
       'Long-distance trips over 6 hours are unavailable for on-demand booking.'
     ].forEach(token => {
