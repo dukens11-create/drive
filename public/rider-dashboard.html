@@ -428,7 +428,27 @@
                     <button id="btn-message-driver" type="button" class="driver-action-btn" aria-label="Message driver" title="Message driver">
                       <i class="bi bi-chat-dots-fill"></i>
                     </button>
+                    <button id="btn-voice-command" type="button" class="driver-action-btn voice-btn" aria-label="Voice command" title="Voice command">
+                      <i class="bi bi-mic-fill"></i>
+                    </button>
+                    <button id="btn-mute-alerts" type="button" class="driver-action-btn mute-btn" aria-label="Mute spoken alerts" title="Mute spoken alerts">
+                      <i class="bi bi-volume-up-fill"></i>
+                    </button>
                     <span class="driver-eta-chip">ETA: <span id="driver-eta">--</span></span>
+                  </div>
+                  <div id="voice-feedback" class="voice-feedback d-none" aria-live="polite">
+                    <span class="voice-feedback-icon"><i class="bi bi-mic-fill"></i></span>
+                    <span id="voice-feedback-text" class="voice-feedback-text">Listening…</span>
+                  </div>
+                  <div class="voice-controls-row" id="voice-controls-row">
+                    <label class="voice-volume-label" for="voice-volume-slider">
+                      <i class="bi bi-speaker-fill"></i> Alerts volume
+                    </label>
+                    <input type="range" id="voice-volume-slider" class="voice-volume-slider" min="0" max="100" value="80" aria-label="Alert volume">
+                    <label class="voice-toggle-label">
+                      <input type="checkbox" id="voice-alerts-toggle" checked aria-label="Enable spoken alerts">
+                      Spoken alerts
+                    </label>
                   </div>
                 </div>
 
