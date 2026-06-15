@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as controller from '../controllers/rides.controller';
 import { validateBody } from '../utils/validate';
 import {
+  genericSchema,
   rideAcceptSchema,
   rideAcceptPathSchema,
   rideDriverCancelSchema,
@@ -20,6 +21,7 @@ import {
 import { requireAuth, requireRole } from '../middleware/auth.middleware';
 const router = Router();
 router.get('/health', controller.health);
+router.get('/:rideId/share', controller.sharedRide);
 router.use(requireAuth);
 router.post('/estimate', validateBody(rideEstimateSchema), controller.estimate);
 router.post('/', requireRole('rider'), validateBody(rideRequestSchema), controller.request);
@@ -28,6 +30,7 @@ router.get('/:rideId', controller.detail);
 router.get('/:rideId/driver', controller.assignedDriver);
 router.post('/request', requireRole('rider'), validateBody(rideRequestSchema), controller.request);
 router.post('/:rideId/accept', requireRole('driver'), validateBody(rideAcceptPathSchema), controller.accept);
+router.post('/:rideId/share', requireRole('rider', 'admin'), validateBody(genericSchema), controller.createShareLink);
 router.put('/:rideId/status', requireRole('driver', 'rider', 'admin'), validateBody(rideStatusUpdateSchema), controller.updateStatus);
 router.post('/:rideId/rate', requireRole('driver', 'rider'), validateBody(rideRatePathSchema), controller.submitRating);
 router.post('/history', requireRole('rider'), validateBody(rideHistorySchema), controller.history);
