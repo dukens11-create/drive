@@ -39,7 +39,7 @@ const DEFAULT_CANCELLATION_FEE_CENTS = 400;
 const DEFAULT_NO_SHOW_FEE_CENTS = 500;
 const RIDE_REQUEST_EXPIRY_MS = 30_000;
 const MAX_FAVORITE_LOCATIONS = 10;
-const SHARED_RIDE_TOKEN_TTL_MS = 6 * 60 * 60 * 1000;
+const SHARED_RIDE_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
 type SharedRideTokenRecord = {
   rideId: string;
@@ -452,8 +452,12 @@ function pruneExpiredSharedRideTokens() {
 
 function toSharedRideView(ride: Ride) {
   const driver = buildAssignedDriverDetails(ride);
-  const vehicle: any = driver?.vehicle || {};
-  const vehicleLabel = [vehicle.make, vehicle.model].filter(Boolean).join(' ').trim();
+  const vehicle = driver?.vehicle as {
+    make?: string;
+    model?: string;
+    plateNumber?: string;
+  } | undefined;
+  const vehicleLabel = [vehicle?.make, vehicle?.model].filter(Boolean).join(' ').trim();
 
   return {
     id: ride.id,
@@ -468,9 +472,9 @@ function toSharedRideView(ride: Ride) {
       name: driver.name,
       rating: driver.rating,
       vehicle: {
-        make: vehicle.make,
-        model: vehicle.model,
-        plateNumber: vehicle.plateNumber,
+        make: vehicle?.make,
+        model: vehicle?.model,
+        plateNumber: vehicle?.plateNumber,
         label: vehicleLabel || undefined
       }
     } : undefined,

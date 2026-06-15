@@ -734,6 +734,8 @@ test('ride and driver core flow enforces auth boundaries and status transitions'
     assert.equal(sharedRideBody.ok, true);
     assert.equal(sharedRideBody.ride.id, rideId);
     assert.equal(sharedRideBody.ride.riderId, undefined);
+    assert.equal(sharedRideBody.ride.riderPhone, undefined);
+    assert.equal(sharedRideBody.ride.driverPhone, undefined);
 
     const sharedRideMissingTokenResponse = await getJson(baseUrl, `/api/rides/${rideId}/share`);
     assert.equal(sharedRideMissingTokenResponse.status, 400);
