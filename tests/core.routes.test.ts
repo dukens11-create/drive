@@ -106,7 +106,7 @@ test('GET /health returns service status payload', async () => {
     const response = await fetch(`${baseUrl}/health`);
     assert.equal(response.status, 200);
     const body = await response.json();
-    assert.deepEqual(body, { ok: true, service: 'flupflap-ride-v7' });
+    assert.deepEqual(body, { ok: true, service: 'drive-api' });
   });
 });
 
@@ -783,6 +783,30 @@ test('ride and driver core flow enforces auth boundaries and status transitions'
 
     const rideId = rideRequestBody.ride.id;
 
+    const unrelatedRider = await signup(baseUrl, 'rider');
+
+    const shareCreateResponse = await postJson(baseUrl, `/api/rides/${rideId}/share`, {}, rider.accessToken);
+    assert.equal(shareCreateResponse.status, 200);
+    const shareCreateBody = await shareCreateResponse.json();
+    assert.equal(shareCreateBody.ok, true);
+    assert.equal(typeof shareCreateBody.token, 'string');
+    assert.match(shareCreateBody.shareLink, /shared-trip\.html\?rideId=/);
+
+    const sharedRideResponse = await getJson(baseUrl, `/api/rides/${rideId}/share?token=${encodeURIComponent(shareCreateBody.token)}`);
+    assert.equal(sharedRideResponse.status, 200);
+    const sharedRideBody = await sharedRideResponse.json();
+    assert.equal(sharedRideBody.ok, true);
+    assert.equal(sharedRideBody.ride.id, rideId);
+    assert.equal(sharedRideBody.ride.riderId, undefined);
+    assert.equal(sharedRideBody.ride.riderPhone, undefined);
+    assert.equal(sharedRideBody.ride.driverPhone, undefined);
+
+    const sharedRideMissingTokenResponse = await getJson(baseUrl, `/api/rides/${rideId}/share`);
+    assert.equal(sharedRideMissingTokenResponse.status, 400);
+
+    const unrelatedRiderShareCreate = await postJson(baseUrl, `/api/rides/${rideId}/share`, {}, unrelatedRider.accessToken);
+    assert.equal(unrelatedRiderShareCreate.status, 403);
+
     const riderHistoryResponse = await getJson(baseUrl, '/api/rides/history', rider.accessToken);
     const riderHistoryBody = await riderHistoryResponse.json();
     assert.equal(riderHistoryBody.ok, true);
@@ -793,7 +817,6 @@ test('ride and driver core flow enforces auth boundaries and status transitions'
     assert.equal(riderDetailBody.ok, true);
     assert.equal(riderDetailBody.ride.id, rideId);
 
-    const unrelatedRider = await signup(baseUrl, 'rider');
     const unrelatedRiderDetailResponse = await getJson(baseUrl, `/api/rides/${rideId}`, unrelatedRider.accessToken);
     const unrelatedRiderDetailBody = await unrelatedRiderDetailResponse.json();
     assert.equal(unrelatedRiderDetailBody.error, 'forbidden');
@@ -827,6 +850,9 @@ test('ride and driver core flow enforces auth boundaries and status transitions'
     const completeBody = await completeResponse.json();
     assert.equal(completeBody.ride.status, 'completed');
     assert.equal(completeBody.amountCents > 0, true);
+
+    const expiredShareResponse = await getJson(baseUrl, `/api/rides/${rideId}/share?token=${encodeURIComponent(shareCreateBody.token)}`);
+    assert.equal(expiredShareResponse.status, 410);
 
     const emptyCurrentTripResponse = await getJson(baseUrl, '/api/drivers/current-trip', driver.accessToken);
     const emptyCurrentTripBody = await emptyCurrentTripResponse.json();

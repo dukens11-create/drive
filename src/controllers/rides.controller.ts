@@ -20,3 +20,24 @@ export async function rate(req: any, res: any) { res.json(await service.rate({ .
 export async function submitRating(req: any, res: any) { res.json(await service.submitRating({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function receipt(req: any, res: any) { res.json(await service.receipt({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function notifications(req: any, res: any) { res.json(await service.notifications({ ...req.body, actor: req.user }, req.params, req.query)); }
+export async function createShareLink(req: any, res: any) {
+  const payload = await service.createShareLink({ ...req.body, actor: req.user }, req.params, req.query);
+  if (payload?.error) {
+    if (payload.error === 'forbidden') return res.status(403).json(payload);
+    if (payload.error === 'ride not found') return res.status(404).json(payload);
+    if (payload.error === 'rideId is required') return res.status(400).json(payload);
+    if (payload.error === 'ride cannot be shared in its current state') return res.status(409).json(payload);
+    return res.status(400).json(payload);
+  }
+  return res.json(payload);
+}
+export async function sharedRide(req: any, res: any) {
+  const payload = await service.sharedRide({ ...req.body, actor: req.user }, req.params, req.query);
+  if (payload?.error) {
+    if (payload.error === 'ride not found') return res.status(404).json(payload);
+    if (payload.error === 'rideId is required' || payload.error === 'token is required') return res.status(400).json(payload);
+    if (payload.error === 'share link expired') return res.status(410).json(payload);
+    return res.status(403).json(payload);
+  }
+  return res.json(payload);
+}

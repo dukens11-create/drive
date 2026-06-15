@@ -39,6 +39,17 @@ const DEFAULT_CANCELLATION_FEE_CENTS = 400;
 const DEFAULT_NO_SHOW_FEE_CENTS = 500;
 const RIDE_REQUEST_EXPIRY_MS = 30_000;
 const MAX_FAVORITE_LOCATIONS = 10;
+const SHARED_RIDE_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+
+type SharedRideTokenRecord = {
+  rideId: string;
+  token: string;
+  createdBy: string;
+  createdAt: string;
+  expiresAt: string;
+};
+
+const sharedRideTokens = new Map<string, SharedRideTokenRecord>();
 
 function normalizeRequestedVehicleType(input: unknown): VehicleType | null {
   const normalized = String(input || '').trim().toLowerCase();
@@ -440,6 +451,47 @@ function canAccessRide(authenticatedUser: any, ride: Ride) {
   return authenticatedUser.role === 'admin' || ride.riderId === authenticatedUser.id || ride.driverId === authenticatedUser.id;
 }
 
+function pruneExpiredSharedRideTokens() {
+  const nowMs = Date.now();
+  for (const [rideId, record] of sharedRideTokens.entries()) {
+    if (new Date(record.expiresAt).getTime() <= nowMs) {
+      sharedRideTokens.delete(rideId);
+    }
+  }
+}
+
+function toSharedRideView(ride: Ride) {
+  const driver = buildAssignedDriverDetails(ride);
+  const vehicle = driver?.vehicle as {
+    make?: string;
+    model?: string;
+    plateNumber?: string;
+  } | undefined;
+  const vehicleLabel = [vehicle?.make, vehicle?.model].filter(Boolean).join(' ').trim();
+
+  return {
+    id: ride.id,
+    status: ride.status,
+    pickupAddress: ride.pickupAddress || '--',
+    dropoffAddress: ride.dropoffAddress || '--',
+    pickupLabel: ride.pickupAddress || '--',
+    destinationLabel: ride.dropoffAddress || '--',
+    etaMinutes: Math.max(0, Math.round(Number(ride.minutes || 0))),
+    driverName: driver?.name || undefined,
+    driver: driver ? {
+      name: driver.name,
+      rating: driver.rating,
+      vehicle: {
+        make: vehicle?.make,
+        model: vehicle?.model,
+        plateNumber: vehicle?.plateNumber,
+        label: vehicleLabel || undefined
+      }
+    } : undefined,
+    updatedAt: ride.updatedAt
+  };
+}
+
 export async function estimate(body: any, _params?: any, _query?: any) {
   const miles = Number(body?.miles || body?.distanceMiles || 0);
   const minutes = Number(body?.minutes || body?.etaMinutes || 0);
@@ -736,6 +788,57 @@ export async function assignedDriver(body: any, params?: any, _query?: any) {
   const driver = buildAssignedDriverDetails(ride);
   if (!driver) return { module: 'rides', action: 'assigned-driver', error: 'driver not found' };
   return { module: 'rides', action: 'assigned-driver', ok: true, driver };
+}
+
+export async function createShareLink(body: any, params?: any, _query?: any) {
+  const rideId = params?.rideId || body?.rideId;
+  if (!rideId) return { module: 'rides', action: 'share-create', error: 'rideId is required' };
+
+  const ride = getRide(rideId);
+  if (!ride) return { module: 'rides', action: 'share-create', error: 'ride not found' };
+  if (!canAccessRide(body?.actor, ride)) return { module: 'rides', action: 'share-create', error: 'forbidden' };
+  if (ride.status === 'completed' || ride.status === 'canceled') {
+    return { module: 'rides', action: 'share-create', error: 'ride cannot be shared in its current state' };
+  }
+
+  pruneExpiredSharedRideTokens();
+  const token = makeId('share');
+  const now = timestamp();
+  const expiresAt = new Date(Date.now() + SHARED_RIDE_TOKEN_TTL_MS).toISOString();
+  sharedRideTokens.set(ride.id, {
+    rideId: ride.id,
+    token,
+    createdBy: String(body?.actor?.id || ''),
+    createdAt: now,
+    expiresAt
+  });
+
+  const baseUrl = env.appBaseUrl || 'http://localhost:3000';
+  const shareLink = `${baseUrl}/shared-trip.html?rideId=${encodeURIComponent(ride.id)}&token=${encodeURIComponent(token)}`;
+  return { module: 'rides', action: 'share-create', ok: true, rideId: ride.id, token, expiresAt, shareLink };
+}
+
+export async function sharedRide(_body: any, params?: any, query?: any) {
+  const rideId = params?.rideId;
+  if (!rideId) return { module: 'rides', action: 'share-read', error: 'rideId is required' };
+
+  const token = String(query?.token || '').trim();
+  if (!token) return { module: 'rides', action: 'share-read', error: 'token is required' };
+
+  pruneExpiredSharedRideTokens();
+  const tokenRecord = sharedRideTokens.get(rideId);
+  if (!tokenRecord || tokenRecord.token !== token) {
+    return { module: 'rides', action: 'share-read', error: 'invalid token' };
+  }
+
+  const ride = getRide(rideId);
+  if (!ride) return { module: 'rides', action: 'share-read', error: 'invalid token' };
+  if (ride.status === 'completed' || ride.status === 'canceled') {
+    sharedRideTokens.delete(ride.id);
+    return { module: 'rides', action: 'share-read', error: 'share link expired' };
+  }
+
+  return { module: 'rides', action: 'share-read', ok: true, ride: toSharedRideView(ride), expiresAt: tokenRecord.expiresAt };
 }
 
 export async function receipt(body: any, _params?: any, _query?: any) {
