@@ -1442,12 +1442,13 @@ function showToast(message, type = 'info', duration = 4000) {
 
   const iconMap = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
   const iconLabel = { info: 'Info', success: 'Success', error: 'Error', warning: 'Warning' };
+  const safeMessage = escapeHtml(message);
   const toast = document.createElement('div');
   toast.className = `toast-item toast-item--${type}`;
   toast.setAttribute('role', 'status');
   toast.innerHTML =
     `<span class="toast-icon" role="img" aria-label="${iconLabel[type] || 'Info'}">${iconMap[type] || 'ℹ️'}</span>` +
-    `<span class="toast-message">${message}</span>` +
+    `<span class="toast-message">${safeMessage}</span>` +
     `<button class="toast-close" aria-label="Dismiss notification" type="button">×</button>`;
 
   const dismiss = () => {
@@ -3179,7 +3180,7 @@ function validateScheduleTime(datetime) {
   const minTime = new Date(now.getTime() + SCHEDULE_MIN_MINUTES_AHEAD * 60 * 1000);
   const maxTime = new Date(now.getTime() + SCHEDULE_MAX_DAYS_AHEAD * 24 * 60 * 60 * 1000);
 
-  if (datetime <= minTime) {
+  if (datetime < minTime) {
     return { valid: false, error: `Please schedule at least ${SCHEDULE_MIN_MINUTES_AHEAD} minutes from now.` };
   }
   if (datetime > maxTime) {
