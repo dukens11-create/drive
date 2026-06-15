@@ -371,6 +371,35 @@
 
                 <div id="booking-error-message" class="booking-error d-none" role="alert" aria-live="assertive"></div>
 
+                <div class="payment-method-section" id="payment-method-section">
+                  <div class="payment-method-header">
+                    <span class="payment-method-label">Pay with</span>
+                    <button type="button" class="payment-pill" id="payment-method-pill" aria-expanded="false" aria-controls="payment-method-dropdown">
+                      <span id="payment-method-icon" aria-hidden="true">💳</span>
+                      <span id="payment-method-text">Card</span>
+                      <i class="bi bi-chevron-down payment-pill-chevron" aria-hidden="true"></i>
+                    </button>
+                  </div>
+                  <div id="payment-method-dropdown" class="payment-method-dropdown d-none" role="listbox" aria-label="Select payment method">
+                    <button type="button" class="payment-option is-selected" data-payment-method="card" role="option" aria-selected="true">
+                      <span class="payment-option-icon" aria-hidden="true">💳</span>
+                      <span>Card</span>
+                    </button>
+                    <button type="button" class="payment-option" data-payment-method="apple_pay" role="option" aria-selected="false" id="payment-opt-apple-pay">
+                      <span class="payment-option-icon" aria-hidden="true">🍎</span>
+                      <span>Apple Pay</span>
+                    </button>
+                    <button type="button" class="payment-option" data-payment-method="google_pay" role="option" aria-selected="false" id="payment-opt-google-pay">
+                      <span class="payment-option-icon" aria-hidden="true">🔵</span>
+                      <span>Google Pay</span>
+                    </button>
+                    <button type="button" class="payment-option" data-payment-method="cash" role="option" aria-selected="false">
+                      <span class="payment-option-icon" aria-hidden="true">💵</span>
+                      <span>Cash</span>
+                    </button>
+                  </div>
+                </div>
+
                 <div class="button-group">
                   <button id="request-ride-button" type="button" class="btn btn-primary btn-block btn-lg" title="Enter a valid pickup and destination.">
                     <span class="btn-spinner" aria-hidden="true"></span>
@@ -465,7 +494,7 @@
     </main>
   </div>
 
-  <div id="ride-popup" class="toast d-none" role="status" aria-live="polite"></div>
+  <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
   <div id="cancel-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="cancel-modal-title" aria-describedby="cancel-modal-description">
     <div class="modal-card">
       <h3 id="cancel-modal-title">Cancel this ride?</h3>
