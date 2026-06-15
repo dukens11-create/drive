@@ -8,6 +8,7 @@ router.get('/health', controller.health);
 router.post('/stripe-webhook', controller.stripe_webhook);
 router.use(requireAuth);
 router.post('/create-intent', validateBody(genericSchema), controller.create_intent);
+router.post('/create-ride-payment', validateBody(genericSchema), controller.create_ride_payment);
 router.post('/capture', validateBody(genericSchema), controller.capture);
 router.post('/refund', validateBody(genericSchema), controller.refund);
 router.post('/save-method', validateBody(genericSchema), controller.save_method);

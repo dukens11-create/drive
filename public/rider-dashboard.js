@@ -84,6 +84,12 @@ let accessToken = '';
 let refreshToken = '';
 let selectedRideType = 'ECONOMY';
 let selectedPaymentMethod = localStorage.getItem('drive.paymentMethod') || 'card';
+let stripe = null;
+let stripeElements = null;
+let paymentElement = null;
+let stripeClientSecret = null;
+let stripePublishableKeyPromise = null;
+let savedCardLast4 = '';
 let rides = [];
 let currentRide = null;
 let riderLocationWatchId = null;
@@ -1537,7 +1543,10 @@ function updateRequestRideButtonState() {
   const requestButton = document.getElementById('request-ride-button');
   if (!requestButton) return;
   const canCancelRide = Boolean(currentRide && ['requested', 'accepted', 'arrived_at_pickup'].includes(currentRide.status));
-  const disabledReason = canCancelRide ? 'You already have an active ride.' : rideValidationState.disabledReason;
+  const hasPaymentMethod = Boolean(selectedPaymentMethod);
+  const disabledReason = canCancelRide
+    ? 'You already have an active ride.'
+    : (!hasPaymentMethod ? 'Select a payment method to continue.' : rideValidationState.disabledReason);
   requestButton.disabled = canCancelRide || Boolean(disabledReason);
   requestButton.title = disabledReason || 'Request your ride';
 }
@@ -1570,18 +1579,137 @@ function setCancelModalOpen(isOpen) {
 }
 
 const PAYMENT_METHOD_OPTIONS = [
-  { id: 'card', label: 'Card', icon: '💳' },
-  { id: 'apple_pay', label: 'Apple Pay', icon: '🍎' },
-  { id: 'google_pay', label: 'Google Pay', icon: '🔵' },
-  { id: 'cash', label: 'Cash', icon: '💵' }
+  { id: 'card', label: 'Card', icon: '💳', requiresStripe: true },
+  { id: 'apple_pay', label: 'Apple Pay', icon: '🍎', requiresStripe: true },
+  { id: 'google_pay', label: 'Google Pay', icon: '🔵', requiresStripe: true },
+  { id: 'cash', label: 'Cash', icon: '💵', requiresStripe: false }
 ];
 
+function getSelectedPaymentConfig() {
+  return PAYMENT_METHOD_OPTIONS.find(m => m.id === selectedPaymentMethod) || PAYMENT_METHOD_OPTIONS[0];
+}
+
 function renderPaymentMethodPill() {
-  const method = PAYMENT_METHOD_OPTIONS.find(m => m.id === selectedPaymentMethod) || PAYMENT_METHOD_OPTIONS[0];
+  const method = getSelectedPaymentConfig();
   const iconEl = document.getElementById('payment-method-icon');
   const textEl = document.getElementById('payment-method-text');
   if (iconEl) iconEl.textContent = method.icon;
-  if (textEl) textEl.textContent = method.label;
+  if (textEl) textEl.textContent = method.id === 'card' && savedCardLast4 ? `${method.label} •••• ${savedCardLast4}` : method.label;
+}
+
+function setPaymentMessage(message = '', type = '') {
+  const messageEl = document.getElementById('payment-message');
+  if (!messageEl) return;
+  messageEl.textContent = message;
+  messageEl.classList.toggle('d-none', !message);
+  messageEl.dataset.type = type || '';
+}
+
+function setPaymentStatus(message = '', status = '') {
+  const statusEl = document.getElementById('payment-status');
+  const textEl = document.getElementById('payment-status-text');
+  const iconEl = document.getElementById('payment-status-icon');
+  if (!statusEl || !textEl || !iconEl) return;
+  if (!message || !status) {
+    statusEl.classList.add('d-none');
+    statusEl.classList.remove('pending', 'authorized', 'failed', 'paid');
+    textEl.textContent = '';
+    iconEl.textContent = '';
+    return;
+  }
+  const icons = { pending: '⏳', authorized: '✓', failed: '✗', paid: '✓✓' };
+  statusEl.classList.remove('d-none', 'pending', 'authorized', 'failed', 'paid');
+  statusEl.classList.add(status);
+  textEl.textContent = message;
+  iconEl.textContent = icons[status] || '';
+}
+
+async function getStripePublishableKey() {
+  if (stripePublishableKeyPromise) return stripePublishableKeyPromise;
+  stripePublishableKeyPromise = (async () => {
+    const metaKey = String(document.querySelector('meta[name="stripe-publishable-key"]')?.content || '').trim();
+    if (metaKey) return metaKey;
+    try {
+      const { response, data } = await fetchJson('/api/config');
+      if (response.ok && data?.stripePublishableKey) return String(data.stripePublishableKey).trim();
+    } catch (_error) {
+      // Ignore; caller handles missing key.
+    }
+    return '';
+  })();
+  return stripePublishableKeyPromise;
+}
+
+async function initializeStripe() {
+  if (stripe) return stripe;
+  if (typeof window.Stripe !== 'function') {
+    setPaymentMessage('Stripe.js is unavailable right now. Please choose Cash or try again later.', 'error');
+    return null;
+  }
+  const publishableKey = await getStripePublishableKey();
+  if (!publishableKey) {
+    setPaymentMessage('Secure card payments are temporarily unavailable. Please choose Cash.', 'warning');
+    return null;
+  }
+  stripe = window.Stripe(publishableKey);
+  return stripe;
+}
+
+async function ensurePaymentElement() {
+  if (!getSelectedPaymentConfig().requiresStripe) return true;
+  const container = document.getElementById('payment-element-container');
+  if (container) container.classList.remove('d-none');
+  if (paymentElement && stripeElements) return true;
+  const stripeClient = await initializeStripe();
+  if (!stripeClient) return false;
+  const appearance = {
+    theme: 'stripe',
+    variables: {
+      colorPrimary: '#1b80ff',
+      fontFamily: 'system-ui, -apple-system, sans-serif'
+    }
+  };
+  const amountCents = Math.max(100, Math.round(Number(latestEstimate?.fareEstimate || 1) * 100));
+  stripeElements = stripeClient.elements({
+    appearance,
+    mode: 'payment',
+    currency: 'usd',
+    amount: amountCents
+  });
+  paymentElement = stripeElements.create('payment');
+  paymentElement.mount('#payment-element');
+  setPaymentMessage('');
+  return true;
+}
+
+async function updatePaymentElementVisibility() {
+  const container = document.getElementById('payment-element-container');
+  if (!container) return;
+  const requiresStripe = getSelectedPaymentConfig().requiresStripe;
+  container.classList.toggle('d-none', !requiresStripe);
+  if (requiresStripe) {
+    await ensurePaymentElement();
+  } else {
+    setPaymentMessage('');
+  }
+}
+
+async function loadSavedPaymentMethods() {
+  if (!accessToken) return;
+  try {
+    const { response, data } = await fetchJson('/api/payments/list-methods', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ userId: currentUser?.id })
+    });
+    if (!response.ok || !data?.ok || !Array.isArray(data.methods)) return;
+    const defaultCard = data.methods.find(method => method?.isDefault && method?.type === 'card' && method?.last4) ||
+      data.methods.find(method => method?.type === 'card' && method?.last4);
+    savedCardLast4 = defaultCard?.last4 ? String(defaultCard.last4) : '';
+    renderPaymentMethodPill();
+  } catch (_error) {
+    // Ignore payment method lookup errors.
+  }
 }
 
 function setPaymentMethod(methodId) {
@@ -1594,6 +1722,8 @@ function setPaymentMethod(methodId) {
     btn.classList.toggle('is-selected', isSelected);
     btn.setAttribute('aria-selected', String(isSelected));
   });
+  updatePaymentElementVisibility().catch(() => {});
+  updateRequestRideButtonState();
 }
 
 function togglePaymentDropdown() {
@@ -1613,7 +1743,7 @@ function closePaymentDropdown() {
   if (pill) pill.setAttribute('aria-expanded', 'false');
 }
 
-function initPaymentMethod() {
+async function initPaymentMethod() {
   const ua = navigator.userAgent;
   const applePayOpt = document.getElementById('payment-opt-apple-pay');
   const googlePayOpt = document.getElementById('payment-opt-google-pay');
@@ -1635,6 +1765,7 @@ function initPaymentMethod() {
 
   renderPaymentMethodPill();
   setPaymentMethod(selectedPaymentMethod);
+  await loadSavedPaymentMethods();
 }
 
 function startSearchingDotsAnimation() {
@@ -2268,6 +2399,61 @@ async function syncRides() {
   renderRideState();
 }
 
+async function createRidePaymentIntent(ride) {
+  if (!ride?.id || !currentUser?.id) return null;
+  const amountCents = Math.max(1, Math.round(Number(ride.fareEstimate || latestEstimate?.fareEstimate || 0) * 100));
+  const { response, data } = await fetchJson('/api/payments/create-ride-payment', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({
+      rideId: ride.id,
+      riderId: currentUser.id,
+      amountCents,
+      currency: 'usd',
+      paymentMethodType: selectedPaymentMethod,
+      platform: 'drive'
+    })
+  });
+  if (!response.ok || !data?.ok || !data?.clientSecret) {
+    const message = data?.message || data?.error || 'Failed to initialize payment.';
+    throw new Error(message);
+  }
+  stripeClientSecret = String(data.clientSecret);
+  if (ride && data.paymentIntentId) {
+    ride.paymentIntentId = data.paymentIntentId;
+    ride.paymentStatus = 'pending';
+  }
+  return stripeClientSecret;
+}
+
+async function confirmStripeRidePayment() {
+  if (!stripe || !stripeElements || !stripeClientSecret) return false;
+  setPaymentStatus('Processing payment...', 'pending');
+  const { error, paymentIntent } = await stripe.confirmPayment({
+    elements: stripeElements,
+    clientSecret: stripeClientSecret,
+    redirect: 'if_required',
+    confirmParams: {
+      return_url: `${window.location.origin}/rider-dashboard.html?payment_success=true`
+    }
+  });
+  if (error) {
+    const message = error?.message || 'Payment failed.';
+    setPaymentStatus(`Payment failed: ${message}`, 'failed');
+    showToast(`Payment failed: ${message}`, 'error');
+    return false;
+  }
+  const status = String(paymentIntent?.status || '').toLowerCase();
+  if (status === 'succeeded' || status === 'processing' || status === 'requires_capture') {
+    setPaymentStatus('Payment authorized', 'authorized');
+    showToast('Payment successful!', 'success');
+    return true;
+  }
+  setPaymentStatus('Payment failed', 'failed');
+  showToast('Payment failed. Please try another method.', 'error');
+  return false;
+}
+
 async function handleRequestRide() {
   await Promise.all([
     resolveCoordinateInput('pickup-input', { fitRoute: true, showError: true }),
@@ -2285,8 +2471,25 @@ async function handleRequestRide() {
   if (bookingErrorEl) bookingErrorEl.classList.add('d-none');
   if (requestLabel) requestLabel.textContent = 'Booking...';
   setButtonLoading('request-ride-button', true);
+  setPaymentStatus();
   try {
     const ride = await requestRide(pickup, destination);
+    if (getSelectedPaymentConfig().requiresStripe) {
+      const stripeReady = await ensurePaymentElement();
+      if (!stripeReady) {
+        throw new Error('Secure payments are currently unavailable. Please choose Cash.');
+      }
+      await createRidePaymentIntent(ride);
+      const paymentSucceeded = await confirmStripeRidePayment();
+      if (!paymentSucceeded) {
+        if (ride?.id && accessToken) {
+          await cancelRide(ride.id).catch(() => null);
+        }
+        throw new Error('Payment failed. Ride cancelled.');
+      }
+    } else {
+      setPaymentStatus('Payment: Cash', 'authorized');
+    }
     currentRide = normalizeRide(ride);
     rides = mergeRides([currentRide], readSharedRideStore().rides);
     renderRideState();
@@ -2807,7 +3010,7 @@ window.addEventListener('load', async () => {
   if (!setupSession()) return;
   seedDefaultInputs();
   setupHandlers();
-  initPaymentMethod();
+  await initPaymentMethod();
   startSearchingDotsAnimation();
   clockIntervalId = window.setInterval(updateHeaderClock, 60000);
   await initializeMap();

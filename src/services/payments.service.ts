@@ -213,6 +213,55 @@ export async function create_intent(body: any, _params?: any, _query?: any) {
   }
 }
 
+export async function create_ride_payment(body: any, _params?: any, _query?: any) {
+  const rideId = typeof body?.rideId === 'string' ? body.rideId.trim() : '';
+  const riderId = typeof body?.riderId === 'string' ? body.riderId.trim() : '';
+  if (!rideId || !riderId) {
+    return { module: 'payments', action: 'create-ride-payment', error: 'rideId and riderId are required' };
+  }
+
+  const ride = store.rides.get(rideId);
+  if (!ride) return { module: 'payments', action: 'create-ride-payment', error: 'ride not found' };
+  if (ride.riderId !== riderId) {
+    return { module: 'payments', action: 'create-ride-payment', error: 'ride does not belong to rider' };
+  }
+
+  const paymentMethodType = normalizePaymentMethodType(body?.paymentMethodType || body?.paymentMethod || ride.paymentMethod || 'card');
+  if (paymentMethodType === 'wallet' || paymentMethodType === 'bank_transfer' || paymentMethodType === 'paypal') {
+    return { module: 'payments', action: 'create-ride-payment', error: 'unsupported ride payment method' };
+  }
+
+  const expectedAmountCents = Math.max(1, Math.round(Number(ride.fareDetails?.total ?? ride.fareEstimate ?? 0) * 100));
+  const providedAmountCents = Number(body?.amountCents ?? body?.amount ?? 0);
+  if (providedAmountCents > 0 && Math.abs(providedAmountCents - expectedAmountCents) > 1) {
+    return { module: 'payments', action: 'create-ride-payment', error: 'payment amount mismatch' };
+  }
+
+  const intentResult = await create_intent({
+    ...body,
+    rideId,
+    riderId,
+    amountCents: expectedAmountCents,
+    currency: String(body?.currency || 'usd'),
+    paymentMethodType: paymentMethodType || 'card',
+    description: body?.description || `Payment for ride ${rideId}`
+  });
+
+  const paymentIntentId = (intentResult as any)?.paymentIntentId;
+  if ((intentResult as any)?.ok && paymentIntentId) {
+    ride.paymentStatus = 'pending';
+    ride.paymentIntentId = paymentIntentId;
+    ride.updatedAt = timestamp();
+    markStoreDirty();
+  }
+
+  return {
+    ...intentResult,
+    action: 'create-ride-payment',
+    amountCents: expectedAmountCents
+  };
+}
+
 export async function capture(body: any, _params?: any, _query?: any) {
   const payment = store.payments.get(body?.paymentId);
   if (!payment) return { module: 'payments', action: 'capture', error: 'payment not found' };

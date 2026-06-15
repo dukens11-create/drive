@@ -46,6 +46,12 @@ function normalizeRequestedVehicleType(input: unknown): VehicleType | null {
   return null;
 }
 
+function normalizeRidePaymentMethod(input: unknown): 'card' | 'apple_pay' | 'google_pay' | 'cash' {
+  const normalized = String(input || '').trim().toLowerCase();
+  if (normalized === 'apple_pay' || normalized === 'google_pay' || normalized === 'cash') return normalized;
+  return 'card';
+}
+
 async function pushRideNotification(
   userId: string | undefined,
   category: string,
@@ -509,6 +515,7 @@ export async function request(body: any, _params?: any, _query?: any) {
 
   const now = timestamp();
   const requestedVehicleType = normalizeRequestedVehicleType(body?.vehicleType ?? body?.rideType ?? body?.vehiclePreference);
+  const paymentMethod = normalizeRidePaymentMethod(body?.paymentMethod);
   const ride: Ride = {
     id: makeId('ride'),
     riderId,
@@ -527,6 +534,8 @@ export async function request(body: any, _params?: any, _query?: any) {
     discountCents: discountCents > 0 ? discountCents : undefined,
     status: 'requested',
     lifecycleState: 'requested',
+    paymentMethod,
+    paymentStatus: paymentMethod === 'cash' ? 'authorized' : 'pending',
     events: [
       {
         id: makeId('evt'),
