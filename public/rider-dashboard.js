@@ -695,6 +695,18 @@ function normalizeRide(ride = {}, index = 0) {
   const normalizedStatus = normalizeRideStatus(ride.status);
   const normalizedLifecycleState = normalizeRideStatus(ride.lifecycleState || ride.status);
   const distanceAway = Number(ride.distanceAway ?? ride.driver?.distanceAway ?? driverLocationPayload.distanceAway);
+  const normalizedDriver = ride.driver && typeof ride.driver === 'object' ? { ...ride.driver } : {};
+  if (ride.vehicle && typeof ride.vehicle === 'object') {
+    normalizedDriver.vehicle = {
+      ...(normalizedDriver.vehicle && typeof normalizedDriver.vehicle === 'object' ? normalizedDriver.vehicle : {}),
+      ...ride.vehicle
+    };
+  }
+  if (!normalizedDriver.name && ride.driverName) normalizedDriver.name = ride.driverName;
+  if (!normalizedDriver.rating && Number.isFinite(Number(ride.driverRating))) normalizedDriver.rating = Number(ride.driverRating);
+  if (!normalizedDriver.photo && (ride.driverPhoto || ride.driverPhotoUrl)) {
+    normalizedDriver.photo = ride.driverPhoto || ride.driverPhotoUrl;
+  }
   return {
     id: ride.id || `rider_local_${Date.now()}_${index}`,
     riderId: ride.riderId || ride.userId || currentUser?.id || 'rider',
@@ -715,7 +727,7 @@ function normalizeRide(ride = {}, index = 0) {
     lifecycleState: normalizedLifecycleState,
     driverId: ride.driverId || null,
     driverName: ride.driverName || ride.driver?.name || (ride.driverId ? `Driver ${String(ride.driverId).slice(0, 6)}` : null),
-    driver: ride.driver && typeof ride.driver === 'object' ? ride.driver : null,
+    driver: Object.keys(normalizedDriver).length ? normalizedDriver : null,
     etaMinutes: Number(ride.etaMinutes ?? ride.driver?.etaMinutes ?? ride.minutes ?? 0),
     distanceAway: Number.isFinite(distanceAway) ? Math.max(0, distanceAway) : null,
     driverStatus: String(ride.driverStatus || ride.statusLabel || driverLocationPayload.status || '').trim(),
@@ -1370,6 +1382,8 @@ async function requestRide(pickup, destination) {
         });
         console.log('[Ride Booking] Scheduled API response:', { status: scheduled.response.status, data: scheduled.data });
         if (scheduled.response.ok && scheduled.data?.id) {
+          console.log(`[BOOKING] Ride created: ${scheduled.data.id}`);
+          console.log(`[BOOKING] Ride status: ${scheduled.data.status || baseRide.status}`);
           return upsertSharedRide({
             ...baseRide,
             ...scheduled.data,
@@ -1386,6 +1400,8 @@ async function requestRide(pickup, destination) {
       });
       console.log('[Ride Booking] API response:', { status: response.status, data });
       if (response.ok && data?.ok && data.ride) {
+        console.log(`[BOOKING] Ride created: ${data.ride.id}`);
+        console.log(`[BOOKING] Ride status: ${data.ride.status}`);
         return upsertSharedRide({ ...baseRide, ...data.ride, fareDetails: data.ride.fareDetails || baseRide.fareDetails });
       }
       const fallback = await fetchJson('/api/rides/request', {
@@ -1395,6 +1411,8 @@ async function requestRide(pickup, destination) {
       });
       console.log('[Ride Booking] Fallback API response:', { status: fallback.response.status, data: fallback.data });
       if (fallback.response.ok && fallback.data?.ok && fallback.data.ride) {
+        console.log(`[BOOKING] Ride created: ${fallback.data.ride.id}`);
+        console.log(`[BOOKING] Ride status: ${fallback.data.ride.status}`);
         return upsertSharedRide({ ...baseRide, ...fallback.data.ride, fareDetails: fallback.data.ride.fareDetails || baseRide.fareDetails });
       }
     } catch (_error) {
@@ -1402,7 +1420,10 @@ async function requestRide(pickup, destination) {
     }
   }
 
-  return upsertSharedRide({ ...baseRide, id: `ride_local_${Date.now()}` });
+  const localRide = upsertSharedRide({ ...baseRide, id: `ride_local_${Date.now()}` });
+  console.log(`[BOOKING] Ride created: ${localRide.id}`);
+  console.log(`[BOOKING] Ride status: ${localRide.status}`);
+  return localRide;
 }
 
 async function cancelRide(rideId) {
@@ -1482,7 +1503,14 @@ function renderRideState() {
       void assignedCard.offsetWidth; // force reflow so the animation restarts from scratch
       assignedCard.classList.add('slide-up');
     }
-    const activeDriver = currentRide.driver || assignedDriver || {};
+    const activeDriver = {
+      ...(currentRide.driver || assignedDriver || {}),
+      vehicle: (
+        currentRide?.driver?.vehicle && typeof currentRide.driver.vehicle === 'object'
+          ? currentRide.driver.vehicle
+          : (currentRide?.vehicle && typeof currentRide.vehicle === 'object' ? currentRide.vehicle : undefined)
+      )
+    };
     renderDriverCardDetails(activeDriver, currentRide.etaMinutes || currentRide.minutes || 0);
     const statusText = String(currentRide.driverStatus || '').trim();
     const distanceText = formatDistanceAway(currentRide.distanceAway);
@@ -2494,6 +2522,11 @@ async function refreshMapRoute(options = {}) {
 
   const route = await fetchDirectionsRoute(routeStart, routeEnd);
   if (nextRouteKey !== mapState.lastRouteKey) return;
+  if (Number.isFinite(Number(route?.distanceKm))) {
+    console.log(`[MAP] Route distance: ${Number(route.distanceKm).toFixed(2)} km`);
+  } else if (Number.isFinite(Number(route?.distanceMiles))) {
+    console.log(`[MAP] Route distance: ${(Number(route.distanceMiles) * 1.60934).toFixed(2)} km`);
+  }
   mapState.lastFetchedRouteKey = nextRouteKey;
   mapState.routeGeojson = {
     type: 'FeatureCollection',
@@ -2713,6 +2746,7 @@ function applyRealtimeDriverLocation(payload) {
   const lat = Number(payload?.lat);
   const lng = Number(payload?.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  console.log(`[MAP] Driver location updated: lat=${lat}, lng=${lng}`);
   const previousLocation = baseRide.driverLocation || {};
   const heading = Number.isFinite(Number(payload?.heading))
     ? normalizeHeading(Number(payload.heading))
@@ -3281,6 +3315,7 @@ function addDriverMarkerToMap(driver) {
   }
 
   mapState.lastDriverPosition = { lat: driverLat, lng: driverLng };
+  console.log(`[MAP] Driver marker positioned at (${driverLat}, ${driverLng})`);
 }
 
 function updateDriverMarkerLocation(newLat, newLng) {
@@ -3304,6 +3339,7 @@ function updateDriverMarkerLocation(newLat, newLng) {
     }
   }
   mapState.lastDriverPosition = { lat: newLat, lng: newLng };
+  console.log(`[MAP] Driver marker positioned at (${newLat}, ${newLng})`);
 }
 
 function stopDriverLocationSim() {
