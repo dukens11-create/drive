@@ -6,6 +6,11 @@ export async function history(req: any, res: any) { res.json(await service.histo
 export async function detail(req: any, res: any) { res.json(await service.detail({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function assignedDriver(req: any, res: any) { res.json(await service.assignedDriver({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function request(req: any, res: any) { res.json(await service.request({ ...req.body, actor: req.user }, req.params, req.query)); }
+export async function driverRideRequests(req: any, res: any) {
+  const payload = await service.getDriverRideRequests({ ...req.body, actor: req.user }, req.params, req.query);
+  if (payload?.error === 'forbidden') return res.status(403).json(payload);
+  return res.json(payload);
+}
 export async function accept(req: any, res: any) { res.json(await service.accept({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function updateStatus(req: any, res: any) { res.json(await service.updateStatus({ ...req.body, actor: req.user }, req.params, req.query)); }
 export async function arrive(req: any, res: any) { res.json(await service.arrive({ ...req.body, actor: req.user }, req.params, req.query)); }

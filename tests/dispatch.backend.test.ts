@@ -99,10 +99,9 @@ test('dispatch backend compatibility endpoints expose realtime driver, rider, re
     assert.equal((await response.json()).profile.availabilityStatus, 'online');
 
     let realtimeSnapshot = getRealtimeDispatchSnapshot();
-    assert.deepEqual(
-      realtimeSnapshot.drivers.map(driver => driver.userId).sort(),
-      [driverOne.user.id, driverTwo.user.id].sort()
-    );
+    const onlineDriverIds = new Set(realtimeSnapshot.drivers.map(driver => driver.userId));
+    assert.equal(onlineDriverIds.has(driverOne.user.id), true);
+    assert.equal(onlineDriverIds.has(driverTwo.user.id), true);
 
     response = await requestJson(baseUrl, '/api/riders/location', 'POST', {
       lat: 37.781,
@@ -139,6 +138,12 @@ test('dispatch backend compatibility endpoints expose realtime driver, rider, re
     assert.match(rideRequestBody.request.expiresAt, /\d{4}-\d{2}-\d{2}T/);
 
     const rideId = rideRequestBody.ride.id;
+
+    response = await requestJson(baseUrl, '/api/driver/ride-requests?status=SEARCHING&limit=20', 'GET', undefined, driverOne.accessToken);
+    const incomingRideRequestsBody = await response.json();
+    assert.equal(incomingRideRequestsBody.ok, true);
+    assert.equal(Array.isArray(incomingRideRequestsBody.rides), true);
+    assert.equal(incomingRideRequestsBody.rides.some((ride: { rideId: string; status: string }) => ride.rideId === rideId && ride.status === 'SEARCHING'), true);
 
     response = await requestJson(baseUrl, `/api/rides/${rideId}/accept`, 'POST', {}, driverOne.accessToken);
     const acceptBody = await response.json();

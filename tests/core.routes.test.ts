@@ -439,6 +439,8 @@ test('POST /api/rides accepts rider dashboard booking payload', async () => {
     assert.equal(body.action, 'request');
     assert.equal(typeof body.ride?.id, 'string');
     assert.equal(body.ride?.riderId, rider.user.id);
+    assert.equal(body.rideId, body.ride?.id);
+    assert.equal(body.status, 'SEARCHING');
   });
 });
 

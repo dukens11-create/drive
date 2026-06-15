@@ -12,6 +12,8 @@ import { getErrorDetails, logger } from './utils';
 import { registerTrackingSocket, registerChatSocket } from './websocket';
 import { initializeFCM } from './services/fcm.service';
 import { stripeWebhookHandler } from './webhooks/stripe.webhook';
+import { requireAuth, requireRole } from './middleware/auth.middleware';
+import * as ridesController from './controllers/rides.controller';
 
 export function createApp() {
   try {
@@ -100,6 +102,12 @@ export function createApp() {
       stripePublishableKey: env.stripePublishableKey || '',
       ok: true
     }));
+    app.get(
+      '/api/driver/ride-requests',
+      requireAuth,
+      requireRole('driver'),
+      (req, res, next) => ridesController.driverRideRequests(req, res).catch(next)
+    );
 
     const routers = [
       authRoutes,
