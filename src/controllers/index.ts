@@ -4,6 +4,7 @@ export * as authController from './auth.controller';
 export * as carpoolController from './carpool.controller';
 export * as corporateController from './corporate.controller';
 export * as driversController from './drivers.controller';
+export * as deliveriesController from './deliveries.controller';
 export * as fraudController from './fraud.controller';
 export * as kycController from './kyc.controller';
 export * as loyaltyController from './loyalty.controller';

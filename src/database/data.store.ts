@@ -275,6 +275,8 @@ export type DriverProfile = {
   cancellationRate: number;
   earningsCents: number;
   documents: string[];
+  acceptPassengerRides?: boolean;
+  acceptPackageDeliveries?: boolean;
   verificationDocuments?: DriverVerificationDocument[];
   selfieVerification?: DriverSelfieVerification;
   verificationReview?: DriverVerificationReview;
@@ -408,6 +410,65 @@ export type RideRequest = {
   fareEstimate: number;
   broadcastedDrivers: string[];
   responses: RideRequestResponse[];
+  acceptedDriverId?: string;
+  expiresAt: string;
+  status: 'broadcasting' | 'accepted' | 'expired' | 'canceled' | 'completed';
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DeliveryStatus = 'requested' | 'accepted' | 'picked_up' | 'in_transit' | 'delivered' | 'cancelled';
+
+export type Delivery = {
+  id: string;
+  senderName: string;
+  senderPhone: string;
+  pickupAddress: string;
+  pickupLat: number;
+  pickupLng: number;
+  recipientName: string;
+  recipientPhone: string;
+  dropoffAddress: string;
+  dropoffLat: number;
+  dropoffLng: number;
+  packageType: string;
+  packageSize: string;
+  packageWeight: number;
+  deliveryFee: number;
+  status: DeliveryStatus;
+  driverId?: string;
+  customerId: string;
+  pickupPhotoUrl?: string;
+  dropoffPhotoUrl?: string;
+  recipientSignature?: string;
+  recipientPinCode?: string;
+  deliveredAt?: string;
+  acceptedAt?: string;
+  pickedUpAt?: string;
+  inTransitAt?: string;
+  cancelledAt?: string;
+  cancellationReason?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DeliveryRequestResponse = {
+  driverId: string;
+  status: 'broadcasted' | 'accepted' | 'ignored' | 'expired' | 'rejected' | 'canceled';
+  respondedAt: string;
+};
+
+export type DeliveryRequest = {
+  id: string;
+  deliveryId: string;
+  customerId: string;
+  pickupLat: number;
+  pickupLng: number;
+  dropoffLat: number;
+  dropoffLng: number;
+  deliveryFee: number;
+  broadcastedDrivers: string[];
+  responses: DeliveryRequestResponse[];
   acceptedDriverId?: string;
   expiresAt: string;
   status: 'broadcasting' | 'accepted' | 'expired' | 'canceled' | 'completed';
@@ -1077,6 +1138,8 @@ type PersistedStore = {
   vehicles: Vehicle[];
   riders: RiderProfile[];
   rideRequests: RideRequest[];
+  deliveries: Delivery[];
+  deliveryRequests: DeliveryRequest[];
   payments: Payment[];
   paymentMethods: PaymentMethod[];
   invoices: Invoice[];
@@ -1199,6 +1262,8 @@ export const store = {
   vehicles: new PersistentMap<string, Vehicle>(),
   riders: new PersistentMap<string, RiderProfile>(),
   rideRequests: new PersistentMap<string, RideRequest>(),
+  deliveries: new PersistentMap<string, Delivery>(),
+  deliveryRequests: new PersistentMap<string, DeliveryRequest>(),
   payments: new PersistentMap<string, Payment>(),
   paymentMethods: new PersistentMap<string, PaymentMethod>(),
   invoices: new PersistentMap<string, Invoice>(),
@@ -1264,6 +1329,8 @@ function toSerializableStore(): PersistedStore {
     vehicles: Array.from(store.vehicles.values()),
     riders: Array.from(store.riders.values()),
     rideRequests: Array.from(store.rideRequests.values()),
+    deliveries: Array.from(store.deliveries.values()),
+    deliveryRequests: Array.from(store.deliveryRequests.values()),
     payments: Array.from(store.payments.values()),
     paymentMethods: Array.from(store.paymentMethods.values()),
     invoices: Array.from(store.invoices.values()),
@@ -1370,6 +1437,8 @@ function hydrateStore() {
     for (const vehicle of parsed.vehicles || []) store.vehicles.set(vehicle.vehicleId, vehicle);
     for (const rider of parsed.riders || []) store.riders.set(rider.userId, rider);
     for (const rideRequest of parsed.rideRequests || []) store.rideRequests.set(rideRequest.id, rideRequest);
+    for (const delivery of parsed.deliveries || []) store.deliveries.set(delivery.id, delivery);
+    for (const deliveryRequest of parsed.deliveryRequests || []) store.deliveryRequests.set(deliveryRequest.id, deliveryRequest);
     for (const payment of parsed.payments || []) store.payments.set(payment.id, payment);
     for (const paymentMethod of parsed.paymentMethods || []) store.paymentMethods.set(paymentMethod.id, paymentMethod);
     for (const invoice of parsed.invoices || []) store.invoices.set(invoice.id, invoice);
@@ -1443,6 +1512,8 @@ function createSeedDriverProfile(userId: string): DriverProfile {
     cancellationRate: 0,
     earningsCents: 0,
     documents: [],
+    acceptPassengerRides: true,
+    acceptPackageDeliveries: true,
     verificationDocuments: [],
     selfieVerification: {
       status: 'missing',

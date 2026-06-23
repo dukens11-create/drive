@@ -55,6 +55,8 @@ function createDefaultDriverProfile(userId: string): DriverProfile {
     cancellationRate: 0,
     earningsCents: 0,
     documents: [],
+    acceptPassengerRides: true,
+    acceptPackageDeliveries: true,
     verificationDocuments: [],
     selfieVerification: {
       status: 'missing',
@@ -232,6 +234,12 @@ function ensureVerificationData(profile: DriverProfile) {
   if (!Array.isArray(profile.documents)) {
     profile.documents = [];
   }
+  if (typeof profile.acceptPassengerRides !== 'boolean') {
+    profile.acceptPassengerRides = true;
+  }
+  if (typeof profile.acceptPackageDeliveries !== 'boolean') {
+    profile.acceptPackageDeliveries = true;
+  }
 
   const now = timestamp();
   if (!profile.verificationDocuments.length && profile.documents.length) {
@@ -369,7 +377,9 @@ export function releaseDriverFromRide(userId: string) {
 }
 
 export function isDriverDispatchEligible(profile: any) {
+  const acceptsPassengerRides = profile?.acceptPassengerRides !== false;
   return (
+    acceptsPassengerRides &&
     profile?.status === 'approved' &&
     profile?.verificationState === 'verified' &&
     profile?.availabilityStatus === 'online' &&
@@ -380,6 +390,18 @@ export function isDriverDispatchEligible(profile: any) {
 
 export function getDriverDispatchVehicleType(driverId: string) {
   return getActiveDriverVehicle(driverId)?.vehicleType;
+}
+
+export function isDriverDispatchEligibleForJob(profile: any, jobType: 'ride' | 'delivery') {
+  if (jobType === 'delivery' && profile?.acceptPackageDeliveries === false) return false;
+  if (jobType === 'ride' && profile?.acceptPassengerRides === false) return false;
+  return (
+    profile?.status === 'approved' &&
+    profile?.verificationState === 'verified' &&
+    profile?.availabilityStatus === 'online' &&
+    Number.isFinite(Number(profile?.lat)) &&
+    Number.isFinite(Number(profile?.lng))
+  );
 }
 
 export async function apply(body: any, _params?: any, _query?: any) {
@@ -425,6 +447,8 @@ export async function apply(body: any, _params?: any, _query?: any) {
     cancellationRate: 0,
     earningsCents: 0,
     documents: [] as string[],
+    acceptPassengerRides: true,
+    acceptPackageDeliveries: true,
     verificationDocuments: [] as DriverVerificationDocument[],
     selfieVerification: {
       status: 'missing' as const,
@@ -732,6 +756,22 @@ export async function me(body: any, _params?: any, _query?: any) {
   syncProfileState(profile);
   markStoreDirty();
   return { module: 'drivers', action: 'me', ok: true, profile };
+}
+
+export async function updateDispatchPreferences(body: any, _params?: any, _query?: any) {
+  const userId = body?.actor?.id || body?.userId;
+  if (!userId) return { module: 'drivers', action: 'dispatch-preferences', error: 'actor ID or userId is required' };
+  const profile = getOrCreateProfile(userId, body?.actor?.role);
+  if (!profile) return { module: 'drivers', action: 'dispatch-preferences', error: 'driver not found' };
+  syncProfileState(profile);
+  if (typeof body?.acceptPassengerRides === 'boolean') {
+    profile.acceptPassengerRides = body.acceptPassengerRides;
+  }
+  if (typeof body?.acceptPackageDeliveries === 'boolean') {
+    profile.acceptPackageDeliveries = body.acceptPackageDeliveries;
+  }
+  markStoreDirty();
+  return { module: 'drivers', action: 'dispatch-preferences', ok: true, profile };
 }
 
 export async function currentTrip(body: any, _params?: any, _query?: any) {

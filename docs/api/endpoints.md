@@ -63,9 +63,15 @@
 | GET | `/api/drivers/health` | authenticated |
 | POST | `/api/drivers/location` | authenticated |
 | GET | `/api/drivers/me` | authenticated |
+| POST | `/api/drivers/preferences` | driver |
 | GET | `/api/drivers/vehicle` | authenticated |
 | POST | `/api/drivers/vehicle` | authenticated |
 | POST | `/api/drivers/vehicle/photo` | authenticated |
+| PATCH | `/api/deliveries/:id/accept` | driver |
+| GET | `/api/deliveries/:id` | authenticated |
+| PATCH | `/api/deliveries/:id/status` | authenticated |
+| GET | `/api/deliveries/available` | driver |
+| POST | `/api/deliveries` | rider |
 | GET | `/api/fraud/alerts` | admin |
 | POST | `/api/fraud/alerts/:id/review` | admin |
 | POST | `/api/fraud/check` | admin |

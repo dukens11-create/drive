@@ -10,6 +10,7 @@ export async function offline(req:any,res:any){res.json(await service.offline({ 
 export async function location(req:any,res:any){res.json(await service.location({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function locationById(req:any,res:any){res.json(await service.locationById({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function me(req:any,res:any){res.json(await service.me({ ...req.body, actor: req.user }, req.params, req.query));}
+export async function updateDispatchPreferences(req:any,res:any){res.json(await service.updateDispatchPreferences({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function currentTrip(req:any,res:any){res.json(await service.currentTrip({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function earnings(req:any,res:any){res.json(await service.earnings({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function earningsToday(req:any,res:any){res.json(await service.earningsToday({ ...req.body, actor: req.user }, req.params, req.query));}

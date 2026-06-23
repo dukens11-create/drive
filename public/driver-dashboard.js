@@ -905,6 +905,14 @@ function isDispatchEligible() {
   return Boolean(accessToken) && isOnlineAvailabilityStatus(getCurrentAvailability());
 }
 
+function shouldAcceptPassengerRides() {
+  return currentProfile?.acceptPassengerRides !== false;
+}
+
+function shouldAcceptPackageDeliveries() {
+  return currentProfile?.acceptPackageDeliveries !== false;
+}
+
 function scheduleDispatchReconnect() {
   if (!navigator.onLine || !isDispatchEligible() || dispatchReconnectTimeoutId !== null) return;
   setRealtimeStatus('Reconnecting dispatch...', 'warning');
@@ -1536,6 +1544,7 @@ function normalizeRide(ride, index) {
     passengerPhotoUrl: ride.passengerPhotoUrl || ride.passengerAvatarUrl || ride.avatarUrl || ride.photoUrl || '',
     riderId: ride.riderId || ride.userId || null,
     riderName: ride.riderName || ride.passengerName || '',
+    requestType: ride.requestType || (String(ride.rideType || '').toUpperCase() === 'DELIVERY' ? 'delivery' : 'ride'),
     riderEmail: ride.riderEmail || '',
     driverId: ride.driverId || null,
     driverName: ride.driverName || '',
@@ -3687,6 +3696,7 @@ async function loadDriverProfile() {
 
         currentProfile = data.profile || {};
         renderAvailabilityControls();
+        renderDispatchPreferences();
         if (attempt > 1) {
           showAlert('success', 'Driver profile loaded after retry.');
         }
@@ -3717,7 +3727,43 @@ async function loadDriverProfile() {
     } else {
       currentProfile = buildFallbackDemoProfile();
       renderAvailabilityControls();
+      renderDispatchPreferences();
       showAlert('warning', 'Unable to load driver profile. Loaded fallback demo profile.');
+    }
+
+    function renderDispatchPreferences() {
+      const passengerCheckbox = document.getElementById('accept-passenger-rides');
+      const packageCheckbox = document.getElementById('accept-package-deliveries');
+      if (!passengerCheckbox || !packageCheckbox) return;
+      passengerCheckbox.checked = shouldAcceptPassengerRides();
+      packageCheckbox.checked = shouldAcceptPackageDeliveries();
+    }
+
+    async function handleDispatchPreferencesSubmit(event) {
+      event.preventDefault();
+      if (!accessToken) return;
+      const acceptPassengerRides = Boolean(document.getElementById('accept-passenger-rides')?.checked);
+      const acceptPackageDeliveries = Boolean(document.getElementById('accept-package-deliveries')?.checked);
+      try {
+        const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/preferences`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + accessToken
+          },
+          body: JSON.stringify({ acceptPassengerRides, acceptPackageDeliveries })
+        });
+        if (!data?.ok || !data?.profile) {
+          throw new Error(data?.error || 'Unable to save driver preferences.');
+        }
+        currentProfile = data.profile;
+        renderDispatchPreferences();
+        showAlert('success', 'Job preferences updated.');
+        startRealtimeSync();
+        startIncomingRequestsPolling();
+      } catch (error) {
+        showAlert('danger', error?.message || 'Unable to save driver preferences.');
+      }
     }
   } finally {
     setProfileLoading(false);
@@ -3946,14 +3992,15 @@ function renderIncomingRequests() {
           <strong>${escapeHtml(ride.pickupAddress || '--')}</strong>
           <div class="text-muted small">to ${escapeHtml(ride.destinationAddress || '--')}</div>
         </div>
-        <span class="ride-request-pill">${escapeHtml(String(ride.rideType || 'ECONOMY').toUpperCase())}</span>
+        <span class="ride-request-pill">${escapeHtml(String(ride.rideType || (ride.requestType === 'delivery' ? 'DELIVERY' : 'ECONOMY')).toUpperCase())}</span>
       </div>
       <div class="small mt-2">
-        <div>Rider: ${escapeHtml(ride.riderName || 'Rider')} • ⭐ ${Number(ride.riderRating || 5).toFixed(1)}</div>
-        <div>Fare: $${Number(ride.fareEstimate || 0).toFixed(2)} • ${Number(ride.distance || 0).toFixed(1)} mi • ${Number(ride.duration || 0)} min</div>
+        <div>${ride.requestType === 'delivery' ? 'Sender' : 'Rider'}: ${escapeHtml(ride.riderName || ride.senderName || 'Rider')} • ⭐ ${Number(ride.riderRating || 5).toFixed(1)}</div>
+        <div>${ride.requestType === 'delivery' ? 'Delivery fee' : 'Fare'}: $${Number(ride.fareEstimate || 0).toFixed(2)} • ${Number(ride.distance || 0).toFixed(1)} mi • ${Number(ride.duration || 0)} min</div>
+        ${ride.requestType === 'delivery' ? `<div>Package: ${escapeHtml(String(ride.packageType || 'package'))} (${escapeHtml(String(ride.packageSize || 'standard'))})</div>` : ''}
       </div>
       <div class="ride-footer mt-3">
-        <button class="primary-action incoming-accept-button" type="button" data-ride-id="${escapeHtml(ride.rideId)}" data-rider-name="${escapeHtml(ride.riderName || 'Rider')}">Accept</button>
+        <button class="primary-action incoming-accept-button" type="button" data-ride-id="${escapeHtml(ride.rideId)}" data-rider-name="${escapeHtml(ride.riderName || ride.senderName || 'Rider')}" data-request-type="${escapeHtml(ride.requestType || 'ride')}">Accept</button>
       </div>
     </div>
   `).join('');
@@ -3962,8 +4009,11 @@ function renderIncomingRequests() {
     button.addEventListener('click', async () => {
       const rideId = button.getAttribute('data-ride-id') || '';
       const riderName = button.getAttribute('data-rider-name') || 'Rider';
+      const requestType = button.getAttribute('data-request-type') || 'ride';
       if (!rideId) return;
-      const accepted = await acceptRideById(rideId, { source: 'incoming-requests', riderName });
+      const accepted = requestType === 'delivery'
+        ? await acceptDeliveryById(rideId, { source: 'incoming-requests', riderName })
+        : await acceptRideById(rideId, { source: 'incoming-requests', riderName });
       if (accepted) {
         incomingRideRequests = incomingRideRequests.filter(ride => ride.rideId !== rideId);
         renderIncomingRequests();
@@ -3979,17 +4029,35 @@ async function fetchIncomingRequests() {
     return;
   }
   try {
-    const { data } = await fetchJson(`${API_BASE_URL}/api/driver/ride-requests?status=SEARCHING&limit=20`, {
-      headers: { Authorization: 'Bearer ' + accessToken }
-    });
-    if (data?.ok && Array.isArray(data.rides)) {
-      incomingRideRequests = data.rides;
+    const [rideResult, deliveryResult] = await Promise.all([
+      fetchJson(`${API_BASE_URL}/api/driver/ride-requests?status=SEARCHING&limit=20`, {
+        headers: { Authorization: 'Bearer ' + accessToken }
+      }),
+      fetchJson(`${API_BASE_URL}/api/deliveries/available?limit=20`, {
+        headers: { Authorization: 'Bearer ' + accessToken }
+      })
+    ]);
+    const rideRequests = shouldAcceptPassengerRides() && rideResult.data?.ok && Array.isArray(rideResult.data.rides)
+      ? rideResult.data.rides.map(request => ({ ...request, requestType: 'ride', rideId: request.rideId || request.id }))
+      : [];
+    const deliveryRequests = shouldAcceptPackageDeliveries() && deliveryResult.data?.ok && Array.isArray(deliveryResult.data.deliveries)
+      ? deliveryResult.data.deliveries.map(request => ({
+        ...request,
+        requestType: 'delivery',
+        rideId: request.deliveryId || request.id,
+        riderName: request.senderName || request.riderName || 'Sender',
+        destinationAddress: request.dropoffAddress || request.destinationAddress || '',
+        pickupAddress: request.pickupAddress || '',
+        fareEstimate: request.deliveryFee ?? request.fareEstimate ?? 0,
+        rideType: 'DELIVERY'
+      }))
+      : [];
+    incomingRideRequests = [...rideRequests, ...deliveryRequests];
+    if (incomingRideRequests.length) {
       incomingRideRequests.forEach(ride => {
         const rideId = ride.rideId || ride.id || 'unknown';
         console.log(`[REQUEST] Incoming request received: ride_id=${rideId}, fare=$${Number(ride.fareEstimate || 0).toFixed(2)}`);
       });
-    } else {
-      incomingRideRequests = [];
     }
     console.log(`[DRIVER] Fetched ${incomingRideRequests.length} incoming requests`);
   } catch (_error) {
@@ -4494,6 +4562,40 @@ async function acceptRideById(rawRideId, options = {}) {
 async function submitRideAccept(ride) {
   if (!ride?.id || !accessToken) {
     return { ride: null, error: 'Missing ride ID or access token.' };
+  }
+
+  async function submitDeliveryAccept(delivery) {
+    if (!delivery?.id || !accessToken) {
+      return { delivery: null, error: 'Missing delivery ID or access token.' };
+    }
+    const { data } = await fetchJson(`${API_BASE_URL}/api/deliveries/${encodeURIComponent(delivery.id)}/accept`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + accessToken
+      },
+      body: JSON.stringify({})
+    });
+    if (data?.ok && data?.delivery) {
+      return { delivery: data.delivery, error: '' };
+    }
+    return { delivery: null, error: data?.error || 'Unable to accept delivery.' };
+  }
+
+  async function acceptDeliveryById(rawDeliveryId, options = {}) {
+    const deliveryId = String(rawDeliveryId || '').trim();
+    if (!deliveryId) return false;
+    const acceptResult = await submitDeliveryAccept({ id: deliveryId });
+    if (!acceptResult?.delivery) {
+      showAlert('danger', acceptResult?.error || 'Unable to accept delivery.');
+      return false;
+    }
+    if (options?.riderName) {
+      console.log(`[DRIVER] Accepted delivery ${deliveryId} from ${options.riderName}`);
+    }
+    showAlert('success', `Delivery ${deliveryId} accepted.`);
+    await Promise.all([fetchIncomingRequests(), loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
+    return true;
   }
   console.log(`[ACCEPT] Accepting ride ${ride.id}`);
   const url = `${API_BASE_URL}/api/rides/${encodeURIComponent(ride.id)}/accept`;
@@ -5841,6 +5943,7 @@ window.addEventListener('load', async () => {
   document.getElementById('accept-ride-form').addEventListener('submit', handleAcceptRide);
   document.getElementById('reject-ride-button').addEventListener('click', handleRejectRide);
   document.getElementById('toggle-availability-button').addEventListener('click', toggleAvailability);
+  document.getElementById('dispatch-preferences-form')?.addEventListener('submit', handleDispatchPreferencesSubmit);
   document.getElementById('document-form').addEventListener('submit', handleDocumentSubmit);
   document.getElementById('vehicle-form').addEventListener('submit', handleVehicleSubmit);
   document.getElementById('btn-upload-vehicle-photo')?.addEventListener('click', () => {
