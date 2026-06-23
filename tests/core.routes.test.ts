@@ -41,6 +41,17 @@ async function getJson(baseUrl: string, path: string, token?: string) {
   });
 }
 
+async function patchJson(baseUrl: string, path: string, body: Record<string, unknown>, token?: string) {
+  return fetch(`${baseUrl}${path}`, {
+    method: 'PATCH',
+    headers: {
+      'content-type': 'application/json',
+      ...(token ? { authorization: 'Bearer ' + token } : {})
+    },
+    body: JSON.stringify(body)
+  });
+}
+
 async function signup(baseUrl: string, role: 'rider' | 'driver' | 'merchant' = 'rider') {
   const response = await postJson(baseUrl, '/api/auth/signup', {
     email: `${role}-${randomUUID()}@example.com`,
@@ -1072,6 +1083,108 @@ test('driver vehicle endpoints support ride-type dispatch filtering', async () =
     assert.equal(deleteInactiveVehicleResponse.status, 200);
     const deleteInactiveVehicleBody = await deleteInactiveVehicleResponse.json();
     assert.equal(deleteInactiveVehicleBody.ok, true);
+  });
+});
+
+test('deliveries endpoints support driver preferences, accept, and delivery status transitions', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+    const firstDriver = await signup(baseUrl, 'driver');
+    const secondDriver = await signup(baseUrl, 'driver');
+    const adminToken = await loginAdmin(baseUrl);
+
+    const prepareDriver = async (driverToken: string, driverId: string, lat: number, lng: number) => {
+      assert.equal((await postJson(baseUrl, '/api/drivers/apply', {}, driverToken).then(res => res.json())).ok, true);
+      assert.equal((await postJson(baseUrl, '/api/drivers/documents', {
+        documents: [
+          { type: 'Driver License', fileName: `${driverId}-license.jpg`, expiryDate: '2030-08-31', documentNumber: `DOC-${driverId.slice(-6)}` },
+          { type: 'Selfie Photo', fileName: `${driverId}-selfie.jpg`, selfieMatchScore: 0.95 }
+        ]
+      }, driverToken).then(res => res.json())).ok, true);
+      assert.equal((await postJson(baseUrl, '/api/kyc/webhook', { userId: driverId, status: 'verified' }).then(res => res.json())).ok, true);
+      assert.equal((await postJson(baseUrl, '/api/admin/approve-driver', { userId: driverId, approved: true }, adminToken).then(res => res.json())).ok, true);
+      assert.equal((await postJson(baseUrl, '/api/drivers/location', { lat, lng }, driverToken).then(res => res.json())).ok, true);
+      assert.equal((await postJson(baseUrl, '/api/drivers/availability', { status: 'online' }, driverToken).then(res => res.json())).ok, true);
+    };
+
+    await prepareDriver(firstDriver.accessToken, firstDriver.user.id, 37.72, -122.41);
+    await prepareDriver(secondDriver.accessToken, secondDriver.user.id, 37.721, -122.409);
+
+    const firstDriverPreferences = await postJson(baseUrl, '/api/drivers/preferences', {
+      acceptPassengerRides: true,
+      acceptPackageDeliveries: false
+    }, firstDriver.accessToken);
+    const firstDriverPreferencesBody = await firstDriverPreferences.json();
+    assert.equal(firstDriverPreferencesBody.ok, true);
+    assert.equal(firstDriverPreferencesBody.profile.acceptPackageDeliveries, false);
+
+    const createDeliveryResponse = await postJson(baseUrl, '/api/deliveries', {
+      senderName: 'Alex Sender',
+      senderPhone: '+15551111111',
+      pickupAddress: '123 Market St',
+      pickupLat: 37.72,
+      pickupLng: -122.41,
+      recipientName: 'Blair Recipient',
+      recipientPhone: '+15552222222',
+      dropoffAddress: '500 Mission St',
+      dropoffLat: 37.731,
+      dropoffLng: -122.401,
+      packageType: 'documents',
+      packageSize: 'small',
+      packageWeight: 1.5,
+      deliveryFee: 14.25
+    }, rider.accessToken);
+    const createDeliveryBody = await createDeliveryResponse.json();
+    assert.equal(createDeliveryBody.ok, true);
+    const deliveryId = createDeliveryBody.delivery.id;
+
+    const firstDriverAvailableResponse = await getJson(baseUrl, '/api/deliveries/available?limit=20', firstDriver.accessToken);
+    const firstDriverAvailableBody = await firstDriverAvailableResponse.json();
+    assert.equal(firstDriverAvailableBody.ok, true);
+    assert.equal(firstDriverAvailableBody.deliveries.length, 0);
+
+    const secondDriverAvailableResponse = await getJson(baseUrl, '/api/deliveries/available?limit=20', secondDriver.accessToken);
+    const secondDriverAvailableBody = await secondDriverAvailableResponse.json();
+    assert.equal(secondDriverAvailableBody.ok, true);
+    assert.equal(secondDriverAvailableBody.deliveries.some((delivery: { id: string }) => delivery.id === deliveryId), true);
+
+    const acceptDeliveryResponse = await patchJson(baseUrl, `/api/deliveries/${deliveryId}/accept`, {}, secondDriver.accessToken);
+    const acceptDeliveryBody = await acceptDeliveryResponse.json();
+    assert.equal(acceptDeliveryBody.ok, true);
+    assert.equal(acceptDeliveryBody.delivery.status, 'accepted');
+    assert.equal(acceptDeliveryBody.delivery.driverId, secondDriver.user.id);
+
+    const pickedUpResponse = await patchJson(baseUrl, `/api/deliveries/${deliveryId}/status`, {
+      status: 'picked_up',
+      pickupPhotoUrl: 'https://example.com/pickup-proof.jpg'
+    }, secondDriver.accessToken);
+    const pickedUpBody = await pickedUpResponse.json();
+    assert.equal(pickedUpBody.ok, true);
+    assert.equal(pickedUpBody.delivery.status, 'picked_up');
+    assert.equal(pickedUpBody.delivery.pickupPhotoUrl, 'https://example.com/pickup-proof.jpg');
+
+    const inTransitResponse = await patchJson(baseUrl, `/api/deliveries/${deliveryId}/status`, {
+      status: 'in_transit'
+    }, secondDriver.accessToken);
+    const inTransitBody = await inTransitResponse.json();
+    assert.equal(inTransitBody.ok, true);
+    assert.equal(inTransitBody.delivery.status, 'in_transit');
+
+    const deliveredResponse = await patchJson(baseUrl, `/api/deliveries/${deliveryId}/status`, {
+      status: 'delivered',
+      dropoffPhotoUrl: 'https://example.com/dropoff-proof.jpg',
+      recipientPinCode: '4321'
+    }, secondDriver.accessToken);
+    const deliveredBody = await deliveredResponse.json();
+    assert.equal(deliveredBody.ok, true);
+    assert.equal(deliveredBody.delivery.status, 'delivered');
+    assert.equal(deliveredBody.delivery.dropoffPhotoUrl, 'https://example.com/dropoff-proof.jpg');
+    assert.equal(typeof deliveredBody.delivery.deliveredAt, 'string');
+
+    const detailResponse = await getJson(baseUrl, `/api/deliveries/${deliveryId}`, rider.accessToken);
+    const detailBody = await detailResponse.json();
+    assert.equal(detailBody.ok, true);
+    assert.equal(detailBody.delivery.driverId, secondDriver.user.id);
   });
 });
 

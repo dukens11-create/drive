@@ -7,7 +7,7 @@ import { Server } from 'socket.io';
 import path from 'path';
 import { errorHandler, wrapRouterAsyncHandlers } from './middleware';
 import { env } from './config';
-import { authRoutes, ridesRoutes, driversRoutes, ridersRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, searchRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes, restaurantsRoutes } from './routes';
+import { authRoutes, ridesRoutes, driversRoutes, deliveriesRoutes, ridersRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, searchRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes, restaurantsRoutes } from './routes';
 import { getErrorDetails, logger } from './utils';
 import { registerTrackingSocket, registerChatSocket } from './websocket';
 import { initializeFCM } from './services/fcm.service';
@@ -153,6 +153,7 @@ export function createApp() {
       authRoutes,
       ridesRoutes,
       driversRoutes,
+      deliveriesRoutes,
       ridersRoutes,
       paymentsRoutes,
       walletRoutes,
@@ -182,6 +183,7 @@ export function createApp() {
     app.use('/api/auth', authRoutes);
     app.use('/api/rides', ridesRoutes);
     app.use('/api/drivers', driversRoutes);
+    app.use('/api/deliveries', deliveriesRoutes);
     app.use('/api/riders', ridersRoutes);
     app.use('/api/payments', paymentsRoutes);
     app.use('/api/wallet', walletRoutes);
