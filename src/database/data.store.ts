@@ -698,9 +698,28 @@ export type MerchantProduct = {
 export type MarketplaceDelivery = {
   id: string;
   orderId: string;
-  status: 'requested' | 'assigned' | 'delivered';
+  status: 'requested' | 'accepted' | 'assigned' | 'picked_up' | 'in_transit' | 'delivered' | 'cancelled';
   etaMinutes: number;
+  customerId?: string;
+  driverId?: string;
+  senderName?: string;
+  senderPhone?: string;
+  pickupAddress?: string;
+  pickupLat?: number;
+  pickupLng?: number;
+  dropoffAddress?: string;
+  dropoffLat?: number;
+  dropoffLng?: number;
+  recipientName?: string;
+  recipientPhone?: string;
+  packageType?: string;
+  packageSize?: 'small' | 'medium' | 'large';
+  packageWeight?: number;
+  packageDescription?: string;
+  deliveryFee?: number;
+  deliveredAt?: string;
   createdAt: string;
+  updatedAt?: string;
 };
 
 // ─── Scheduled Rides ───────────────────────────────────────────────────────

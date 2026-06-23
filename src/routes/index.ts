@@ -6,6 +6,7 @@ export { default as chatRoutes } from './chat.routes';
 export { default as carpoolRoutes } from './carpool.routes';
 export { default as corporateRoutes } from './corporate.routes';
 export { default as driversRoutes } from './drivers.routes';
+export { default as deliveriesRoutes } from './deliveries.routes';
 export { default as fraudRoutes } from './fraud.routes';
 export { default as kycRoutes } from './kyc.routes';
 export { default as loyaltyRoutes } from './loyalty.routes';
