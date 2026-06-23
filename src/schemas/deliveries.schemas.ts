@@ -18,13 +18,24 @@ export const deliveryCreateSchema = z.object({
   dropoffAddress: z.string().trim().min(1),
   recipientName: z.string().trim().min(1),
   recipientPhone: z.string().trim().min(1),
-  packageSize: packageSizeSchema,
-  packageWeight: z.number().min(0).optional(),
-  packageDescription: z.string().trim().max(500).optional(),
+  senderName: z.string().trim().min(1).optional(),
+  senderPhone: z.string().trim().min(1).optional(),
   pickupLat: z.number().optional(),
   pickupLng: z.number().optional(),
   dropoffLat: z.number().optional(),
   dropoffLng: z.number().optional(),
-  senderName: z.string().trim().min(1).optional(),
-  senderPhone: z.string().trim().min(1).optional()
+  packageType: z.string().trim().min(1).optional(),
+  packageSize: packageSizeSchema,
+  packageWeight: z.number().min(0).optional(),
+  deliveryFee: z.number().nonnegative().optional(),
+  packageDescription: z.string().trim().max(500).optional()
+}).passthrough();
+
+export const deliveryStatusSchema = z.object({
+  status: z.enum(['accepted', 'picked_up', 'in_transit', 'delivered', 'cancelled']),
+  pickupPhotoUrl: z.string().trim().min(1).optional(),
+  dropoffPhotoUrl: z.string().trim().min(1).optional(),
+  recipientSignature: z.string().trim().min(1).optional(),
+  recipientPinCode: z.string().trim().min(1).optional(),
+  cancellationReason: z.string().trim().max(200).optional()
 }).passthrough();

@@ -7,11 +7,22 @@ export const applySchema = z.object({
 
 export const availabilitySchema = z.object({
   available: z.boolean().optional(),
-  status: z.enum(['offline', 'online', 'unavailable']).optional()
+  status: z.enum(['offline', 'online', 'unavailable']).optional(),
+  acceptPassengerRides: z.boolean().optional(),
+  acceptPackageDeliveries: z.boolean().optional()
 }).passthrough().refine(body => {
   return typeof body.available === 'boolean' || body.status !== undefined;
 }, {
   message: 'either available (boolean) or status (string) must be provided'
+});
+
+export const driverDispatchPreferencesSchema = z.object({
+  acceptPassengerRides: z.boolean().optional(),
+  acceptPackageDeliveries: z.boolean().optional()
+}).passthrough().refine(body => {
+  return typeof body.acceptPassengerRides === 'boolean' || typeof body.acceptPackageDeliveries === 'boolean';
+}, {
+  message: 'at least one dispatch preference is required'
 });
 
 export const locationSchema = z.object({
