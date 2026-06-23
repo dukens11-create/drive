@@ -26,7 +26,5 @@ export const deliveryCreateSchema = z.object({
   dropoffLat: z.number().optional(),
   dropoffLng: z.number().optional(),
   senderName: z.string().trim().min(1).optional(),
-  senderPhone: z.string().trim().min(1).optional(),
-  deliveryFee: z.number().min(0).optional()
+  senderPhone: z.string().trim().min(1).optional()
 }).passthrough();
-

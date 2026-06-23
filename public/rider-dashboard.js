@@ -31,13 +31,6 @@ const MAX_GEOCODE_SUGGESTIONS = 5;
 const GEOCODE_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const SUGGESTION_HIDE_DELAY_MS = 200;
 const DEFAULT_SERVICE_FEE_PERCENT = 0.12;
-const PACKAGE_BASE_DELIVERY_FEE = 6;
-const PACKAGE_PER_POUND_FEE = 0.75;
-const PACKAGE_SIZE_FEES = {
-  small: 2.5,
-  medium: 4,
-  large: 6.5
-};
 const MIN_TRIP_MINUTES = 4;
 const MINUTES_PER_KM = 2.8;
 const FARE_ESTIMATE_LOW_MULTIPLIER = 0.9;
@@ -292,12 +285,14 @@ function normalizePackageSize(size) {
   return 'medium';
 }
 
-function calculatePackageEstimate(payload = {}) {
-  const packageSize = normalizePackageSize(payload.packageSize);
-  const packageWeight = Math.max(0, Number(payload.packageWeight || 0));
-  const sizeFee = Number(PACKAGE_SIZE_FEES[packageSize] || PACKAGE_SIZE_FEES.medium);
-  const weightFee = roundToTwo(packageWeight * PACKAGE_PER_POUND_FEE);
-  return roundToTwo(PACKAGE_BASE_DELIVERY_FEE + sizeFee + weightFee);
+function getSenderNameFromUser(user) {
+  const explicitName = String(user?.name || '').trim();
+  if (explicitName) return explicitName;
+  const email = String(user?.email || '').trim();
+  if (!email) return 'Customer';
+  const [localPart] = email.split('@');
+  const normalized = String(localPart || '').trim();
+  return normalized || 'Customer';
 }
 
 function formatArrivalTimeFromMinutes(minutes) {
@@ -1000,8 +995,7 @@ function renderPackageEstimate(estimateValue) {
 }
 
 async function estimatePackageDelivery(payload = getPackageFormValues()) {
-  const localEstimate = calculatePackageEstimate(payload);
-  if (!accessToken) return localEstimate;
+  if (!accessToken) return null;
   try {
     const { response, data } = await fetchJson('/api/deliveries/estimate', {
       method: 'POST',
@@ -1017,9 +1011,9 @@ async function estimatePackageDelivery(payload = getPackageFormValues()) {
       return roundToTwo(Number(data.estimate.deliveryFee));
     }
   } catch (_error) {
-    // Fall back to local package estimate.
+    // Keep current estimate when the estimate request fails.
   }
-  return localEstimate;
+  return null;
 }
 
 async function refreshPackageEstimate() {
@@ -1033,6 +1027,11 @@ async function refreshPackageEstimate() {
   const requestSeq = ++packageEstimateSequence;
   const nextEstimate = await estimatePackageDelivery(payload);
   if (requestSeq !== packageEstimateSequence) return;
+  if (!Number.isFinite(nextEstimate)) {
+    packageEstimate = null;
+    renderPackageEstimate(0);
+    return;
+  }
   packageEstimate = nextEstimate;
   renderPackageEstimate(nextEstimate);
 }
@@ -3056,17 +3055,19 @@ async function handleRequestPackage() {
   setButtonLoading('request-package-button', true);
   try {
     const deliveryFee = packageEstimate ?? await estimatePackageDelivery(payload);
-    const { pickup, destination } = getPickupAndDestination();
+    if (!Number.isFinite(deliveryFee)) {
+      throw new Error('Unable to load delivery estimate. Please try again.');
+    }
+    const pickupCoordinates = parseCoordinateInput(payload.pickupAddress);
+    const dropoffCoordinates = parseCoordinateInput(payload.dropoffAddress);
     const requestBody = {
       ...payload,
-      customerId: currentUser.id,
-      senderName: currentUser.email || 'Customer',
+      senderName: getSenderNameFromUser(currentUser),
       senderPhone: currentUser.phone || '',
-      pickupLat: pickup?.lat,
-      pickupLng: pickup?.lng,
-      dropoffLat: destination?.lat,
-      dropoffLng: destination?.lng,
-      deliveryFee
+      pickupLat: pickupCoordinates?.lat,
+      pickupLng: pickupCoordinates?.lng,
+      dropoffLat: dropoffCoordinates?.lat,
+      dropoffLng: dropoffCoordinates?.lng
     };
     const { response, data } = await fetchJson('/api/deliveries', {
       method: 'POST',

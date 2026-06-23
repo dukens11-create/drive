@@ -24,6 +24,18 @@ function estimateDeliveryFee(body: any) {
   return Math.round(subtotal * 100) / 100;
 }
 
+function getSenderName(body: any, actor: any) {
+  const explicitName = String(body?.senderName || '').trim();
+  if (explicitName) return explicitName;
+  const actorName = String(actor?.name || '').trim();
+  if (actorName) return actorName;
+  const email = String(actor?.email || '').trim();
+  if (!email) return 'Customer';
+  const [localPart] = email.split('@');
+  const normalized = String(localPart || '').trim();
+  return normalized || 'Customer';
+}
+
 export async function estimate(body: any, _params?: any, _query?: any) {
   return {
     module: 'deliveries',
@@ -40,7 +52,7 @@ export async function estimate(body: any, _params?: any, _query?: any) {
 
 export async function create(body: any, _params?: any, _query?: any) {
   const actor = body?.actor;
-  const customerId = actor?.id || body?.customerId;
+  const customerId = actor?.id;
   if (!customerId) return { module: 'deliveries', action: 'create', error: 'customerId is required' };
 
   const pickupAddress = String(body?.pickupAddress || '').trim();
@@ -53,7 +65,7 @@ export async function create(body: any, _params?: any, _query?: any) {
 
   const packageSize = normalizePackageSize(body?.packageSize);
   const packageWeight = Math.max(0, Number(body?.packageWeight || 0));
-  const deliveryFee = Number.isFinite(Number(body?.deliveryFee)) ? Number(body.deliveryFee) : estimateDeliveryFee(body);
+  const deliveryFee = estimateDeliveryFee(body);
   const now = timestamp();
   const delivery = {
     id: makeId('delivery'),
@@ -62,7 +74,7 @@ export async function create(body: any, _params?: any, _query?: any) {
     etaMinutes: Number(body?.etaMinutes || 45),
     customerId,
     driverId: body?.driverId || undefined,
-    senderName: String(body?.senderName || actor?.email || 'Customer'),
+    senderName: getSenderName(body, actor),
     senderPhone: String(body?.senderPhone || actor?.phone || ''),
     pickupAddress,
     pickupLat: Number.isFinite(Number(body?.pickupLat)) ? Number(body.pickupLat) : undefined,
