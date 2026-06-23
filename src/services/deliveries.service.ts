@@ -47,7 +47,6 @@ function upsertDeliveryRequestResponse(request: DeliveryRequest, driverId: strin
 function toDeliverySummary(delivery: Delivery) {
   return {
     ...delivery,
-    rideId: delivery.id,
     deliveryId: delivery.id,
     requestType: 'delivery',
     riderName: delivery.senderName,
@@ -282,7 +281,7 @@ export async function updateStatus(body: any, params?: any, _query?: any) {
   if (!transition.ok) return { module: 'deliveries', action: 'status', error: transition.error };
   const request = getDeliveryRequestByDeliveryId(delivery.id);
   if (request) {
-    if (nextStatus === 'cancelled') syncDeliveryRequestState(request, 'canceled');
+    if (nextStatus === 'cancelled') syncDeliveryRequestState(request, 'cancelled');
     if (nextStatus === 'delivered') syncDeliveryRequestState(request, 'completed');
   }
   if (nextStatus === 'cancelled' || nextStatus === 'delivered') {
@@ -291,4 +290,3 @@ export async function updateStatus(body: any, params?: any, _query?: any) {
   markStoreDirty();
   return { module: 'deliveries', action: 'status', ok: true, delivery: toDeliverySummary(delivery), request };
 }
-

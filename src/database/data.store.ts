@@ -471,7 +471,7 @@ export type DeliveryRequest = {
   responses: DeliveryRequestResponse[];
   acceptedDriverId?: string;
   expiresAt: string;
-  status: 'broadcasting' | 'accepted' | 'expired' | 'canceled' | 'completed';
+  status: 'broadcasting' | 'accepted' | 'expired' | 'cancelled' | 'completed';
   createdAt: string;
   updatedAt: string;
 };

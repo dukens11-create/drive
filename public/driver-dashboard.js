@@ -3995,7 +3995,9 @@ function renderIncomingRequests() {
         <span class="ride-request-pill">${escapeHtml(String(ride.rideType || (ride.requestType === 'delivery' ? 'DELIVERY' : 'ECONOMY')).toUpperCase())}</span>
       </div>
       <div class="small mt-2">
-        <div>${ride.requestType === 'delivery' ? 'Sender' : 'Rider'}: ${escapeHtml(ride.riderName || ride.senderName || 'Rider')} • ⭐ ${Number(ride.riderRating || 5).toFixed(1)}</div>
+        <div>${ride.requestType === 'delivery'
+    ? `Sender: ${escapeHtml(ride.senderName || ride.riderName || 'Sender')}`
+    : `Rider: ${escapeHtml(ride.riderName || 'Rider')} • ⭐ ${Number(ride.riderRating || 5).toFixed(1)}`}</div>
         <div>${ride.requestType === 'delivery' ? 'Delivery fee' : 'Fare'}: $${Number(ride.fareEstimate || 0).toFixed(2)} • ${Number(ride.distance || 0).toFixed(1)} mi • ${Number(ride.duration || 0)} min</div>
         ${ride.requestType === 'delivery' ? `<div>Package: ${escapeHtml(String(ride.packageType || 'package'))} (${escapeHtml(String(ride.packageSize || 'standard'))})</div>` : ''}
       </div>
@@ -4563,40 +4565,6 @@ async function submitRideAccept(ride) {
   if (!ride?.id || !accessToken) {
     return { ride: null, error: 'Missing ride ID or access token.' };
   }
-
-  async function submitDeliveryAccept(delivery) {
-    if (!delivery?.id || !accessToken) {
-      return { delivery: null, error: 'Missing delivery ID or access token.' };
-    }
-    const { data } = await fetchJson(`${API_BASE_URL}/api/deliveries/${encodeURIComponent(delivery.id)}/accept`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + accessToken
-      },
-      body: JSON.stringify({})
-    });
-    if (data?.ok && data?.delivery) {
-      return { delivery: data.delivery, error: '' };
-    }
-    return { delivery: null, error: data?.error || 'Unable to accept delivery.' };
-  }
-
-  async function acceptDeliveryById(rawDeliveryId, options = {}) {
-    const deliveryId = String(rawDeliveryId || '').trim();
-    if (!deliveryId) return false;
-    const acceptResult = await submitDeliveryAccept({ id: deliveryId });
-    if (!acceptResult?.delivery) {
-      showAlert('danger', acceptResult?.error || 'Unable to accept delivery.');
-      return false;
-    }
-    if (options?.riderName) {
-      console.log(`[DRIVER] Accepted delivery ${deliveryId} from ${options.riderName}`);
-    }
-    showAlert('success', `Delivery ${deliveryId} accepted.`);
-    await Promise.all([fetchIncomingRequests(), loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
-    return true;
-  }
   console.log(`[ACCEPT] Accepting ride ${ride.id}`);
   const url = `${API_BASE_URL}/api/rides/${encodeURIComponent(ride.id)}/accept`;
   const headers = {
@@ -4623,6 +4591,40 @@ async function submitRideAccept(ride) {
     console.log(`[ACCEPT] Error: ${errorMessage}`);
     return { ride: null, error: errorMessage };
   }
+}
+
+async function submitDeliveryAccept(delivery) {
+  if (!delivery?.id || !accessToken) {
+    return { delivery: null, error: 'Missing delivery ID or access token.' };
+  }
+  const { data } = await fetchJson(`${API_BASE_URL}/api/deliveries/${encodeURIComponent(delivery.id)}/accept`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + accessToken
+    },
+    body: JSON.stringify({})
+  });
+  if (data?.ok && data?.delivery) {
+    return { delivery: data.delivery, error: '' };
+  }
+  return { delivery: null, error: data?.error || 'Unable to accept delivery.' };
+}
+
+async function acceptDeliveryById(rawDeliveryId, options = {}) {
+  const deliveryId = String(rawDeliveryId || '').trim();
+  if (!deliveryId) return false;
+  const acceptResult = await submitDeliveryAccept({ id: deliveryId });
+  if (!acceptResult?.delivery) {
+    showAlert('danger', acceptResult?.error || 'Unable to accept delivery.');
+    return false;
+  }
+  if (options?.riderName) {
+    console.log(`[DRIVER] Accepted delivery ${deliveryId} from ${options.riderName}`);
+  }
+  showAlert('success', `Delivery ${deliveryId} accepted.`);
+  await Promise.all([fetchIncomingRequests(), loadAvailableRideRequests(), loadRideHistory(), loadEarnings()]);
+  return true;
 }
 
 async function handleAcceptRide(event) {

@@ -377,15 +377,7 @@ export function releaseDriverFromRide(userId: string) {
 }
 
 export function isDriverDispatchEligible(profile: any) {
-  const acceptsPassengerRides = profile?.acceptPassengerRides !== false;
-  return (
-    acceptsPassengerRides &&
-    profile?.status === 'approved' &&
-    profile?.verificationState === 'verified' &&
-    profile?.availabilityStatus === 'online' &&
-    Number.isFinite(Number(profile?.lat)) &&
-    Number.isFinite(Number(profile?.lng))
-  );
+  return isDriverDispatchEligibleForJob(profile, 'ride');
 }
 
 export function getDriverDispatchVehicleType(driverId: string) {
