@@ -122,6 +122,7 @@ let accessToken = '';
 let refreshToken = '';
 let selectedRideType = 'ECONOMY';
 let selectedPaymentMethod = localStorage.getItem('drive.paymentMethod') || 'card';
+let selectedPreferredDriverGender = 'no_preference';
 let stripe = null;
 let stripeElements = null;
 let paymentElement = null;
@@ -1369,6 +1370,7 @@ async function requestRide(pickup, destination) {
       riderId: currentUser.id,
       ...(appliedPromo ? { promoCode: appliedPromo.code, discountAmount, finalFare } : {}),
       paymentMethod: selectedPaymentMethod,
+      preferredDriverGender: selectedPreferredDriverGender || 'no_preference',
       ...(scheduledTime ? { scheduledAt: scheduledTime, scheduledTime } : {})
     };
     try {
@@ -5052,6 +5054,13 @@ function setupHandlers() {
     const section = document.getElementById('payment-method-section');
     if (section && !section.contains(event.target)) closePaymentDropdown();
   });
+
+  const driverGenderSelect = document.getElementById('driver-gender-pref-select');
+  if (driverGenderSelect) {
+    driverGenderSelect.addEventListener('change', () => {
+      selectedPreferredDriverGender = driverGenderSelect.value || 'no_preference';
+    });
+  }
 
   if (!mapState.resizeHandlerBound) {
     mapState.resizeHandlerBound = true;

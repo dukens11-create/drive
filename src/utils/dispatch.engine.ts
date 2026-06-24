@@ -8,6 +8,7 @@ type Candidate = {
   acceptanceRate: number;
   cancellationRate: number;
   vehicleType?: string;
+  gender?: string;
 };
 
 function toMiles(lat1: number, lng1: number, lat2: number, lng2: number) {
@@ -34,15 +35,19 @@ export async function findNearbyDrivers(lat: number, lng: number) {
       rating: d.rating,
       acceptanceRate: d.acceptanceRate,
       cancellationRate: d.cancellationRate,
-      vehicleType: getDriverDispatchVehicleType(d.userId)
+      vehicleType: getDriverDispatchVehicleType(d.userId),
+      gender: d.gender
     }));
 
-  return drivers.slice(0, 30);
+  return drivers.sort((a, b) => a.distanceMiles - b.distanceMiles).slice(0, 30);
 }
 
 export async function dispatchRide(ride: any) {
   const requestedVehicleType = typeof ride?.vehicleType === 'string' ? ride.vehicleType.trim().toLowerCase() : '';
+  const preferredDriverGender: string = typeof ride?.preferredDriverGender === 'string' ? ride.preferredDriverGender.trim().toLowerCase() : '';
   const nearbyCandidates = await findNearbyDrivers(Number(ride.pickupLat), Number(ride.pickupLng));
+
+  // Filter by vehicle type first
   let candidates = nearbyCandidates.filter(candidate => {
     if (!requestedVehicleType) return true;
     return candidate.vehicleType === requestedVehicleType;
@@ -50,6 +55,16 @@ export async function dispatchRide(ride: any) {
   if (requestedVehicleType && candidates.length === 0) {
     candidates = nearbyCandidates.filter(candidate => !candidate.vehicleType || candidate.vehicleType === requestedVehicleType);
   }
+
+  // Apply preferred driver gender: prioritize matching drivers, fall back to all if none available
+  if (preferredDriverGender && preferredDriverGender !== 'no_preference') {
+    const genderMatched = candidates.filter(c => c.gender === preferredDriverGender);
+    if (genderMatched.length > 0) {
+      candidates = genderMatched;
+    }
+    // If no matching gender drivers are available, fall back to all candidates (best-effort preference)
+  }
+
   const ranked = rankDrivers(candidates);
   return { rideId: ride.id, selected: ranked[0] || null, candidates: ranked };
 }

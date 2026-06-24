@@ -18,9 +18,10 @@ export const availabilitySchema = z.object({
 
 export const driverDispatchPreferencesSchema = z.object({
   acceptPassengerRides: z.boolean().optional(),
-  acceptPackageDeliveries: z.boolean().optional()
+  acceptPackageDeliveries: z.boolean().optional(),
+  gender: z.enum(['male', 'female']).optional()
 }).passthrough().refine(body => {
-  return typeof body.acceptPassengerRides === 'boolean' || typeof body.acceptPackageDeliveries === 'boolean';
+  return typeof body.acceptPassengerRides === 'boolean' || typeof body.acceptPackageDeliveries === 'boolean' || typeof body.gender === 'string';
 }, {
   message: 'at least one dispatch preference is required'
 });

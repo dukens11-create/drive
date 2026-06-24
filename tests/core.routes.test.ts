@@ -1288,3 +1288,176 @@ test('driver vehicle profile endpoints expose assigned driver vehicle details to
     await postJson(baseUrl, '/api/drivers/availability', { status: 'offline' }, driver.accessToken);
   });
 });
+
+test('preferred driver gender: ride request includes and persists preference', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+    const driver = await signup(baseUrl, 'driver');
+    const adminToken = await loginAdmin(baseUrl);
+
+    assert.equal((await postJson(baseUrl, '/api/drivers/apply', {}, driver.accessToken).then(r => r.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/drivers/documents', {
+      documents: [
+        { type: 'Driver License', fileName: `${driver.user.id}-license.jpg`, expiryDate: '2030-08-31', documentNumber: `DOC-${driver.user.id.slice(-6)}` },
+        { type: 'Selfie Photo', fileName: `${driver.user.id}-selfie.jpg`, selfieMatchScore: 0.95 }
+      ]
+    }, driver.accessToken).then(r => r.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/kyc/webhook', { userId: driver.user.id, status: 'verified' }).then(r => r.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/admin/approve-driver', { userId: driver.user.id, approved: true }, adminToken).then(r => r.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/drivers/location', { lat: 37.77, lng: -122.41 }, driver.accessToken).then(r => r.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/drivers/availability', { status: 'online' }, driver.accessToken).then(r => r.json())).ok, true);
+    assert.equal((await postJson(baseUrl, `/api/drivers/${driver.user.id}/vehicles`, {
+      make: 'Toyota', model: 'Corolla', year: 2022, licensePlate: `FDRV${driver.user.id.slice(-6).toUpperCase()}`,
+      color: 'White', seats: 4, vehicleType: 'economy', insuranceExpiry: '2030-01-01', registrationExpiry: '2030-01-01', status: 'active'
+    }, driver.accessToken).then(r => r.json())).ok, true);
+
+    // Set driver gender via dispatch preferences
+    const prefRes = await postJson(baseUrl, '/api/drivers/preferences', { gender: 'female' }, driver.accessToken);
+    const prefBody = await prefRes.json();
+    assert.equal(prefBody.ok, true);
+    assert.equal(prefBody.profile.gender, 'female');
+
+    // Rider requests ride with female driver preference
+    const rideRes = await postJson(baseUrl, '/api/rides/request', {
+      pickupLat: 37.77,
+      pickupLng: -122.41,
+      dropoffLat: 37.8,
+      dropoffLng: -122.38,
+      preferredDriverGender: 'female'
+    }, rider.accessToken);
+    const rideBody = await rideRes.json();
+    assert.equal(rideBody.ok, true);
+    // Preference is stored on the ride
+    assert.equal(rideBody.ride.preferredDriverGender, 'female');
+    // Dispatch gender filter: all selected candidates must be female
+    assert.equal(rideBody.dispatch.selected !== null, true);
+    assert.equal(rideBody.dispatch.selected?.gender, 'female');
+    assert.equal(
+      rideBody.dispatch.candidates.every((c: { gender?: string }) => c.gender === 'female'),
+      true
+    );
+
+    // Rider profile should persist the preference
+    const profileRes = await getJson(baseUrl, '/api/riders/profile', rider.accessToken);
+    const profileBody = await profileRes.json();
+    assert.equal(profileBody.ok, true);
+    assert.equal(profileBody.rider.preferredDriverGender, 'female');
+
+    await postJson(baseUrl, '/api/drivers/availability', { status: 'offline' }, driver.accessToken);
+  });
+});
+
+test('preferred driver gender: falls back to all drivers when no gender match available', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+    const driver = await signup(baseUrl, 'driver');
+    const adminToken = await loginAdmin(baseUrl);
+
+    assert.equal((await postJson(baseUrl, '/api/drivers/apply', {}, driver.accessToken).then(r => r.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/drivers/documents', {
+      documents: [
+        { type: 'Driver License', fileName: `${driver.user.id}-license.jpg`, expiryDate: '2030-08-31', documentNumber: `DOC-${driver.user.id.slice(-6)}` },
+        { type: 'Selfie Photo', fileName: `${driver.user.id}-selfie.jpg`, selfieMatchScore: 0.95 }
+      ]
+    }, driver.accessToken).then(r => r.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/kyc/webhook', { userId: driver.user.id, status: 'verified' }).then(r => r.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/admin/approve-driver', { userId: driver.user.id, approved: true }, adminToken).then(r => r.json())).ok, true);
+    // Use a unique far-away location to ensure this driver is the only nearby candidate
+    assert.equal((await postJson(baseUrl, '/api/drivers/location', { lat: -33.87, lng: 151.21 }, driver.accessToken).then(r => r.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/drivers/availability', { status: 'online' }, driver.accessToken).then(r => r.json())).ok, true);
+    assert.equal((await postJson(baseUrl, `/api/drivers/${driver.user.id}/vehicles`, {
+      make: 'Honda', model: 'Civic', year: 2021, licensePlate: `MDRV${driver.user.id.slice(-6).toUpperCase()}`,
+      color: 'Black', seats: 4, vehicleType: 'economy', insuranceExpiry: '2030-01-01', registrationExpiry: '2030-01-01', status: 'active'
+    }, driver.accessToken).then(r => r.json())).ok, true);
+
+    // Driver is male, rider prefers female — no matching gender drivers near this unique location
+    const prefRes = await postJson(baseUrl, '/api/drivers/preferences', { gender: 'male' }, driver.accessToken);
+    assert.equal((await prefRes.json()).ok, true);
+
+    // Rider requests ride from same unique location with female preference
+    const rideRes = await postJson(baseUrl, '/api/rides/request', {
+      pickupLat: -33.87,
+      pickupLng: 151.21,
+      dropoffLat: -33.88,
+      dropoffLng: 151.22,
+      preferredDriverGender: 'female'
+    }, rider.accessToken);
+    const rideBody = await rideRes.json();
+    // Should succeed (fallback), not fail
+    assert.equal(rideBody.ok, true);
+    assert.equal(rideBody.ride.preferredDriverGender, 'female');
+    // Fallback: a non-female driver was still dispatched (best-effort)
+    assert.equal(rideBody.dispatch.selected !== null, true);
+    assert.equal(rideBody.dispatch.selected?.driverId, driver.user.id);
+
+    await postJson(baseUrl, '/api/drivers/availability', { status: 'offline' }, driver.accessToken);
+  });
+});
+
+test('preferred driver gender: no_preference behaves identically to omitting the field', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+    const driver = await signup(baseUrl, 'driver');
+    const adminToken = await loginAdmin(baseUrl);
+
+    assert.equal((await postJson(baseUrl, '/api/drivers/apply', {}, driver.accessToken).then(r => r.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/drivers/documents', {
+      documents: [
+        { type: 'Driver License', fileName: `${driver.user.id}-license.jpg`, expiryDate: '2030-08-31', documentNumber: `DOC-${driver.user.id.slice(-6)}` },
+        { type: 'Selfie Photo', fileName: `${driver.user.id}-selfie.jpg`, selfieMatchScore: 0.95 }
+      ]
+    }, driver.accessToken).then(r => r.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/kyc/webhook', { userId: driver.user.id, status: 'verified' }).then(r => r.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/admin/approve-driver', { userId: driver.user.id, approved: true }, adminToken).then(r => r.json())).ok, true);
+    // Use same unique far-away location as fallback test to be the sole nearby candidate
+    assert.equal((await postJson(baseUrl, '/api/drivers/location', { lat: -33.87, lng: 151.21 }, driver.accessToken).then(r => r.json())).ok, true);
+    assert.equal((await postJson(baseUrl, '/api/drivers/availability', { status: 'online' }, driver.accessToken).then(r => r.json())).ok, true);
+    assert.equal((await postJson(baseUrl, `/api/drivers/${driver.user.id}/vehicles`, {
+      make: 'Nissan', model: 'Sentra', year: 2020, licensePlate: `NDRV${driver.user.id.slice(-6).toUpperCase()}`,
+      color: 'Silver', seats: 4, vehicleType: 'economy', insuranceExpiry: '2030-01-01', registrationExpiry: '2030-01-01', status: 'active'
+    }, driver.accessToken).then(r => r.json())).ok, true);
+
+    // no_preference should not store preferredDriverGender on ride
+    const rideRes = await postJson(baseUrl, '/api/rides/request', {
+      pickupLat: -33.87,
+      pickupLng: 151.21,
+      dropoffLat: -33.88,
+      dropoffLng: 151.22,
+      preferredDriverGender: 'no_preference'
+    }, rider.accessToken);
+    const rideBody = await rideRes.json();
+    assert.equal(rideBody.ok, true);
+    // no_preference is treated as "no filter", field is not stored on ride
+    assert.equal(rideBody.ride.preferredDriverGender, undefined);
+    // dispatch still selects a driver normally (no gender filter applied)
+    assert.equal(rideBody.dispatch.selected !== null, true);
+
+    await postJson(baseUrl, '/api/drivers/availability', { status: 'offline' }, driver.accessToken);
+  });
+});
+
+test('rider profile update supports preferredDriverGender field', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+
+    // Update profile with preferredDriverGender
+    const updateRes = await fetch(`${baseUrl}/api/riders/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + rider.accessToken },
+      body: JSON.stringify({ preferredDriverGender: 'female' })
+    });
+    const updateBody = await updateRes.json();
+    assert.equal(updateBody.ok, true);
+    assert.equal(updateBody.rider.preferredDriverGender, 'female');
+
+    // Clear preference back to no_preference
+    const clearRes = await fetch(`${baseUrl}/api/riders/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + rider.accessToken },
+      body: JSON.stringify({ preferredDriverGender: 'no_preference' })
+    });
+    const clearBody = await clearRes.json();
+    assert.equal(clearBody.ok, true);
+    assert.equal(clearBody.rider.preferredDriverGender, 'no_preference');
+  });
+});

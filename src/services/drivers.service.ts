@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { mkdirSync, writeFileSync } from 'fs';
 import path from 'path';
 import * as authService from './auth.service';
-import { getWalletBalanceCents, makeId, markStoreDirty, store, timestamp, type BankAccount, type DriverProfile, type DriverVehicleProfile, type DriverVerificationDocument, type Vehicle, type VehicleType } from '../database/data.store';
+import { getWalletBalanceCents, makeId, markStoreDirty, store, timestamp, type BankAccount, type DriverGender, type DriverProfile, type DriverVehicleProfile, type DriverVerificationDocument, type Vehicle, type VehicleType } from '../database/data.store';
 import { publishDriverRealtimeLocation, publishDriverStatusChanged } from './realtime-dispatch.service';
 import * as walletService from './wallet.service';
 import { findNearbyDrivers, rankDrivers } from '../utils/dispatch.engine';
@@ -761,6 +761,10 @@ export async function updateDispatchPreferences(body: any, _params?: any, _query
   }
   if (typeof body?.acceptPackageDeliveries === 'boolean') {
     profile.acceptPackageDeliveries = body.acceptPackageDeliveries;
+  }
+  const VALID_GENDERS: DriverGender[] = ['male', 'female'];
+  if (typeof body?.gender === 'string' && (VALID_GENDERS as string[]).includes(body.gender.trim().toLowerCase())) {
+    profile.gender = body.gender.trim().toLowerCase() as DriverGender;
   }
   markStoreDirty();
   return { module: 'drivers', action: 'dispatch-preferences', ok: true, profile };

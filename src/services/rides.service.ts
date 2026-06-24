@@ -12,6 +12,7 @@ import {
   store,
   timestamp,
   type DriverEarning,
+  type PreferredDriverGender,
   type Ride,
   type RideFareDetails,
   type RideLifecycleState,
@@ -802,6 +803,11 @@ export async function request(body: any, _params?: any, _query?: any) {
   const now = timestamp();
   const requestedVehicleType = normalizeRequestedVehicleType(body?.vehicleType ?? body?.rideType ?? body?.vehiclePreference);
   const paymentMethod = normalizeRidePaymentMethod(body?.paymentMethod);
+  const VALID_PREFERRED_GENDERS: PreferredDriverGender[] = ['male', 'female', 'no_preference'];
+  const rawPreferredGender = typeof body?.preferredDriverGender === 'string' ? body.preferredDriverGender.trim().toLowerCase() : '';
+  const preferredDriverGender: PreferredDriverGender | undefined = (VALID_PREFERRED_GENDERS as string[]).includes(rawPreferredGender) && rawPreferredGender !== 'no_preference'
+    ? rawPreferredGender as PreferredDriverGender
+    : undefined;
   const ride: Ride = {
     id: makeId('ride'),
     riderId,
@@ -824,6 +830,7 @@ export async function request(body: any, _params?: any, _query?: any) {
     lifecycleState: 'requested',
     paymentMethod,
     paymentStatus: paymentMethod === 'cash' ? 'authorized' : 'pending',
+    ...(preferredDriverGender ? { preferredDriverGender } : {}),
     events: [
       {
         id: makeId('evt'),
@@ -845,6 +852,9 @@ export async function request(body: any, _params?: any, _query?: any) {
   riderProfile.lastLocationUpdatedAt = hasValidPickupCoords ? now : riderProfile.lastLocationUpdatedAt;
   if (typeof body?.vehiclePreference === 'string' && body.vehiclePreference.trim()) riderProfile.vehiclePreference = body.vehiclePreference.trim();
   if (typeof body?.routePreference === 'string' && body.routePreference.trim()) riderProfile.routePreference = body.routePreference.trim();
+  if (rawPreferredGender && (VALID_PREFERRED_GENDERS as string[]).includes(rawPreferredGender)) {
+    riderProfile.preferredDriverGender = rawPreferredGender as PreferredDriverGender;
+  }
   if (body?.favoriteLocationLabel && hasValidPickupCoords) {
     const label = String(body.favoriteLocationLabel).trim();
     if (label && !riderProfile.favoriteLocations.some(location => location.label === label && location.lat === pickupLat && location.lng === pickupLng)) {
@@ -855,7 +865,8 @@ export async function request(body: any, _params?: any, _query?: any) {
     id: ride.id,
     pickupLat: ride.pickupLat,
     pickupLng: ride.pickupLng,
-    vehicleType: ride.vehicleType
+    vehicleType: ride.vehicleType,
+    preferredDriverGender: ride.preferredDriverGender
   });
   const expiresAt = new Date(Date.now() + RIDE_REQUEST_EXPIRY_MS).toISOString();
   const rideRequest: RideRequest = {
@@ -875,6 +886,7 @@ export async function request(body: any, _params?: any, _query?: any) {
     })),
     expiresAt,
     status: 'broadcasting',
+    ...(ride.preferredDriverGender ? { preferredDriverGender: ride.preferredDriverGender } : {}),
     createdAt: now,
     updatedAt: now
   };

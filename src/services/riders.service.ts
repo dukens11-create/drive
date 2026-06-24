@@ -4,6 +4,7 @@ import {
   markStoreDirty,
   store,
   timestamp,
+  type PreferredDriverGender,
   type RiderProfile,
   type RiderSavedPlace
 } from '../database/data.store';
@@ -224,6 +225,14 @@ export async function updateProfile(body: any, _params?: any, _query?: any) {
       .map((place: any) => normalizeSavedPlace(place))
       .filter(Boolean)
       .slice(0, 10) as RiderSavedPlace[];
+  }
+
+  const VALID_PREFERRED_GENDERS: PreferredDriverGender[] = ['male', 'female', 'no_preference'];
+  if (body?.preferredDriverGender !== undefined) {
+    const rawGender = String(body.preferredDriverGender || '').trim().toLowerCase();
+    if ((VALID_PREFERRED_GENDERS as string[]).includes(rawGender)) {
+      profile.preferredDriverGender = rawGender as PreferredDriverGender;
+    }
   }
 
   profile.updatedAt = timestamp();
