@@ -379,6 +379,7 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
       'id="destination-suggestions"',
       'id="destination-input-message"',
       'id="request-ride-button"',
+      'id="request-package-button"',
       'id="btn-cancel-ride"',
       'id="fare-base"',
       'id="fare-surge"',
@@ -397,7 +398,8 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
       'id="btn-call-driver"',
       'id="btn-message-driver"',
       'id="btn-share-trip"',
-      'id="btn-cancel-ride"'
+      'id="btn-cancel-ride"',
+      'Send Package'
     ].forEach(token => {
       assert.match(body, new RegExp(token));
     });
@@ -447,7 +449,11 @@ test('GET /rider-dashboard.js includes Mapbox route rendering and fare breakdown
       'CANCELLATION_CONFIRMATION_RESPONSES',
       'triggerSpokenAlert(spokenAlertState)',
       'International ride requests are currently unavailable.',
-      'Long-distance trips over 6 hours are unavailable for on-demand booking.'
+      'Long-distance trips over 6 hours are unavailable for on-demand booking.',
+      'handleRequestPackage',
+      '/api/deliveries/estimate',
+      '/api/deliveries',
+      'setDashboardMode'
     ].forEach(token => {
       assert.equal(body.includes(token), true, `Expected rider-dashboard.js to include ${token}`);
     });
@@ -478,6 +484,30 @@ test('POST /api/rides accepts rider dashboard booking payload', async () => {
     assert.equal(body.ride?.riderId, rider.user.id);
     assert.equal(body.rideId, body.ride?.id);
     assert.equal(body.status, 'SEARCHING');
+  });
+});
+
+test('POST /api/deliveries creates a package delivery from rider dashboard payload', async () => {
+  await withServer(async baseUrl => {
+    const rider = await signup(baseUrl, 'rider');
+    const response = await postJson(baseUrl, '/api/deliveries', {
+      pickupAddress: '1 Market St, San Francisco, CA',
+      dropoffAddress: '100 Van Ness Ave, San Francisco, CA',
+      recipientName: 'Taylor Recipient',
+      recipientPhone: '+14155550100',
+      packageSize: 'medium',
+      packageWeight: 4.5,
+      packageDescription: 'Electronics accessories'
+    }, rider.accessToken);
+    assert.equal(response.status, 201);
+    const body = await response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.action, 'create');
+    assert.equal(body.delivery?.status, 'requested');
+    assert.equal(body.delivery?.customerId, rider.user.id);
+    assert.equal(body.delivery?.recipientName, 'Taylor Recipient');
+    assert.equal(typeof body.delivery?.deliveryFee, 'number');
+    assert.equal(body.delivery?.deliveryFee > 0, true);
   });
 });
 

@@ -103,6 +103,18 @@
       <div class="dashboard-grid">
         <div class="content-grid">
           <section class="left-panel" aria-label="Booking controls">
+            <div class="schedule-toggle-group" role="tablist" aria-label="Dashboard service tabs">
+              <button id="dashboard-mode-ride" type="button" class="schedule-toggle-btn is-active" aria-selected="true">
+                <i class="bi bi-car-front-fill"></i>
+                <span>Ride</span>
+              </button>
+              <button id="dashboard-mode-package" type="button" class="schedule-toggle-btn" aria-selected="false">
+                <i class="bi bi-box-seam"></i>
+                <span>Send Package</span>
+              </button>
+            </div>
+
+            <div id="ride-booking-flow">
             <div class="card trip-card">
               <div class="card-heading">
                 <p class="card-eyebrow">Trip planner</p>
@@ -369,6 +381,63 @@
               <div id="saved-places-empty" class="saved-places-empty">
                 <i class="bi bi-geo-alt"></i>
                 <p>No saved places yet. Add Home or Work for quick access.</p>
+              </div>
+            </div>
+            </div>
+
+            <div id="package-booking-flow" class="d-none">
+              <div class="card trip-card">
+                <div class="card-heading">
+                  <p class="card-eyebrow">Package delivery</p>
+                  <h2 class="card-title">Send Package</h2>
+                </div>
+
+                <div class="form-group">
+                  <label for="package-pickup-address" class="form-label">Pickup address</label>
+                  <input id="package-pickup-address" type="text" class="form-input" placeholder="Enter pickup address" />
+                </div>
+                <div class="form-group">
+                  <label for="package-dropoff-address" class="form-label">Dropoff address</label>
+                  <input id="package-dropoff-address" type="text" class="form-input" placeholder="Enter dropoff address" />
+                </div>
+                <div class="form-group">
+                  <label for="package-recipient-name" class="form-label">Recipient name</label>
+                  <input id="package-recipient-name" type="text" class="form-input" placeholder="Recipient full name" />
+                </div>
+                <div class="form-group">
+                  <label for="package-recipient-phone" class="form-label">Recipient phone</label>
+                  <input id="package-recipient-phone" type="tel" class="form-input" placeholder="+1 (555) 555-5555" />
+                </div>
+                <div class="form-group">
+                  <label for="package-size" class="form-label">Package size</label>
+                  <select id="package-size" class="form-input">
+                    <option value="small">Small</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="large">Large</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="package-weight" class="form-label">Package weight (lb)</label>
+                  <input id="package-weight" type="number" min="0" step="0.1" class="form-input" placeholder="0.0" />
+                </div>
+                <div class="form-group">
+                  <label for="package-description" class="form-label">Package description</label>
+                  <textarea id="package-description" class="form-input" rows="3" placeholder="Describe the package"></textarea>
+                </div>
+
+                <div id="package-estimate-panel" class="fare-overview-item">
+                  <span>Estimated delivery fee</span>
+                  <strong id="package-estimate-fee">$0.00</strong>
+                </div>
+                <div id="package-error-message" class="booking-error d-none" role="alert" aria-live="assertive"></div>
+
+                <div class="button-group">
+                  <button id="request-package-button" type="button" class="btn btn-primary btn-block btn-lg">
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                    <i class="bi bi-box-seam btn-icon"></i>
+                    <span class="btn-label">Send Package</span>
+                  </button>
+                </div>
               </div>
             </div>
 

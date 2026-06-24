@@ -151,6 +151,9 @@ let realtimeSocket = null;
 let realtimeSocketConnected = false;
 let realtimeEtaRefreshIntervalId = null;
 let subscribedRideRoomId = null;
+let dashboardMode = 'ride';
+let packageEstimate = null;
+let packageEstimateSequence = 0;
 
 // ─── Promo Code State ──────────────────────────────────────────────────────
 let appliedPromo = null;
@@ -275,6 +278,22 @@ function formatMiles(value) {
 
 function formatMinutes(value) {
   return `${Math.max(0, Math.round(Number(value || 0)))} min`;
+}
+
+function normalizePackageSize(size) {
+  const normalized = String(size || 'medium').trim().toLowerCase();
+  if (normalized === 'small' || normalized === 'medium' || normalized === 'large') return normalized;
+  return 'medium';
+}
+
+function getSenderNameFromUser(user) {
+  const explicitName = String(user?.name || '').trim();
+  if (explicitName) return explicitName;
+  const email = String(user?.email || '').trim();
+  if (!email) return 'Customer';
+  const [localPart] = email.split('@');
+  const normalized = String(localPart || '').trim();
+  return normalized || 'Customer';
 }
 
 function formatArrivalTimeFromMinutes(minutes) {
@@ -933,6 +952,89 @@ async function estimateRideFare(pickup, destination) {
   } catch (_error) {
     return { ...localEstimate, _isFallback: true, _fallbackReason: 'Using estimated pricing — reconnecting in the background.' };
   }
+}
+
+function getPackageFormValues() {
+  return {
+    pickupAddress: String(document.getElementById('package-pickup-address')?.value || '').trim(),
+    dropoffAddress: String(document.getElementById('package-dropoff-address')?.value || '').trim(),
+    recipientName: String(document.getElementById('package-recipient-name')?.value || '').trim(),
+    recipientPhone: String(document.getElementById('package-recipient-phone')?.value || '').trim(),
+    packageSize: normalizePackageSize(document.getElementById('package-size')?.value),
+    packageWeight: Math.max(0, Number(document.getElementById('package-weight')?.value || 0)),
+    packageDescription: String(document.getElementById('package-description')?.value || '').trim()
+  };
+}
+
+function setPackageError(message = '') {
+  const node = document.getElementById('package-error-message');
+  if (!node) return;
+  const text = String(message || '').trim();
+  node.textContent = text;
+  node.classList.toggle('d-none', !text);
+}
+
+function updatePackageSubmitState() {
+  const requestButton = document.getElementById('request-package-button');
+  if (!requestButton) return;
+  const payload = getPackageFormValues();
+  const disabledReason = !payload.pickupAddress
+    ? 'Enter a pickup address.'
+    : !payload.dropoffAddress
+      ? 'Enter a dropoff address.'
+      : !payload.recipientName
+        ? 'Enter a recipient name.'
+        : !payload.recipientPhone
+          ? 'Enter a recipient phone.'
+          : '';
+  requestButton.disabled = Boolean(disabledReason);
+  requestButton.title = disabledReason || 'Create package delivery request';
+}
+
+function renderPackageEstimate(estimateValue) {
+  safeSetText('package-estimate-fee', formatCurrency(estimateValue));
+}
+
+async function estimatePackageDelivery(payload = getPackageFormValues()) {
+  if (!accessToken) return null;
+  try {
+    const { response, data } = await fetchJson('/api/deliveries/estimate', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        pickupAddress: payload.pickupAddress,
+        dropoffAddress: payload.dropoffAddress,
+        packageSize: payload.packageSize,
+        packageWeight: payload.packageWeight
+      })
+    });
+    if (response.ok && data?.ok && Number.isFinite(Number(data?.estimate?.deliveryFee))) {
+      return roundToTwo(Number(data.estimate.deliveryFee));
+    }
+  } catch (_error) {
+    // Keep current estimate when the estimate request fails.
+  }
+  return null;
+}
+
+async function refreshPackageEstimate() {
+  const payload = getPackageFormValues();
+  updatePackageSubmitState();
+  if (!payload.pickupAddress || !payload.dropoffAddress) {
+    packageEstimate = null;
+    renderPackageEstimate(0);
+    return;
+  }
+  const requestSeq = ++packageEstimateSequence;
+  const nextEstimate = await estimatePackageDelivery(payload);
+  if (requestSeq !== packageEstimateSequence) return;
+  if (!Number.isFinite(nextEstimate)) {
+    packageEstimate = null;
+    renderPackageEstimate(0);
+    return;
+  }
+  packageEstimate = nextEstimate;
+  renderPackageEstimate(nextEstimate);
 }
 
 function parseCoordinateInput(inputValue) {
@@ -2924,6 +3026,70 @@ async function confirmStripeRidePayment() {
   return false;
 }
 
+function setDashboardMode(mode = 'ride') {
+  dashboardMode = mode === 'package' ? 'package' : 'ride';
+  document.getElementById('ride-booking-flow')?.classList.toggle('d-none', dashboardMode !== 'ride');
+  document.getElementById('package-booking-flow')?.classList.toggle('d-none', dashboardMode !== 'package');
+  document.getElementById('dashboard-mode-ride')?.classList.toggle('is-active', dashboardMode === 'ride');
+  document.getElementById('dashboard-mode-package')?.classList.toggle('is-active', dashboardMode === 'package');
+  document.getElementById('dashboard-mode-ride')?.setAttribute('aria-selected', String(dashboardMode === 'ride'));
+  document.getElementById('dashboard-mode-package')?.setAttribute('aria-selected', String(dashboardMode === 'package'));
+  if (dashboardMode === 'package') {
+    refreshPackageEstimate().catch(() => {});
+  }
+}
+
+async function handleRequestPackage() {
+  const requestButton = document.getElementById('request-package-button');
+  const requestLabel = requestButton?.querySelector('.btn-label');
+  const payload = getPackageFormValues();
+  updatePackageSubmitState();
+  if (!payload.pickupAddress || !payload.dropoffAddress || !payload.recipientName || !payload.recipientPhone) {
+    setPackageError('Complete all required package delivery fields.');
+    return;
+  }
+  if (!accessToken || !currentUser?.id) {
+    setPackageError('Please log in again to send a package.');
+    return;
+  }
+  setPackageError('');
+  if (requestLabel) requestLabel.textContent = 'Sending...';
+  setButtonLoading('request-package-button', true);
+  try {
+    const deliveryFee = packageEstimate ?? await estimatePackageDelivery(payload);
+    if (!Number.isFinite(deliveryFee)) {
+      throw new Error('Unable to load delivery estimate. Please try again.');
+    }
+    const pickupCoordinates = parseCoordinateInput(payload.pickupAddress);
+    const dropoffCoordinates = parseCoordinateInput(payload.dropoffAddress);
+    const requestBody = {
+      ...payload,
+      senderName: getSenderNameFromUser(currentUser),
+      senderPhone: currentUser.phone || '',
+      pickupLat: pickupCoordinates?.lat,
+      pickupLng: pickupCoordinates?.lng,
+      dropoffLat: dropoffCoordinates?.lat,
+      dropoffLng: dropoffCoordinates?.lng
+    };
+    const { response, data } = await fetchJson('/api/deliveries', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(requestBody)
+    });
+    if (!response.ok || !data?.ok || !data?.delivery?.id) {
+      throw new Error(data?.error || 'Unable to create package delivery request.');
+    }
+    packageEstimate = Number(data.delivery.deliveryFee || deliveryFee);
+    renderPackageEstimate(packageEstimate);
+    showToast('Package delivery request created.', 'success');
+  } catch (error) {
+    setPackageError((error instanceof Error && error.message) || 'Unable to send package right now.');
+  } finally {
+    if (requestLabel) requestLabel.textContent = 'Send Package';
+    setButtonLoading('request-package-button', false);
+  }
+}
+
 async function handleRequestRide() {
   // Validate schedule time if scheduling
   if (scheduleState.isScheduled) {
@@ -4722,9 +4888,22 @@ function setupScheduleRideReminders() {
 
 function setupHandlers() {
   document.getElementById('logout-button')?.addEventListener('click', handleLogout);
+  document.getElementById('dashboard-mode-ride')?.addEventListener('click', () => setDashboardMode('ride'));
+  document.getElementById('dashboard-mode-package')?.addEventListener('click', () => setDashboardMode('package'));
   document.getElementById('request-ride-button')?.addEventListener('click', () => {
     handleRequestRide().catch(() => showPopup('Unable to book a ride.'));
   });
+  document.getElementById('request-package-button')?.addEventListener('click', () => {
+    handleRequestPackage().catch(() => setPackageError('Unable to send package.'));
+  });
+  ['package-pickup-address', 'package-dropoff-address', 'package-recipient-name', 'package-recipient-phone', 'package-size', 'package-weight', 'package-description']
+    .forEach(id => {
+      const eventName = id === 'package-size' ? 'change' : 'input';
+      document.getElementById(id)?.addEventListener(eventName, () => {
+        setPackageError('');
+        refreshPackageEstimate().catch(() => {});
+      });
+    });
   document.getElementById('cancel-ride-button')?.addEventListener('click', () => {
     handleCancelRideClick();
   });
@@ -5092,6 +5271,9 @@ window.addEventListener('load', async () => {
   if (!setupSession()) return;
   seedDefaultInputs();
   setupHandlers();
+  setDashboardMode('ride');
+  updatePackageSubmitState();
+  renderPackageEstimate(0);
   startRideRealtimeSync();
   showPromoSection(false); // Hidden until fare is estimated
   initializeVoiceRecognition();
