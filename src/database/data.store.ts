@@ -126,6 +126,7 @@ export type Ride = {
   platformFeePercent?: number;  // Commission rate (0.08, 0.10, 0.12)
   driverPayout?: number;        // Amount driver keeps (cents)
   payoutStatus?: 'pending' | 'processed' | 'failed';
+  preferredDriverGender?: PreferredDriverGender;
   createdAt: string;
   updatedAt: string;
 };
@@ -256,6 +257,8 @@ export type DriverVehicleProfile = {
   lastUpdated: string;
 };
 
+export type DriverGender = 'male' | 'female';
+
 export type DriverProfile = {
   userId: string;
   primaryVehicleId?: string;
@@ -282,6 +285,7 @@ export type DriverProfile = {
   verificationReview?: DriverVerificationReview;
   profilePhotoUrl?: string;
   vehicle?: DriverVehicleProfile;
+  gender?: DriverGender;
 };
 
 export type KycSessionStatus = 'pending' | 'completed' | 'approved' | 'rejected' | 'expired' | 'pending_review';
@@ -369,6 +373,8 @@ export type RiderSavedPlace = {
   lastUsed?: string;
 };
 
+export type PreferredDriverGender = 'male' | 'female' | 'no_preference';
+
 export type RiderProfile = {
   userId: string;
   currentTripId?: string;
@@ -386,6 +392,7 @@ export type RiderProfile = {
   emergencyContactPhone?: string;
   preferredLanguage?: string;
   accessibilityNeeds?: string;
+  preferredDriverGender?: PreferredDriverGender;
   updatedAt?: string;
   favoriteLocations: RiderFavoriteLocation[];
   savedPlaces: RiderSavedPlace[];
@@ -413,6 +420,7 @@ export type RideRequest = {
   acceptedDriverId?: string;
   expiresAt: string;
   status: 'broadcasting' | 'accepted' | 'expired' | 'canceled' | 'completed';
+  preferredDriverGender?: PreferredDriverGender;
   createdAt: string;
   updatedAt: string;
 };
