@@ -1,6 +1,6 @@
 {
   "name": "drive-api",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "This V7 package adds more missing developer pieces for a ride-share, food delivery, courier, and FlupFlap Marketplace same-day delivery platform.",
   "main": "dist/src/server.js",
   "scripts": {
