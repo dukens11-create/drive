@@ -2786,15 +2786,16 @@ mapState.liveDriverDistanceMiles = route.distanceMiles;
     safeSetText('driver-distance-away', formatMiles(route.distanceMiles));
 animateNumericText('driver-countdown', formatMinutes(route.etaMinutes));
 if (!etaCountdownIntervalId) animateNumericText('driver-eta', formatMinutes(route.etaMinutes));
-    } else {
-    const mapboxRoute = { distanceMiles: route.distanceMiles, etaMinutes: route.etaMinutes };
-    if (latestEstimate) {
-      latestEstimate = {
-        ...latestEstimate,
-        route: mapboxRoute
-      };
-      renderFareEstimate(latestEstimate);
-    }   }
+     } else {
+      const mapboxRoute = { distanceMiles: route.distanceMiles, etaMinutes: route.etaMinutes };
+      if (latestEstimate) {
+        latestEstimate = {
+          ...latestEstimate,
+          route: mapboxRoute
+        };
+        renderFareEstimate(latestEstimate);
+      }
+    }
   }
 
   if (fitRoute || !mapState.hasFittedScene || useDriverApproachRoute) fitMapToScene(pickup, destination);
