@@ -220,7 +220,16 @@ const mapState = {
   map: null,
   token: '',
   mapLoaded: false,
+  mapboxReadyPromise: null,
   resizeHandlerBound: false,
+  resizeAnimationFrame: null,
+  resizeDelayTimer: null,
+  resizeSettleTimer: null,
+  deferredMapReady: false,
+  deferredMapTimer: null,
+  deferredMapTimerType: '',
+  deferredMapObserver: null,
+  pendingFitRoute: false,
   markers: { pickup: null, destination: null, driver: null, rider: null },
   routeSourceId: 'rider-route',
   routeLineLayerId: 'rider-route-line',
@@ -2038,16 +2047,159 @@ function setMapLoading(isLoading) {
   loading.classList.toggle('is-hidden', !isLoading);
 }
 
-function resizeMapNow(delay = 0) {
-  const run = () => {
-    if (!mapState.map) return;
-    mapState.map.resize();
-  };
+function enableMapboxStylesheet() {
+  const stylesheet = document.getElementById('mapbox-gl-css');
+  if (!(stylesheet instanceof HTMLLinkElement) || stylesheet.media === 'all') return;
+  stylesheet.media = 'all';
+}
+
+function ensureMapboxLoaded() {
+  enableMapboxStylesheet();
+  if (typeof window.mapboxgl !== 'undefined') return Promise.resolve(window.mapboxgl);
+  if (mapState.mapboxReadyPromise) return mapState.mapboxReadyPromise;
+
+  const script = document.getElementById('mapbox-gl-script');
+  if (!(script instanceof HTMLScriptElement)) {
+    return Promise.reject(new Error('Mapbox loader script is missing.'));
+  }
+  mapState.mapboxReadyPromise = new Promise((resolve, reject) => {
+    const cleanup = () => {
+      script.removeEventListener('load', onLoad);
+      script.removeEventListener('error', onError);
+    };
+    const onLoad = () => {
+      cleanup();
+      if (typeof window.mapboxgl === 'undefined') {
+        mapState.mapboxReadyPromise = null;
+        reject(new Error('Mapbox library failed to load.'));
+        return;
+      }
+      resolve(window.mapboxgl);
+    };
+    const onError = () => {
+      cleanup();
+      mapState.mapboxReadyPromise = null;
+      reject(new Error('Mapbox library failed to load.'));
+    };
+
+    script.addEventListener('load', onLoad, { once: true });
+    script.addEventListener('error', onError, { once: true });
+    if (typeof window.mapboxgl !== 'undefined') onLoad();
+  });
+  return mapState.mapboxReadyPromise;
+}
+
+function resizeMapNow() {
+  if (!mapState.map) return;
+  mapState.map.resize();
+}
+
+function scheduleMapResize(options = {}) {
+  const normalizedOptions = typeof options === 'number' ? { delay: options } : options;
+  const { delay = 0, settleDelay = 0 } = normalizedOptions;
+  if (mapState.resizeAnimationFrame) {
+    window.cancelAnimationFrame(mapState.resizeAnimationFrame);
+    mapState.resizeAnimationFrame = null;
+  }
+  mapState.resizeAnimationFrame = window.requestAnimationFrame(() => {
+    mapState.resizeAnimationFrame = null;
+    resizeMapNow();
+  });
+
   if (delay > 0) {
-    window.setTimeout(run, delay);
+    if (mapState.resizeDelayTimer) window.clearTimeout(mapState.resizeDelayTimer);
+    mapState.resizeDelayTimer = window.setTimeout(() => {
+      mapState.resizeDelayTimer = null;
+      resizeMapNow();
+    }, delay);
+  }
+
+  if (settleDelay > 0) {
+    if (mapState.resizeSettleTimer) window.clearTimeout(mapState.resizeSettleTimer);
+    mapState.resizeSettleTimer = window.setTimeout(() => {
+      mapState.resizeSettleTimer = null;
+      resizeMapNow();
+    }, settleDelay);
+  }
+}
+
+function clearDeferredMapTimer() {
+  if (!mapState.deferredMapTimer) return;
+  if (mapState.deferredMapTimerType === 'idle' && typeof window.cancelIdleCallback === 'function') {
+    window.cancelIdleCallback(mapState.deferredMapTimer);
+  } else {
+    window.clearTimeout(mapState.deferredMapTimer);
+  }
+  mapState.deferredMapTimer = null;
+  mapState.deferredMapTimerType = '';
+}
+
+function clearDeferredMapObserver() {
+  if (!mapState.deferredMapObserver) return;
+  mapState.deferredMapObserver.disconnect();
+  mapState.deferredMapObserver = null;
+}
+
+function isMapContainerVisible() {
+  const mapContainer = document.getElementById('mapbox');
+  if (!mapContainer) return false;
+  const rect = mapContainer.getBoundingClientRect();
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  return rect.width > 0 && rect.height > 0 && rect.bottom >= 0 && rect.top <= viewportHeight;
+}
+
+function runDeferredMapEnhancements() {
+  clearDeferredMapTimer();
+  if (!mapState.mapLoaded) return;
+  mapState.deferredMapReady = true;
+  startRouteDashAnimation();
+  renderMapState({ fitRoute: mapState.pendingFitRoute });
+  mapState.pendingFitRoute = false;
+  scheduleMapResize({ settleDelay: 120 });
+}
+
+function scheduleDeferredMapEnhancements(options = {}) {
+  const { fitRoute = false } = options;
+  mapState.pendingFitRoute = mapState.pendingFitRoute || fitRoute;
+  if (mapState.deferredMapReady) {
+    if (fitRoute) renderMapState({ fitRoute: true });
     return;
   }
-  run();
+
+  const queueRun = () => {
+    if (mapState.deferredMapTimer) return;
+    if (typeof window.requestIdleCallback === 'function') {
+      mapState.deferredMapTimerType = 'idle';
+      mapState.deferredMapTimer = window.requestIdleCallback(() => runDeferredMapEnhancements(), { timeout: 300 });
+      return;
+    }
+    mapState.deferredMapTimerType = 'timeout';
+    mapState.deferredMapTimer = window.setTimeout(() => runDeferredMapEnhancements(), 80);
+  };
+
+  if (isMapContainerVisible()) {
+    clearDeferredMapObserver();
+    queueRun();
+    return;
+  }
+
+  if (typeof window.IntersectionObserver !== 'function') {
+    queueRun();
+    return;
+  }
+
+  if (mapState.deferredMapObserver) return;
+  const mapContainer = document.getElementById('mapbox');
+  if (!mapContainer) {
+    queueRun();
+    return;
+  }
+  mapState.deferredMapObserver = new window.IntersectionObserver(entries => {
+    if (!entries.some(entry => entry.isIntersecting)) return;
+    clearDeferredMapObserver();
+    queueRun();
+  }, { rootMargin: '120px 0px' });
+  mapState.deferredMapObserver.observe(mapContainer);
 }
 
 function updateRideTypePricing(estimate) {
@@ -2272,7 +2424,6 @@ function ensureRouteLayers() {
     mapState.map.setPaintProperty(mapState.routeLineLayerId, 'line-color-transition', { duration: 260, delay: 0 });
     mapState.map.setPaintProperty(mapState.routeLineLayerId, 'line-opacity-transition', { duration: 260, delay: 0 });
   }
-  startRouteDashAnimation();
 }
 
 function updateRouteSource() {
@@ -2583,6 +2734,10 @@ function renderMapState(options = {}) {
     safeSetText('map-route-traffic', fallbackDirections.trafficLabel || 'Clear route');
     return;
   }
+  if (!mapState.deferredMapReady) {
+    scheduleDeferredMapEnhancements({ fitRoute });
+    return;
+  }
   flyToPrimaryLocation(pickup, destination);
   syncMapMarkers(pickup, destination);
   const shouldTrackDriver = Boolean(
@@ -2601,6 +2756,14 @@ async function initializeMap(options = {}) {
   const { force = false } = options;
   if (mapState.map && mapState.mapLoaded && !force) return;
   if (mapState.map && force) {
+    clearDeferredMapTimer();
+    clearDeferredMapObserver();
+    mapState.deferredMapReady = false;
+    mapState.pendingFitRoute = false;
+    if (mapState.routeAnimationTimer) {
+      window.clearInterval(mapState.routeAnimationTimer);
+      mapState.routeAnimationTimer = null;
+    }
     mapState.map.remove();
     mapState.map = null;
     mapState.mapLoaded = false;
@@ -2625,7 +2788,9 @@ async function initializeMap(options = {}) {
     return;
   }
   console.log('Mapbox token loaded successfully');
-  if (typeof window.mapboxgl === 'undefined') {
+  try {
+    await ensureMapboxLoaded();
+  } catch (_error) {
     console.error('Mapbox library failed to load.');
     setMapFallbackMessage('Mapbox library failed to load. Check your connection and refresh.');
     document.getElementById('map-fallback')?.classList.remove('d-none');
@@ -2658,19 +2823,20 @@ async function initializeMap(options = {}) {
       document.getElementById('map-fallback')?.classList.add('d-none');
       setMapLoading(false);
       ensureRouteLayers();
-      renderMapState({ fitRoute: true });
-      // Run immediate + delayed resize so canvas settles after async style/layout paint.
-      resizeMapNow();
-      resizeMapNow(120);
+      scheduleMapResize({ settleDelay: 120 });
+      scheduleDeferredMapEnhancements({ fitRoute: true });
     });
     mapState.map.on('style.load', () => {
       ensureRouteLayers();
       updateRouteSource();
-      renderMapState();
-      resizeMapNow();
+      if (mapState.deferredMapReady) {
+        renderMapState();
+      } else {
+        scheduleDeferredMapEnhancements();
+      }
+      scheduleMapResize();
     });
-    resizeMapNow();
-    resizeMapNow(50);
+    scheduleMapResize({ delay: 50 });
   } catch (_error) {
     console.error('Unable to initialize Mapbox map.', _error);
     setMapFallbackMessage('Unable to initialize the map. Verify your Mapbox token and try again.');
@@ -5064,7 +5230,7 @@ function setupHandlers() {
 
   if (!mapState.resizeHandlerBound) {
     mapState.resizeHandlerBound = true;
-    window.addEventListener('resize', () => resizeMapNow(50));
+    window.addEventListener('resize', () => scheduleMapResize({ delay: 50 }));
   }
 
   window.addEventListener('beforeunload', () => {
@@ -5080,15 +5246,20 @@ function setupHandlers() {
       realtimeSocket = null;
     }
     stopRealtimeEtaRefresh();
+    clearDeferredMapTimer();
+    clearDeferredMapObserver();
     if (mapState.routeAnimationTimer) window.clearInterval(mapState.routeAnimationTimer);
     if (mapState.pendingDriverAnimation) window.cancelAnimationFrame(mapState.pendingDriverAnimation);
+    if (mapState.resizeAnimationFrame) window.cancelAnimationFrame(mapState.resizeAnimationFrame);
+    if (mapState.resizeDelayTimer) window.clearTimeout(mapState.resizeDelayTimer);
+    if (mapState.resizeSettleTimer) window.clearTimeout(mapState.resizeSettleTimer);
     Object.values(geocodeDebounceTimers).forEach(timer => window.clearTimeout(timer));
     cancelAllAlerts();
     if (recognition && isListening) { try { recognition.stop(); } catch (_e) { /* ignore */ } }
   });
 }
 
-window.addEventListener('load', async () => {
+window.addEventListener('DOMContentLoaded', async () => {
   if (!setupSession()) return;
   seedDefaultInputs();
   setupHandlers();
@@ -5099,12 +5270,10 @@ window.addEventListener('load', async () => {
   if (toggle) toggle.checked = voiceAlertsEnabled;
   const slider = document.getElementById('voice-volume-slider');
   if (slider) slider.value = String(Math.round(voiceVolume * 100));
+  void initializeMap().catch(() => {});
   await initPaymentMethod();
   startSearchingDotsAnimation();
   clockIntervalId = window.setInterval(updateHeaderClock, 60000);
-  await initializeMap();
-  resizeMapNow();
-  resizeMapNow(120);
   await refreshFareEstimate({ fitRoute: true });
   await syncRides();
   startRiderLocationSync();

@@ -361,6 +361,12 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
     const body = await response.text();
     [
       'Drive Rider Dashboard',
+      '<link rel="preconnect" href="https://api.mapbox.com" crossorigin />',
+      'rel="preload" href="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.css" as="style"',
+      'id="mapbox-gl-css"',
+      'media="print"',
+      'rel="preload" href="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.js" as="script"',
+      'id="mapbox-gl-script"',
       '<script src="/socket.io/socket.io.js"></script>',
       '<script src="/rider-dashboard.js"></script>',
       '<link rel="stylesheet" href="/rider-dashboard.css" />',
@@ -406,6 +412,7 @@ test('GET /rider-dashboard.html serves the rider dashboard shell', async () => {
     const riderCssIndex = body.indexOf('/rider-dashboard.css');
     assert.equal(mapboxCssIndex >= 0, true);
     assert.equal(riderCssIndex > mapboxCssIndex, true);
+    assert.match(body, /<script id="mapbox-gl-script" src="https:\/\/api\.mapbox\.com\/mapbox-gl-js\/[^"]+\/mapbox-gl\.js" async crossorigin="anonymous"><\/script>/);
     assert.doesNotMatch(body, /\s(onclick|onsubmit)=/);
     assert.doesNotMatch(body, /<script>([\s\S]*?)<\/script>/i);
   });
@@ -446,11 +453,18 @@ test('GET /rider-dashboard.js includes Mapbox route rendering and fare breakdown
       'MIN_VOICE_COMMAND_CONFIDENCE',
       'CANCELLATION_CONFIRMATION_RESPONSES',
       'triggerSpokenAlert(spokenAlertState)',
+      'function ensureMapboxLoaded()',
+      'function scheduleMapResize(options = {})',
+      'function scheduleDeferredMapEnhancements(options = {})',
+      'IntersectionObserver',
+      'requestIdleCallback',
       'International ride requests are currently unavailable.',
       'Long-distance trips over 6 hours are unavailable for on-demand booking.'
     ].forEach(token => {
       assert.equal(body.includes(token), true, `Expected rider-dashboard.js to include ${token}`);
     });
+    assert.equal(body.includes('resizeMapNow(120)'), false);
+    assert.equal(body.includes('resizeMapNow(50)'), false);
   });
 });
 
