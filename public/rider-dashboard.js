@@ -770,8 +770,15 @@ async function fetchJson(path, options = {}) {
       ...(options.headers || {})
     }
   });
-  const data = await response.json().catch(() => null);
-  return { response, data };
+ const data = await response.json().catch(() => null);
+
+if (response.status === 401) {
+  localStorage.clear();
+  window.location.replace('/users.html');
+  throw new Error('Session expired');
+}
+
+return { response, data };
 }
 
 function getAuthHeaders() {
