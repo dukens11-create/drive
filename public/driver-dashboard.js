@@ -3731,45 +3731,47 @@ async function loadDriverProfile() {
       showAlert('warning', 'Unable to load driver profile. Loaded fallback demo profile.');
     }
 
-    function renderDispatchPreferences() {
-      const passengerCheckbox = document.getElementById('accept-passenger-rides');
-      const packageCheckbox = document.getElementById('accept-package-deliveries');
-      if (!passengerCheckbox || !packageCheckbox) return;
-      passengerCheckbox.checked = shouldAcceptPassengerRides();
-      packageCheckbox.checked = shouldAcceptPackageDeliveries();
-    }
-
-    async function handleDispatchPreferencesSubmit(event) {
-      event.preventDefault();
-      if (!accessToken) return;
-      const acceptPassengerRides = Boolean(document.getElementById('accept-passenger-rides')?.checked);
-      const acceptPackageDeliveries = Boolean(document.getElementById('accept-package-deliveries')?.checked);
-      try {
-        const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/preferences`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: 'Bearer ' + accessToken
-          },
-          body: JSON.stringify({ acceptPassengerRides, acceptPackageDeliveries })
-        });
-        if (!data?.ok || !data?.profile) {
-          throw new Error(data?.error || 'Unable to save driver preferences.');
-        }
-        currentProfile = data.profile;
-        renderDispatchPreferences();
-        showAlert('success', 'Job preferences updated.');
-        startRealtimeSync();
-        startIncomingRequestsPolling();
-      } catch (error) {
-        showAlert('danger', error?.message || 'Unable to save driver preferences.');
-      }
-    }
   } finally {
     setProfileLoading(false);
   }
 }
+function renderDispatchPreferences() {
+  const passengerCheckbox = document.getElementById('accept-passenger-rides');
+  const packageCheckbox = document.getElementById('accept-package-deliveries');
+  if (!passengerCheckbox || !packageCheckbox) return;
+  passengerCheckbox.checked = shouldAcceptPassengerRides();
+  packageCheckbox.checked = shouldAcceptPackageDeliveries();
+}
+async function handleDispatchPreferencesSubmit(event) {
+  event.preventDefault();
+  if (!accessToken) return;
 
+  const acceptPassengerRides = Boolean(document.getElementById('accept-passenger-rides')?.checked);
+  const acceptPackageDeliveries = Boolean(document.getElementById('accept-package-deliveries')?.checked);
+
+  try {
+    const { data } = await fetchJson(`${API_BASE_URL}/api/drivers/preferences`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + accessToken
+      },
+      body: JSON.stringify({ acceptPassengerRides, acceptPackageDeliveries })
+    });
+
+    if (!data?.ok || !data?.profile) {
+      throw new Error(data?.error || 'Unable to save driver preferences.');
+    }
+
+    currentProfile = data.profile;
+    renderDispatchPreferences();
+    showAlert('success', 'Job preferences updated.');
+    startRealtimeSync();
+    startIncomingRequestsPolling();
+  } catch (error) {
+    showAlert('danger', error?.message || 'Unable to save driver preferences.');
+  }
+}
 // ─── Ride Rendering ───────────────────────────────────────────────────────────
 function attachRideRequestSwipeControls(listDiv) {
   listDiv.querySelectorAll('[data-swipe-accept]').forEach(control => {
