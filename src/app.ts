@@ -78,7 +78,10 @@ export function createApp() {
         (req as any).rawBody = buf.toString('utf8');
       }
     }));
-    app.use(rateLimit({ windowMs: 60_000, limit: 300 }));
+    app.use('/api', rateLimit({
+  windowMs: 60_000,
+  limit: 300
+}));
     app.use((req, res, next) => {
       const startedAt = Date.now();
       logger.info('request started', {
