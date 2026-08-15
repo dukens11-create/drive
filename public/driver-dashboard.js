@@ -5962,9 +5962,7 @@ window.addEventListener('load', async () => {
   document.getElementById('accept-ride-form').addEventListener('submit', handleAcceptRide);
   document.getElementById('reject-ride-button').addEventListener('click', handleRejectRide);
   document.getElementById('toggle-availability-button').addEventListener('click', toggleAvailability);
-  if (typeof handleDispatchPreferencesSubmit === 'function') {
   document.getElementById('dispatch-preferences-form')?.addEventListener('submit', handleDispatchPreferencesSubmit);
-}
   document.getElementById('document-form').addEventListener('submit', handleDocumentSubmit);
   document.getElementById('vehicle-form').addEventListener('submit', handleVehicleSubmit);
   document.getElementById('btn-upload-vehicle-photo')?.addEventListener('click', () => {
