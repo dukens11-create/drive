@@ -3331,7 +3331,7 @@ function setupSession() {
   accessToken = localStorage.getItem('accessToken') || localStorage.getItem('drive.accessToken') || '';
   refreshToken = localStorage.getItem('refreshToken') || localStorage.getItem('drive.refreshToken') || '';
   currentUser = parseJson(localStorage.getItem('user') || localStorage.getItem('drive.user') || '{}', {});
-  if (!accessToken || !refreshToken || !currentUser?.id) {
+  if (!accessToken || !currentUser?.id) {
     window.location.replace('/users.html');
     return false;
   }
