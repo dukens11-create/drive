@@ -1558,7 +1558,7 @@ function normalizeRide(ride, index) {
     waitingSince: ride.waitingSince || null,
     waitTimeoutAt: ride.waitTimeoutAt || null,
     startedAt: ride.startedAt || null,
-    completedAt: ride.completedAt || ride.updatedAt || null,
+   completedAt: ride.completedAt || null,
     canceledAt: ride.canceledAt || null,
     cancellationReason: ride.cancellationReason || '',
     cancellationFeeCents: Number(ride.cancellationFeeCents || ride.noShowFeeCents || 0),
@@ -3938,11 +3938,26 @@ function renderAvailableRideRequests() {
     });
   });
 
-  attachRideRequestSwipeControls(listDiv);
-  updateRideRequestCountdowns();
-  renderPassengerInfoPane();
-  syncIncomingRideRequestPopup();
-  queueMapRender();
+listDiv.querySelectorAll('[data-ride-request-card]').forEach(card => {
+  card.addEventListener('click', event => {
+    if (event.target.closest('button, .swipe-accept, .swipe-accept-track, .swipe-accept-thumb')) {
+      return;
+    }
+
+    const rideId = card.getAttribute('data-ride-id');
+    const ride = getRideById(rideId);
+
+    if (ride) {
+      renderRideDetailsModal(ride);
+    }
+  });
+});
+
+attachRideRequestSwipeControls(listDiv);
+updateRideRequestCountdowns();
+renderPassengerInfoPane();
+syncIncomingRideRequestPopup();
+queueMapRender();
 }
 
 async function loadAvailableRideRequests() {
@@ -5945,7 +5960,9 @@ window.addEventListener('load', async () => {
   document.getElementById('accept-ride-form').addEventListener('submit', handleAcceptRide);
   document.getElementById('reject-ride-button').addEventListener('click', handleRejectRide);
   document.getElementById('toggle-availability-button').addEventListener('click', toggleAvailability);
+  if (typeof handleDispatchPreferencesSubmit === 'function') {
   document.getElementById('dispatch-preferences-form')?.addEventListener('submit', handleDispatchPreferencesSubmit);
+}
   document.getElementById('document-form').addEventListener('submit', handleDocumentSubmit);
   document.getElementById('vehicle-form').addEventListener('submit', handleVehicleSubmit);
   document.getElementById('btn-upload-vehicle-photo')?.addEventListener('click', () => {

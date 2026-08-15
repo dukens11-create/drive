@@ -1,3 +1,4 @@
+
 const SAVED_PLACES_STORAGE_KEY = 'drive.savedPlaces';
 const MAX_FAVORITE_PLACES = 5;
 const SCHEDULE_MIN_MINUTES_AHEAD = 15;
@@ -246,7 +247,9 @@ const mapState = {
   lastRideStatus: 'idle',
   hasFittedScene: false,
   lastFlyKey: '',
-  pendingDriverAnimation: null
+  pendingDriverAnimation: null,
+liveDriverEtaMinutes: null,
+liveDriverDistanceMiles: null
 };
 
 function parseJson(value, fallback) {
@@ -493,15 +496,33 @@ function normalizeQuery(value) {
 function getResolvedLocation(id) {
   const inputValue = String(document.getElementById(id)?.value || '').trim();
   const parsed = parseCoordinateInput(inputValue);
+
   if (parsed) {
     const existing = resolvedLocations[id];
     return existing && existing.coordinates
       ? { ...existing, coordinates: parsed }
-      : { coordinates: parsed, label: formatCoordinatePair(parsed.lat, parsed.lng), query: normalizeQuery(inputValue), country: '' };
+      : {
+          coordinates: parsed,
+          label: formatCoordinatePair(parsed.lat, parsed.lng),
+          query: normalizeQuery(inputValue),
+          country: ''
+        };
   }
+
   const stored = resolvedLocations[id];
   if (!stored) return null;
-  return normalizeQuery(inputValue) === stored.query ? stored : null;
+
+  const lat = Number(stored?.coordinates?.lat);
+  const lng = Number(stored?.coordinates?.lng);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    resolvedLocations[id] = null;
+    return null;
+  }
+
+  return normalizeQuery(inputValue) === stored.query
+    ? { ...stored, coordinates: { lat, lng } }
+    : null;
 }
 
 function setResolvedLocation(id, location, rawQuery) {
@@ -758,10 +779,8 @@ function normalizeRide(ride = {}, index = 0) {
     updatedAt: ride.updatedAt || new Date().toISOString(),
     completedAt: ride.completedAt || null,
     canceledAt: ride.canceledAt || null,
-    distanceAway: ride.distanceAway != null ? Number(ride.distanceAway) : null
   };
 }
-
 async function fetchJson(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
@@ -1077,6 +1096,15 @@ async function geocodeAddress(query, options = {}) {
     url.searchParams.set('access_token', token);
     url.searchParams.set('autocomplete', 'true');
     url.searchParams.set('limit', String(requestLimit));
+url.searchParams.set('country', 'us');
+
+const pickupLocation = getResolvedLocation('pickup-input');
+const pickupLat = Number(pickupLocation?.coordinates?.lat);
+const pickupLng = Number(pickupLocation?.coordinates?.lng);
+
+if (Number.isFinite(pickupLat) && Number.isFinite(pickupLng)) {
+  url.searchParams.set('proximity', `${pickupLng},${pickupLat}`);
+}
     const response = await fetch(url.toString());
     const payload = await response.json().catch(() => null);
     if (!response.ok) return [];
@@ -1529,12 +1557,15 @@ function renderRideState() {
           : (currentRide?.vehicle && typeof currentRide.vehicle === 'object' ? currentRide.vehicle : undefined)
       )
     };
-    renderDriverCardDetails(activeDriver, currentRide.etaMinutes || currentRide.minutes || 0);
+    const liveEtaMinutes = mapState.liveDriverEtaMinutes ?? currentRide.etaMinutes ?? currentRide.minutes ?? 0;
+const liveDistanceMiles = mapState.liveDriverDistanceMiles ?? currentRide.distanceAway;
+activeDriver.distanceAway = liveDistanceMiles;
+renderDriverCardDetails(activeDriver, liveEtaMinutes);
     const statusText = String(currentRide.driverStatus || '').trim();
-    const distanceText = formatDistanceAway(currentRide.distanceAway);
-    safeSetText('driver-location', [distanceText, statusText].filter(Boolean).join(' • ') || '--');
-    if (distanceText) animateNumericText('driver-countdown', distanceText);
-    if (!etaCountdownIntervalId) animateNumericText('driver-eta', formatMinutes(currentRide.etaMinutes || currentRide.minutes || 0));
+   const distanceText = formatDistanceAway(liveDistanceMiles);
+safeSetText('driver-location', [distanceText, statusText].filter(Boolean).join(' • ') || '--');
+if (!etaCountdownIntervalId) animateNumericText('driver-countdown', formatMinutes(liveEtaMinutes));
+    if (!etaCountdownIntervalId) animateNumericText('driver-eta', formatMinutes(liveEtaMinutes));
   }
 
   const cancelButton = document.getElementById('cancel-ride-button');
@@ -2070,10 +2101,14 @@ function ensureMapboxLoaded() {
     return Promise.reject(new Error('Mapbox loader script is missing.'));
   }
   mapState.mapboxReadyPromise = new Promise((resolve, reject) => {
+  let timeoutId = null;
     const cleanup = () => {
       script.removeEventListener('load', onLoad);
       script.removeEventListener('error', onError);
-    };
+    if (timeoutId) {
+  window.clearTimeout(timeoutId);
+  timeoutId = null;
+}};
     const onLoad = () => {
       cleanup();
       if (typeof window.mapboxgl === 'undefined') {
@@ -2091,7 +2126,16 @@ function ensureMapboxLoaded() {
 
     script.addEventListener('load', onLoad, { once: true });
     script.addEventListener('error', onError, { once: true });
-    if (typeof window.mapboxgl !== 'undefined') onLoad();
+    if (typeof window.mapboxgl !== 'undefined') {
+  onLoad();
+  return;
+}
+
+timeoutId = window.setTimeout(() => {
+  cleanup();
+  mapState.mapboxReadyPromise = null;
+  reject(new Error('Mapbox library load timed out.'));
+}, 10000);
   });
   return mapState.mapboxReadyPromise;
 }
@@ -2533,7 +2577,19 @@ function fitMapToScene(pickup, destination) {
   const points = [];
   const routeCoordinates = mapState.routeGeojson.features[0]?.geometry?.coordinates;
   if (Array.isArray(routeCoordinates) && routeCoordinates.length) points.push(...routeCoordinates);
-  points.push([pickup.lng, pickup.lat], [destination.lng, destination.lat]);
+  if (
+  pickup &&
+  destination &&
+  Number.isFinite(Number(pickup.lat)) &&
+  Number.isFinite(Number(pickup.lng)) &&
+  Number.isFinite(Number(destination.lat)) &&
+  Number.isFinite(Number(destination.lng))
+) {
+  points.push(
+    [Number(pickup.lng), Number(pickup.lat)],
+    [Number(destination.lng), Number(destination.lat)]
+  );
+}
 
   const driverLocation = currentRide?.driverLocation;
   if (driverLocation && Number.isFinite(Number(driverLocation.lat)) && Number.isFinite(Number(driverLocation.lng))) {
@@ -2632,8 +2688,9 @@ function syncMapMarkers(pickup, destination) {
     const nextDriverPosition = { lat: Number(driverLocation.lat), lng: Number(driverLocation.lng) };
     const previousDriverPosition = mapState.lastDriverPosition || nextDriverPosition;
     mapState.markers.driver
-      .setPopup(new window.mapboxgl.Popup({ offset: 20 }).setText(currentRide?.driverName || 'Driver'))
-      .addTo(mapState.map);
+  .setLngLat([previousDriverPosition.lng, previousDriverPosition.lat])
+  .setPopup(new window.mapboxgl.Popup({ offset: 20 }).setText(currentRide?.driverName || 'Driver'))
+  .addTo(mapState.map);
     if (mapState.lastDriverPosition) {
       animateDriverMarkerTo(mapState.markers.driver, previousDriverPosition, nextDriverPosition);
     } else {
@@ -2710,11 +2767,25 @@ async function refreshMapRoute(options = {}) {
   // Use actual Mapbox distance/duration to refresh fare estimate if data is valid
   if (Number.isFinite(route.distanceMiles) && Number.isFinite(route.etaMinutes) && route.distanceMiles > 0) {
     if (useDriverApproachRoute) {
+  if (currentRide) {
+    currentRide.etaMinutes = route.etaMinutes;
+currentRide.distanceAway = route.distanceMiles;
+mapState.liveDriverEtaMinutes = route.etaMinutes;
+mapState.liveDriverDistanceMiles = route.distanceMiles;
+
+    if (currentRide.driver && typeof currentRide.driver === 'object') {
+      currentRide.driver.etaMinutes = route.etaMinutes;
+      currentRide.driver.distanceAway = route.distanceMiles;
+    }
+  }
+
     safeSetText('map-route-distance', formatMiles(route.distanceMiles));
     animateNumericText('map-route-duration', formatMinutes(route.etaMinutes));
     safeSetText('map-route-overview', `Driver to pickup • ${formatMiles(route.distanceMiles)} • ${formatMinutes(route.etaMinutes)}`);
     animateNumericText('map-route-arrival', formatArrivalTimeFromMinutes(route.etaMinutes));
-    if (!etaCountdownIntervalId) animateNumericText('driver-eta', formatMinutes(route.etaMinutes));
+    safeSetText('driver-distance-away', formatMiles(route.distanceMiles));
+animateNumericText('driver-countdown', formatMinutes(route.etaMinutes));
+if (!etaCountdownIntervalId) animateNumericText('driver-eta', formatMinutes(route.etaMinutes));
     } else {
     const mapboxRoute = { distanceMiles: route.distanceMiles, etaMinutes: route.etaMinutes };
     const updatedEstimate = {
@@ -3232,7 +3303,6 @@ function handleCancelRideClick() {
   if (!currentRide?.id) return;
   setCancelModalOpen(true);
 }
-
 function handleLogout() {
   ['accessToken', 'refreshToken', 'user', 'drive.accessToken', 'drive.refreshToken', 'drive.user'].forEach(key => {
     localStorage.removeItem(key);
@@ -4901,7 +4971,7 @@ function setupHandlers() {
   document.getElementById('cancel-ride-button')?.addEventListener('click', () => {
     handleCancelRideClick();
   });
-  document.getElementById('btn-cancel-ride-from-card')?.addEventListener('click', () => {
+  document.getElementById('btn-cancel-ride')?.addEventListener('click', () => {
     handleCancelRideClick();
   });
   document.getElementById('cancel-modal-confirm')?.addEventListener('click', () => {

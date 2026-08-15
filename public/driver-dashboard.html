@@ -1642,12 +1642,12 @@
             display: flex;
         }
 
-        .modal-lite-body {
-            width: min(520px, 100%);
-            border-radius: 28px;
-            overflow: hidden;
-        }
-
+      .modal-lite-body {
+    width: min(520px, 100%);
+    max-height: calc(100vh - 32px);
+    border-radius: 28px;
+    overflow-y: auto;
+}
         .modal-lite-header,
         .modal-lite-footer,
         .modal-lite-content {

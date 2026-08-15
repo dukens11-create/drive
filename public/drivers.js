@@ -137,7 +137,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const refreshToken = currentRefreshToken || legacyRefreshToken;
   const user = currentUser || legacyUser;
 
-  if (accessToken && refreshToken) {
+if (accessToken && refreshToken && (() => {
+  try {
+    return normalizeRole(JSON.parse(user || '{}').role) === DRIVER_ROLE;
+  } catch {
+    return false;
+  }
+})()) {
     if (!currentAccessToken && legacyAccessToken) {
       localStorage.setItem(STORAGE_KEYS.accessToken, legacyAccessToken);
     }

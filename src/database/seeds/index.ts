@@ -182,15 +182,33 @@ async function runSeeds() {
     cancellationRate: 0,
     earningsCents: 0,
     documents: [],
-    verificationDocuments: [],
-    selfieVerification: {
-      status: 'missing',
-      score: 0
-    },
-    verificationReview: {
-      status: 'approved'
-    }
+  verificationDocuments: [
+  {
+    id: `seed-license-${driverId1}`,
+    type: 'Driver License',
+    fileName: 'seed-driver-license.jpg',
+    uploadedAt: timestamp(),
+    verificationStatus: 'approved'
+  },
+  {
+    id: `seed-selfie-${driverId1}`,
+    type: 'Selfie Photo',
+    fileName: 'seed-driver-selfie.jpg',
+    uploadedAt: timestamp(),
+    verificationStatus: 'approved'
+  }
+],
+selfieVerification: {
+  status: 'matched',
+  score: 0.99,
+  fileName: 'seed-driver-selfie.jpg',
+  checkedAt: timestamp()
+},
+verificationReview: {
+  status: 'approved'
+}
   });
+  store.kycStatus.set(driverId1, 'verified');
   seeded.push('driver@test.com (driver)');
 
   // Seed Test Driver User (driver@example.com)
@@ -213,16 +231,34 @@ async function runSeeds() {
     cancellationRate: 0,
     earningsCents: 0,
     documents: [],
-    verificationDocuments: [],
-    selfieVerification: {
-      status: 'missing',
-      score: 0
-    },
-    verificationReview: {
-      status: 'approved'
-    }
+ verificationDocuments: [
+  {
+    id: `seed-license-${driverId2}`,
+    type: 'Driver License',
+    fileName: 'seed-driver-license.jpg',
+    uploadedAt: timestamp(),
+    verificationStatus: 'approved'
+  },
+  {
+    id: `seed-selfie-${driverId2}`,
+    type: 'Selfie Photo',
+    fileName: 'seed-driver-selfie.jpg',
+    uploadedAt: timestamp(),
+    verificationStatus: 'approved'
+  }
+],
+selfieVerification: {
+  status: 'matched',
+  score: 0.99,
+  fileName: 'seed-driver-selfie.jpg',
+  checkedAt: timestamp()
+},
+verificationReview: {
+  status: 'approved'
+}
   });
-  seeded.push('driver@example.com (driver)');
+  store.kycStatus.set(driverId2, 'verified');
+seeded.push('driver@example.com (driver)');
 
   // CRITICAL: Persist to disk if in file mode!
   persistStore();

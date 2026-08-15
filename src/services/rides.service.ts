@@ -1597,6 +1597,11 @@ export async function complete(body: any, _params?: any, _query?: any) {
   }
 
   const riderProfile = store.riders.get(ride.riderId);
+if (ride.driverId) {
+  releaseDriverFromRide(ride.driverId);
+  const driverProfile = store.drivers.get(ride.driverId);
+  if (driverProfile?.currentTripId === ride.id) driverProfile.currentTripId = undefined;
+}
   if (riderProfile?.currentTripId === ride.id) riderProfile.currentTripId = undefined;
 
   publishRideRealtimeUpdate(ride, 'completed');
