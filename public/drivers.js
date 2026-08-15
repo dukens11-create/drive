@@ -70,11 +70,18 @@ async function submitAuth(path, body, button) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    const payload = await response.json();
-    if (!response.ok || payload.error) {
-      throw new Error(payload.error || 'Authentication failed');
-    }
+    const rawResponse = await response.text();
 
+let payload = {};
+try {
+  payload = rawResponse ? JSON.parse(rawResponse) : {};
+} catch {
+  payload = {};
+}
+
+if (!response.ok) {
+  throw new Error(payload.error || rawResponse || `Authentication failed (${response.status})`);
+}
     if (path.endsWith('/login') && normalizeRole(payload.user?.role) !== DRIVER_ROLE) {
       throw new Error('Please sign in with a driver account');
     }
