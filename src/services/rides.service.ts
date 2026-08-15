@@ -822,6 +822,7 @@ export async function request(body: any, _params?: any, _query?: any) {
     miles: estimated.route.distanceMiles,
     minutes: estimated.route.etaMinutes,
     fareEstimate: estimated.fareEstimate,
+    fareDetails: estimated.fareBreakdown,
     vehicleType: requestedVehicleType || 'economy',
     surgeMultiplier: estimated.surgeMultiplier !== 1.0 ? estimated.surgeMultiplier : undefined,
     promoId,

@@ -2788,15 +2788,13 @@ animateNumericText('driver-countdown', formatMinutes(route.etaMinutes));
 if (!etaCountdownIntervalId) animateNumericText('driver-eta', formatMinutes(route.etaMinutes));
     } else {
     const mapboxRoute = { distanceMiles: route.distanceMiles, etaMinutes: route.etaMinutes };
-    const updatedEstimate = {
-      ok: true,
-      route: mapboxRoute,
-      _isFallback: false,
-      _fallbackReason: '',
-      ...buildEstimateFromRoute(mapboxRoute, selectedRideType)
-    };
-    renderFareEstimate(updatedEstimate);
-    }
+    if (latestEstimate) {
+      latestEstimate = {
+        ...latestEstimate,
+        route: mapboxRoute
+      };
+      renderFareEstimate(latestEstimate);
+    }   }
   }
 
   if (fitRoute || !mapState.hasFittedScene || useDriverApproachRoute) fitMapToScene(pickup, destination);
