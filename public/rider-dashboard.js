@@ -485,8 +485,12 @@ function getLocationElements(id) {
   };
 }
 
-function buildGeocodeCacheKey(query, limit) {
-  return JSON.stringify([String(query || '').trim().toLowerCase(), Number(limit) || 1]);
+function buildGeocodeCacheKey(query, limit, proximity = '') {
+  return JSON.stringify([
+    String(query || '').trim().toLowerCase(),
+    Number(limit) || 1,
+    String(proximity || '')
+  ]);
 }
 
 function normalizeQuery(value) {
@@ -1077,9 +1081,18 @@ async function geocodeAddress(query, options = {}) {
 
   const now = Date.now();
   const cache = readGeocodeCache();
-  const requestLimit = Math.max(1, Math.min(MAX_GEOCODE_SUGGESTIONS, Number(limit) || 1));
-  const cacheKey = buildGeocodeCacheKey(normalizedQuery, requestLimit);
-  const cached = cache[cacheKey] || cache[normalizedQuery];
+   const requestLimit = Math.max(1, Math.min(MAX_GEOCODE_SUGGESTIONS, Number(limit) || 1));
+
+  const pickupLocation = getResolvedLocation('pickup-input');
+  const pickupLat = Number(pickupLocation?.coordinates?.lat);
+  const pickupLng = Number(pickupLocation?.coordinates?.lng);
+  const proximity = Number.isFinite(pickupLat) && Number.isFinite(pickupLng)
+    ? `${pickupLng.toFixed(5)},${pickupLat.toFixed(5)}`
+    : '';
+
+  const cacheKey = buildGeocodeCacheKey(normalizedQuery, requestLimit, proximity);
+  const cached = cache[cacheKey];
+
   if (cached && now - Number(cached.cachedAt || 0) < GEOCODE_CACHE_TTL_MS) {
     if (Array.isArray(cached.features)) return cached.features;
     if (Number.isFinite(Number(cached.lat)) && Number.isFinite(Number(cached.lng))) {
@@ -1096,15 +1109,11 @@ async function geocodeAddress(query, options = {}) {
     url.searchParams.set('access_token', token);
     url.searchParams.set('autocomplete', 'true');
     url.searchParams.set('limit', String(requestLimit));
-url.searchParams.set('country', 'us');
+    url.searchParams.set('country', 'us');
 
-const pickupLocation = getResolvedLocation('pickup-input');
-const pickupLat = Number(pickupLocation?.coordinates?.lat);
-const pickupLng = Number(pickupLocation?.coordinates?.lng);
-
-if (Number.isFinite(pickupLat) && Number.isFinite(pickupLng)) {
-  url.searchParams.set('proximity', `${pickupLng},${pickupLat}`);
-}
+    if (proximity) {
+      url.searchParams.set('proximity', proximity);
+    }
     const response = await fetch(url.toString());
     const payload = await response.json().catch(() => null);
     if (!response.ok) return [];
@@ -1114,15 +1123,6 @@ if (Number.isFinite(pickupLat) && Number.isFinite(pickupLng)) {
       .slice(0, requestLimit);
 
     cache[cacheKey] = { features, cachedAt: now };
-    if (requestLimit === 1 && features[0]) {
-      const coordinates = getFeatureCoordinates(features[0]);
-      cache[normalizedQuery] = {
-        lat: coordinates?.lat,
-        lng: coordinates?.lng,
-        placeName: String(features[0].place_name || rawQuery),
-        cachedAt: now
-      };
-    }
     writeGeocodeCache(cache);
     return features;
   } catch (_error) {
