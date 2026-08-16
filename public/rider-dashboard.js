@@ -4426,7 +4426,7 @@ function triggerSpokenAlert(step) {
       queueAlert(`Your ride has started. Estimated arrival time: ${etaText}.`);
       break;
     case 'completed':
-      queueAlert(`Your ride is complete. Thank you for riding with us. Your fare is ${formatCurrency(fare)}.`);
+      queueAlert('Thank you for riding with FlupFlap Drive.');
       break;
     case 'canceled':
       queueAlert('Your ride has been cancelled.');
