@@ -25,3 +25,5 @@ export { default as subscriptionRoutes } from './subscription.routes';
 export { default as supportRoutes } from './support.routes';
 export { default as twofaRoutes } from './twofa.routes';
 export { default as walletRoutes } from './wallet.routes';
+
+export { default as promosRoutes } from './promos.routes';

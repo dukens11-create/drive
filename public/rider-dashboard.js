@@ -31,7 +31,17 @@ const MIN_GEOCODE_QUERY_LENGTH = 3;
 const MAX_GEOCODE_SUGGESTIONS = 5;
 const GEOCODE_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const SUGGESTION_HIDE_DELAY_MS = 200;
-const DEFAULT_SERVICE_FEE_PERCENT = 0.12;
+const PROMOTIONAL_SERVICE_FEE_PERCENT = 0.08;
+const STANDARD_SERVICE_FEE_PERCENT = 0.10;
+const PREMIUM_SERVICE_FEE_PERCENT = 0.12;
+const PROMOTIONAL_SERVICE_FEE_END = Date.parse('2027-01-01T00:00:00Z');
+
+function getFallbackServiceFeePercent(rideType) {
+  if (Date.now() < PROMOTIONAL_SERVICE_FEE_END) return PROMOTIONAL_SERVICE_FEE_PERCENT;
+  return ['PREMIUM', 'XL'].includes(String(rideType || '').toUpperCase())
+    ? PREMIUM_SERVICE_FEE_PERCENT
+    : STANDARD_SERVICE_FEE_PERCENT;
+}
 const MIN_TRIP_MINUTES = 4;
 const MINUTES_PER_KM = 2.8;
 const FARE_ESTIMATE_LOW_MULTIPLIER = 0.9;
@@ -44,7 +54,7 @@ const ESTIMATE_RETRY_INTERVAL_MS = 3000;
 const ESTIMATE_MAX_RETRIES = 5;
 const MIN_DRIVER_ETA_MINUTES = 3;
 const MAX_DRIVER_ETA_MINUTES = 8;
-const DRIVER_START_POSITION_OFFSET = 0.04; // ~2â€“3 miles in lat/lng degrees
+const DRIVER_START_POSITION_OFFSET = 0.04; // ~2–3 miles in lat/lng degrees
 const DRIVER_ASSIGN_DELAY_MIN_MS = 3000;
 const DRIVER_ASSIGN_DELAY_MAX_MS = 5000;
 const DRIVER_LOCATION_UPDATE_INTERVAL_MS = 2500;
@@ -89,35 +99,7 @@ const MINIMUM_FARES = Object.freeze(
 );
 
 
-const MOCK_DRIVER_POOL = [
-  { name: 'Marcus J.', vehicle: 'Toyota Camry 2023', plate: 'TXR 2841', rating: 4.97, avatarInitial: 'M' },
-  { name: 'Priya S.', vehicle: 'Honda Accord 2022', plate: 'AKX 5502', rating: 4.94, avatarInitial: 'P' },
-  { name: 'Daniel W.', vehicle: 'Hyundai Sonata 2023', plate: 'GLF 1193', rating: 4.89, avatarInitial: 'D' },
-  { name: 'Sofia R.', vehicle: 'Ford Fusion 2022', plate: 'MNT 7730', rating: 4.96, avatarInitial: 'S' },
-  { name: 'Chris A.', vehicle: 'Chevrolet Malibu 2023', plate: 'BVP 4417', rating: 4.92, avatarInitial: 'C' }
-];
 
-const DEMO_DRIVER = {
-  driverId: 'driver_demo_1',
-  name: 'John Smith',
-  rating: 4.9,
-  photoUrl: '/assets/drivers/demo-driver.png',
-  phone: '555-555-5555',
-  vehicle: {
-    photoUrl: '/assets/vehicles/economy-car.png',
-    make: 'Toyota',
-    model: 'Camry',
-    year: '2022',
-    color: 'White',
-    plate: 'FLP-123'
-  },
-  etaMinutes: 4,
-  distanceAway: '0.8 mi',
-  location: {
-    lat: 37.7749,
-    lng: -122.4194
-  }
-};
 
 let currentUser = null;
 let accessToken = '';
@@ -144,7 +126,6 @@ let statusProgressionTimerId = null;
 let ridePollingIntervalId = null;
 let assignedDriver = null;
 let currentDriver = null;
-let driverLocationSimIntervalId = null;
 let estimateRetryCount = 0;
 let estimateRetryTimerId = null;
 let latestKnownRiderPosition = null;
@@ -154,13 +135,13 @@ let realtimeSocketConnected = false;
 let realtimeEtaRefreshIntervalId = null;
 let subscribedRideRoomId = null;
 
-// â”€â”€â”€ Promo Code State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Promo Code State ──────────────────────────────────────────────────────
 let appliedPromo = null;
 let discountAmount = 0;
 let originalFare = 0;
 let finalFare = 0;
 
-// â”€â”€â”€ Safety State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Safety State ──────────────────────────────────────────────────────────
 let sosModalOpen = false;
 let shareTripModalOpen = false;
 let currentShareLink = '';
@@ -371,7 +352,7 @@ function getDriverVehicleDisplay(vehicle = {}) {
   const plateNumber = String(vehicle.plate || vehicle.plateNumber || vehicle.licensePlate || '').trim();
   const title = label || (make && model ? `${make} ${model}` : 'Vehicle details pending');
   const normalizedYear = Number.isInteger(year) && year > MIN_VALID_VEHICLE_YEAR && year <= maxValidYear ? String(year) : '';
-  const specs = [normalizedYear, color].filter(Boolean).join(' â€¢ ');
+  const specs = [normalizedYear, color].filter(Boolean).join(' • ');
   return {
     title,
     specs,
@@ -577,7 +558,7 @@ function setInputFeedback(id, type = '', text = '') {
     error: 'âœ—',
     warning: 'âš ',
     info: 'â“˜',
-    success: 'âœ“'
+    success: '✓'
   })[normalizedType] || 'â“˜';
 }
 
@@ -597,7 +578,7 @@ function extractCountry(feature) {
 }
 
 function categorizeRoute(distanceMiles, durationMinutes) {
-  if (distanceMiles <= 10) return { label: 'Local', badge: 'Local Route', icon: 'ðŸ“', theme: 'local' };
+  if (distanceMiles <= 10) return { label: 'Local', badge: 'Local Route', icon: '📍', theme: 'local' };
   if (distanceMiles <= 80) return { label: 'Regional', badge: 'Regional Route', icon: 'ðŸ›£ï¸', theme: 'regional' };
   return {
     label: 'Long-distance',
@@ -862,7 +843,8 @@ function buildEstimateFromRoute(route, rideType = selectedRideType, overrides = 
   const surgedMeterFare = roundToTwo(meterFare * surgeMultiplier * pricing.baseMultiplier);
   const surgeFare = surgedMeterFare;
 
-  const serviceFee = roundToTwo(surgedMeterFare * DEFAULT_SERVICE_FEE_PERCENT);
+  const serviceFeePercent = getFallbackServiceFeePercent(rideType);
+  const serviceFee = roundToTwo(surgedMeterFare * serviceFeePercent);
   const subtotal = roundToTwo(surgedMeterFare + serviceFee);
   const minimumFare = baseFare;
   const total = roundToTwo(Math.max(0, subtotal + taxes));
@@ -882,7 +864,7 @@ function buildEstimateFromRoute(route, rideType = selectedRideType, overrides = 
      surgeMultiplier,
      minimumFare,
      surgeFare,
-     serviceFeePercent: DEFAULT_SERVICE_FEE_PERCENT,
+     serviceFeePercent,
      serviceFee,
      taxes,
       tolls: 0,
@@ -962,12 +944,12 @@ async function estimateRideFare(pickup, destination) {
       })
     });
     if (!response.ok || !data?.ok) {
-      return { ...localEstimate, _isFallback: true, _fallbackReason: 'Using estimated pricing â€” live pricing unavailable.' };
+      return { ...localEstimate, _isFallback: true, _fallbackReason: 'Using estimated pricing — live pricing unavailable.' };
     }
     estimateRetryCount = 0;
     return { ...normalizeEstimateResponse(data, localEstimate), _isFallback: false, _fallbackReason: '' };
   } catch (_error) {
-    return { ...localEstimate, _isFallback: true, _fallbackReason: 'Using estimated pricing â€” reconnecting in the background.' };
+    return { ...localEstimate, _isFallback: true, _fallbackReason: 'Using estimated pricing — reconnecting in the background.' };
   }
 }
 
@@ -1580,7 +1562,7 @@ activeDriver.distanceAway = liveDistanceMiles;
 renderDriverCardDetails(activeDriver, liveEtaMinutes);
     const statusText = String(currentRide.driverStatus || '').trim();
    const distanceText = formatDistanceAway(liveDistanceMiles);
-safeSetText('driver-location', [distanceText, statusText].filter(Boolean).join(' â€¢ ') || '--');
+safeSetText('driver-location', [distanceText, statusText].filter(Boolean).join(' • ') || '--');
 if (!etaCountdownIntervalId) animateNumericText('driver-countdown', formatMinutes(liveEtaMinutes));
     if (!etaCountdownIntervalId) animateNumericText('driver-eta', formatMinutes(liveEtaMinutes));
   }
@@ -1871,7 +1853,7 @@ function setCancelModalOpen(isOpen) {
 }
 
 const PAYMENT_METHOD_OPTIONS = [
-  { id: 'card', label: 'Card', icon: 'ðŸ’³', requiresStripe: true },
+  { id: 'card', label: 'Card', icon: '💳', requiresStripe: true },
   { id: 'apple_pay', label: 'Apple Pay', icon: 'ðŸŽ', requiresStripe: true },
   { id: 'google_pay', label: 'Google Pay', icon: 'ðŸ”µ', requiresStripe: true },
 
@@ -1889,7 +1871,7 @@ function renderPaymentMethodPill() {
   const iconEl = document.getElementById('payment-method-icon');
   const textEl = document.getElementById('payment-method-text');
   if (iconEl) iconEl.textContent = method.icon;
-  if (textEl) textEl.textContent = method.id === 'card' && savedCardLast4 ? `${method.label} â€¢â€¢â€¢â€¢ ${savedCardLast4}` : method.label;
+  if (textEl) textEl.textContent = method.id === 'card' && savedCardLast4 ? `${method.label} •••• ${savedCardLast4}` : method.label;
 }
 
 function setPaymentMessage(message = '', type = '') {
@@ -1912,7 +1894,7 @@ function setPaymentStatus(message = '', status = '') {
     iconEl.textContent = '';
     return;
   }
-  const icons = { pending: 'â³', authorized: 'âœ“', failed: 'âœ—', paid: 'âœ“âœ“' };
+  const icons = { pending: 'â³', authorized: '✓', failed: 'âœ—', paid: '✓✓' };
   statusEl.classList.remove('d-none', 'pending', 'authorized', 'failed', 'paid');
   statusEl.classList.add(status);
   textEl.textContent = message;
@@ -2297,16 +2279,19 @@ function renderFareEstimate(estimate) {
   safeSetText('fare-base', formatCurrency(estimate.fareBreakdown.baseFare));
   safeSetText('fare-distance-fare', formatCurrency(estimate.fareBreakdown.distanceFare));
   safeSetText('fare-time-fare', formatCurrency(estimate.fareBreakdown.timeFare));
-  const surgeAdjustment = surgeActive
-    ? roundToTwo(Math.max(0, estimate.fareBreakdown.surgeFare - (estimate.fareBreakdown.surgeFare / estimate.fareBreakdown.surgeMultiplier)))
-    : 0;
-  safeSetText('fare-surge', formatCurrency(surgeAdjustment));
+  safeSetText('fare-meter-fare', formatCurrency(estimate.fareBreakdown.meterFare));
+  safeSetText('fare-service-fee', formatCurrency(estimate.fareBreakdown.serviceFee));
+
+  const meterFare = Number(estimate.fareBreakdown.meterFare || 0);
+  const chargedMeterFare = Number(estimate.fareBreakdown.surgeFare ?? meterFare);
+  const vehicleAndSurgeAdjustment = roundToTwo(Math.max(0, chargedMeterFare - meterFare));
+  safeSetText('fare-surge', formatCurrency(vehicleAndSurgeAdjustment));
   safeSetText('fare-taxes', formatCurrency(estimate.fareBreakdown.taxes));
   safeSetText('fare-estimate', `${fallbackPrefix}${formatCurrency(estimate.fareEstimate)}`);
   safeSetText('fare-range', `${fallbackPrefix}${formatCurrency(estimate.fareEstimateRange.low)} - ${fallbackPrefix}${formatCurrency(estimate.fareEstimateRange.high)}`);
   safeSetText('map-route-distance', formatMiles(estimate.route.distanceMiles));
   animateNumericText('map-route-duration', formatMinutes(estimate.route.etaMinutes));
-  safeSetText('map-route-overview', `Fastest route â€¢ ${formatMiles(estimate.route.distanceMiles)} â€¢ ${formatMinutes(estimate.route.etaMinutes)} â€¢ ${routeCategory.label}`);
+  safeSetText('map-route-overview', `Fastest route • ${formatMiles(estimate.route.distanceMiles)} • ${formatMinutes(estimate.route.etaMinutes)} • ${routeCategory.label}`);
   animateNumericText('map-route-arrival', formatArrivalTimeFromMinutes(estimate.route.etaMinutes));
   safeSetText('map-route-traffic', mapState.routeTrafficLabel || 'Clear route');
   document.getElementById('map-route-arrival')?.classList.toggle('is-nearby', Number(estimate.route.etaMinutes || 0) < 2);
@@ -2799,7 +2784,7 @@ mapState.liveDriverDistanceMiles = route.distanceMiles;
 
     safeSetText('map-route-distance', formatMiles(route.distanceMiles));
     animateNumericText('map-route-duration', formatMinutes(route.etaMinutes));
-    safeSetText('map-route-overview', `Driver to pickup â€¢ ${formatMiles(route.distanceMiles)} â€¢ ${formatMinutes(route.etaMinutes)}`);
+    safeSetText('map-route-overview', `Driver to pickup • ${formatMiles(route.distanceMiles)} • ${formatMinutes(route.etaMinutes)}`);
     animateNumericText('map-route-arrival', formatArrivalTimeFromMinutes(route.etaMinutes));
     safeSetText('driver-distance-away', formatMiles(route.distanceMiles));
 animateNumericText('driver-countdown', formatMinutes(route.etaMinutes));
@@ -2866,8 +2851,8 @@ async function initializeMap(options = {}) {
   mapState.token = readMapboxToken();
   const mapContainer = document.getElementById('mapbox');
   setMapLoading(true);
-  console.log('Mapbox token:', mapState.token ? 'âœ“' : 'âœ— MISSING');
-  console.log('Map container:', mapContainer ? 'âœ“' : 'âœ— NOT FOUND');
+  console.log('Mapbox token:', mapState.token ? '✓' : 'âœ— MISSING');
+  console.log('Map container:', mapContainer ? '✓' : 'âœ— NOT FOUND');
   if (!mapContainer) {
     console.error('Map container #mapbox not found.');
     setMapFallbackMessage('Map container missing. Refresh the page and try again.');
@@ -2904,7 +2889,7 @@ async function initializeMap(options = {}) {
       bearing: -14,
       antialias: true
     });
-    console.log('Map instance:', mapState.map ? 'âœ“' : 'âœ— FAILED');
+    console.log('Map instance:', mapState.map ? '✓' : 'âœ— FAILED');
     mapState.map.addControl(new window.mapboxgl.NavigationControl({ showCompass: true }), 'top-right');
     mapState.map.on('error', error => {
       console.error('Mapbox error:', error);
@@ -3086,7 +3071,7 @@ function startRideRealtimeSync() {
   });
   realtimeSocket.on('dispatch:request_rejected', payload => {
     if (!payload?.rideId || payload.rideId !== currentRide?.id) return;
-    showToast('No driver accepted in time. Still searchingâ€¦', 'warning');
+    showToast('No driver accepted in time. Still searching…', 'warning');
   });
   realtimeSocket.on('ride:driver_location', payload => {
     applyRealtimeDriverLocation(payload);
@@ -3541,11 +3526,6 @@ function renderDriverCard(driver, etaMinutes) {
   card.classList.add('slide-up');
 }
 
-function pickRandomDriver() {
-  const index = Math.floor(Math.random() * MOCK_DRIVER_POOL.length);
-  return MOCK_DRIVER_POOL[index];
-}
-
 function addDriverMarkerToMap(driver) {
   if (!mapState.mapLoaded || !mapState.map) return;
   const map = mapState.map;
@@ -3640,48 +3620,7 @@ function updateDriverMarkerLocation(newLat, newLng) {
   console.log(`[MAP] Driver marker positioned at (${newLat}, ${newLng})`);
 }
 
-function stopDriverLocationSim() {
-  if (driverLocationSimIntervalId) {
-    window.clearInterval(driverLocationSimIntervalId);
-    driverLocationSimIntervalId = null;
-  }
-}
-
-function simulateDriverLocationUpdates(pickupLat, pickupLng) {
-  stopDriverLocationSim();
-  if (!mapState.lastDriverPosition) return;
-  let currentLat = mapState.lastDriverPosition.lat;
-  let currentLng = mapState.lastDriverPosition.lng;
-  let etaSeconds = (currentDriver?.etaMinutes || 4) * 60;
-
-  driverLocationSimIntervalId = window.setInterval(() => {
-    // Move 5% closer to pickup each interval
-    const stepFraction = 0.05;
-    currentLat += (pickupLat - currentLat) * stepFraction;
-    currentLng += (pickupLng - currentLng) * stepFraction;
-
-    updateDriverMarkerLocation(currentLat, currentLng);
-
-    // Update ETA
-    etaSeconds = Math.max(0, etaSeconds - DRIVER_LOCATION_UPDATE_INTERVAL_MS / 1000);
-    const etaMins = Math.ceil(etaSeconds / 60);
-    if (etaCountdownIntervalId === null) {
-      animateNumericText('driver-eta', formatMinutes(etaMins));
-      animateNumericText('driver-countdown', formatMinutes(etaMins));
-    }
-
-    // Update distance using approximate miles per degree of latitude
-    const dLat = pickupLat - currentLat;
-    const dLng = pickupLng - currentLng;
-    const distanceDeg = Math.sqrt(dLat * dLat + dLng * dLng);
-    const distanceMi = (distanceDeg * MILES_PER_LAT_DEGREE).toFixed(1);
-    safeSetText('driver-distance-away', `${distanceMi} mi`);
-
-    if (etaSeconds <= 0) {
-      stopDriverLocationSim();
-    }
-  }, DRIVER_LOCATION_UPDATE_INTERVAL_MS);
-}
+function stopDriverLocationSim() {}
 
 // Fallback: creates a DOM-element driver marker when the image-based symbol layer
 // (driver-car) cannot be loaded (e.g. missing PNG asset or map not ready).
@@ -3705,115 +3644,24 @@ function simulateDriverMovementOnMap(pickupLat, pickupLng) {
   animateDriverMarkerTo(mapState.markers.driver, { lat: startLat, lng: startLng }, targetPos);
 }
 
-function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
-  const delay = getRandomDelay(DRIVER_ASSIGN_DELAY_MIN_MS, DRIVER_ASSIGN_DELAY_MAX_MS);
-  stopStatusProgression();
+// ─── Promo Code ─────────────────────────────────────────────────────────────
 
-  statusProgressionTimerId = window.setTimeout(() => {
-    // Use the DEMO_DRIVER as the assigned driver
-    const driver = {
-      ...DEMO_DRIVER,
-      driverId: `driver_${Date.now()}`,
-      location: {
-        lat: pickupLat + (Math.random() - 0.5) * DRIVER_START_POSITION_OFFSET,
-        lng: pickupLng + (Math.random() - 0.5) * DRIVER_START_POSITION_OFFSET
-      }
-    };
-    assignedDriver = driver;
-    currentDriver = driver;
-    const driverEta = driver.etaMinutes || MIN_DRIVER_ETA_MINUTES;
-    const driverDistance = driver.distanceAway || '0.8 mi';
-
-    applyRideStatusUpdate(rideId, {
-      status: 'assigned',
-      driverId: driver.driverId,
-      driverName: driver.name,
-      distanceAway: driverDistance,
-      driver: {
-        id: driver.driverId,
-        name: driver.name,
-        rating: driver.rating,
-        photoUrl: driver.photoUrl,
-        phone: driver.phone,
-        distanceAway: driverDistance,
-        vehicle: {
-          make: driver.vehicle.make,
-          model: driver.vehicle.model,
-          year: Number(driver.vehicle.year) || null,
-          color: driver.vehicle.color,
-          plate: driver.vehicle.plate,
-          photoUrl: driver.vehicle.photoUrl
-        }
-      },
-      etaMinutes: driverEta,
-      events: [
-        ...(currentRide?.events || []),
-        {
-          id: `evt_assigned_${Date.now()}`,
-          type: 'driver_assigned',
-          title: 'Driver assigned',
-          message: `${driver.name} is on the way.`,
-          createdAt: new Date().toISOString()
-        }
-      ]
-    });
-
-    renderDriverCard(driver, driverEta);
-    startEtaCountdown(driverEta);
-
-    // Add car icon marker to map using map.loadImage()
-    addDriverMarkerToMap(driver);
-    // Start periodic location updates simulating approach to pickup
-    simulateDriverLocationUpdates(pickupLat, pickupLng);
-
-    // Simulate driver arriving
-    statusProgressionTimerId = window.setTimeout(() => {
-      applyRideStatusUpdate(currentRide?.id, { status: 'arrived_at_pickup', etaMinutes: 0 });
-      stopEtaCountdown();
-      stopDriverLocationSim();
-      animateNumericText('driver-eta', 'Here now');
-      animateNumericText('driver-countdown', 'Here now');
-    }, driverEta * 60 * 1000);
-  }, delay);
-}
-
-// â”€â”€â”€ Promo Code â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-const MOCK_PROMO_CODES = {
-  SAVE15: { type: 'percentage', value: 15, maxDiscount: 50, description: '15% off your next ride', validUntil: '2027-12-31T23:59:59Z', minFare: 10, applicableRideTypes: ['ECONOMY', 'COMFORT', 'PREMIUM', 'XL'] },
-  SAVE5: { type: 'fixed', value: 5, description: '$5 off your next ride', validUntil: '2027-12-31T23:59:59Z', minFare: 8, applicableRideTypes: ['ECONOMY', 'COMFORT', 'PREMIUM', 'XL'] },
-  DRIVE10: { type: 'percentage', value: 10, maxDiscount: 20, description: '10% off any ride', validUntil: '2027-12-31T23:59:59Z', minFare: 0, applicableRideTypes: ['ECONOMY', 'COMFORT', 'PREMIUM', 'XL'] }
-};
-
-function validatePromoCode(code, rideType, fare) {
-  if (!code || !/^[A-Z0-9]{3,20}$/.test(code)) {
-    return { valid: false, error: 'Invalid promo code format.' };
-  }
-  const promo = MOCK_PROMO_CODES[code];
-  if (!promo) return { valid: false, error: 'Promo code not found.' };
-  const now = new Date();
-  if (promo.validUntil && new Date(promo.validUntil) < now) {
-    return { valid: false, error: 'This code has expired.' };
-  }
-  if (promo.minFare && fare < promo.minFare) {
-    return { valid: false, error: `Minimum fare $${promo.minFare.toFixed(2)} required for this code.` };
-  }
-  if (promo.applicableRideTypes && !promo.applicableRideTypes.includes(rideType)) {
-    const rideLabel = rideType ? rideType.charAt(0).toUpperCase() + rideType.slice(1).toLowerCase() : 'this ride type';
-    return { valid: false, error: `This code is not valid for ${rideLabel} rides.` };
-  }
-  return { valid: true, promo };
-}
 
 function calculateDiscount(fare, promo) {
-  if (!promo || !fare) return 0;
-  if (promo.type === 'percentage') {
-    const raw = (fare * promo.value) / 100;
-    return Math.min(raw, promo.maxDiscount || raw);
+  const amount = Number(fare || 0);
+  if (!promo || !Number.isFinite(amount) || amount <= 0) return 0;
+
+  const discountType = String(promo.discountType || '').toLowerCase();
+  const discountValue = Number(promo.discountValue || 0);
+
+  if (discountType === 'percent') {
+    return Math.min(amount, (amount * discountValue) / 100);
   }
-  if (promo.type === 'fixed') {
-    return Math.min(promo.value, fare);
+
+  if (discountType === 'flat') {
+    return Math.min(amount, discountValue / 100);
   }
+
   return 0;
 }
 
@@ -3869,55 +3717,52 @@ async function handleApplyPromo(code) {
     showPromoError('Please enter a promo code.');
     return;
   }
+
+  if (!accessToken) {
+    showPromoError('Please sign in before applying a promo code.');
+    return;
+  }
+
+  const fare = Number(latestEstimate?.fareEstimate || 0);
+  if (!Number.isFinite(fare) || fare <= 0) {
+    showPromoError('Choose a valid pickup and destination before applying a promo.');
+    return;
+  }
+
   hidePromoError();
-  const btn = document.getElementById('apply-promo-button');
   setButtonLoading('apply-promo-button', true);
 
   try {
-    const fare = latestEstimate?.fareEstimate || 0;
+    const { response, data } = await fetchJson('/api/promos/validate', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        code,
+        rideType: selectedRideType,
+        fare
+      })
+    });
 
-    // Try backend validation first
-    if (accessToken) {
-      try {
-        const { response, data } = await fetchJson('/api/promos/validate', {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: JSON.stringify({ code, rideType: selectedRideType, fare })
-        });
-        if (response.ok && data?.valid) {
-          appliedPromo = { code, ...data.promo };
-          discountAmount = roundToTwo(data.discountAmount || 0);
-          originalFare = roundToTwo(fare);
-          finalFare = roundToTwo(data.finalFare || fare - discountAmount);
-          console.log('[Promo] Applied code:', code, 'Discount:', discountAmount);
-          renderPromoApplied();
-          updateFareWithDiscount();
-          return;
-        }
-        if (response.ok && data?.error) {
-          showPromoError(data.error);
-          return;
-        }
-      } catch (_error) {
-        // Fall through to local validation
-      }
-    }
-
-    // Local mock validation
-    const result = validatePromoCode(code, selectedRideType, fare);
-    if (!result.valid) {
-      showPromoError(result.error);
+    if (!response.ok || !data?.valid) {
+      showPromoError(data?.error || data?.message || 'This promo code is not valid.');
       return;
     }
-    const promo = result.promo;
-    const discount = roundToTwo(calculateDiscount(fare, promo));
-    appliedPromo = { code, ...promo };
-    discountAmount = discount;
-    originalFare = roundToTwo(fare);
-    finalFare = roundToTwo(fare - discount);
-    console.log('[Promo] Applied code:', code, 'Discount:', discountAmount);
+
+    appliedPromo = {
+      ...(data.promo || {}),
+      code: data?.promo?.code || code,
+      description: data.description || 'Promo applied'
+    };
+
+    discountAmount = roundToTwo(Number(data.discountAmount || 0));
+    originalFare = roundToTwo(Number(data.originalFare ?? fare));
+    finalFare = roundToTwo(Number(data.finalFare ?? Math.max(0, fare - discountAmount)));
+
     renderPromoApplied();
     updateFareWithDiscount();
+  } catch (error) {
+    console.error('[Promo] Validation failed:', error);
+    showPromoError('Promo validation is temporarily unavailable. Please try again.');
   } finally {
     setButtonLoading('apply-promo-button', false);
   }
@@ -3941,7 +3786,7 @@ function showPromoSection(show) {
   if (section) section.classList.toggle('d-none', !show);
 }
 
-// â”€â”€â”€ SOS / Safety â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── SOS / Safety ───────────────────────────────────────────────────────────
 
 function setSOSModalOpen(isOpen) {
   sosModalOpen = Boolean(isOpen);
@@ -3995,7 +3840,7 @@ async function logSOSIncident(incidentType, description) {
 function callEmergencyServices() {
   logSOSIncident('call_911', 'User initiated 911 call').catch(() => {});
   console.log('[Safety] SOS activated:', { rideId: currentRide?.id, location: latestKnownRiderPosition, time: new Date().toISOString() });
-  showSOSConfirmation('Opening phone dialer to call 911â€¦');
+  showSOSConfirmation('Opening phone dialer to call 911…');
   window.setTimeout(() => {
     window.location.href = 'tel:911';
   }, 800);
@@ -4014,7 +3859,7 @@ function shareLocationWithAuthorities(coordinates) {
   showSOSConfirmation('Your location has been shared with authorities.');
 }
 
-// â”€â”€â”€ Share Trip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Share Trip ──────────────────────────────────────────────────────────────
 
 function setShareTripModalOpen(isOpen) {
   shareTripModalOpen = Boolean(isOpen);
@@ -4104,7 +3949,7 @@ function handleShareSMS(phoneNumber) {
 function handleShareEmail(email) {
   const link = currentShareLink;
   if (!link) return;
-  const subject = encodeURIComponent('Tracking my ride â€” live trip link');
+  const subject = encodeURIComponent('Tracking my ride — live trip link');
   const driverName = currentRide?.driverName || assignedDriver?.name || 'my driver';
   const body = encodeURIComponent(`Hi,\n\nI'm currently in a ride with ${driverName}. You can track my trip in real time here:\n\n${link}\n\nThe link expires after the ride is complete.\n\nStay safe!`);
   console.log('[Share] Trip shared:', { rideId: currentRide?.id, method: 'email', recipient: email || null });
@@ -4138,7 +3983,7 @@ function renderSafetyButtons() {
   safetyRow.classList.toggle('d-none', !isActive);
 }
 
-// â”€â”€ Phase 6: Text-to-Speech (Spoken Alerts) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Phase 6: Text-to-Speech (Spoken Alerts) ──────────────────────────────────
 
 function speak(text, options = {}) {
   if (!voiceAlertsEnabled || isMuted) {
@@ -4213,7 +4058,7 @@ function cancelAllAlerts() {
   if (window.speechSynthesis) window.speechSynthesis.cancel();
 }
 
-// â”€â”€ Phase 6: Voice Commands (Speech Recognition) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Phase 6: Voice Commands (Speech Recognition) ─────────────────────────────
 
 function setVoiceButtonState(state) {
   const btn = document.getElementById('btn-voice-command');
@@ -4228,7 +4073,7 @@ function setVoiceButtonState(state) {
   } else if (state === 'processing') {
     btn.classList.add('is-processing');
     if (icon) icon.className = 'bi bi-hourglass-split';
-    btn.title = 'Processingâ€¦';
+    btn.title = 'Processing…';
     btn.setAttribute('aria-label', 'Processing voice command');
   } else if (state === 'error') {
     btn.classList.add('is-error');
@@ -4307,7 +4152,7 @@ function listenForCancellationConfirm() {
     const transcript = (event.results[0]?.[0]?.transcript || '').toLowerCase().replace(/[.!?]/g, '').trim();
     console.log('[Voice] Cancellation confirmation:', transcript);
     if (CANCELLATION_CONFIRMATION_RESPONSES.has(transcript)) {
-      setVoiceFeedback('Cancelling your rideâ€¦');
+      setVoiceFeedback('Cancelling your ride…');
       speak('Your ride has been cancelled');
       handleCancelRide().catch(() => {});
     } else {
@@ -4337,7 +4182,7 @@ function handleVoiceResult(event) {
     .toLowerCase();
   const confidence = event.results[event.results.length - 1]?.[0]?.confidence ?? 1;
   console.log('[Speech Recognition] Recognized:', transcript, 'confidence:', confidence);
-  setVoiceFeedback(`Listeningâ€¦ you said: "${transcript}"`);
+  setVoiceFeedback(`Listening… you said: "${transcript}"`);
 
   const isFinal = event.results[event.results.length - 1]?.isFinal;
   if (!isFinal) return;
@@ -4400,7 +4245,7 @@ function initializeVoiceRecognition() {
     console.log('[Speech Recognition] Listening started');
     isListening = true;
     setVoiceButtonState('listening');
-    setVoiceFeedback('Listeningâ€¦');
+    setVoiceFeedback('Listening…');
   };
   recognition.onresult = (event) => handleVoiceResult(event);
   recognition.onerror = (event) => handleVoiceError(event);
@@ -4473,7 +4318,7 @@ function triggerSpokenAlert(step) {
   }
 }
 
-// â”€â”€â”€ Saved Places â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Saved Places ─────────────────────────────────────────────────────────────
 
 function loadSavedPlaces() {
   const raw = localStorage.getItem(SAVED_PLACES_STORAGE_KEY);
@@ -4572,7 +4417,7 @@ function populateQuickPlaces() {
     container.classList.remove('d-none');
     container.innerHTML = sorted.map(place => {
       const icon = place.type === 'home' ? 'house-fill' : place.type === 'work' ? 'briefcase-fill' : 'star-fill';
-      return `<button type="button" class="quick-place-btn" data-place-id="${escapeHtml(place.id)}" data-field="${field}" aria-label="${escapeHtml(place.label)} â€“ set as ${field}"><i class="bi bi-${icon}"></i><span>${escapeHtml(place.label)}</span></button>`;
+      return `<button type="button" class="quick-place-btn" data-place-id="${escapeHtml(place.id)}" data-field="${field}" aria-label="${escapeHtml(place.label)} – set as ${field}"><i class="bi bi-${icon}"></i><span>${escapeHtml(place.label)}</span></button>`;
     }).join('');
     container.querySelectorAll('.quick-place-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -4597,8 +4442,8 @@ function handleQuickPlaceClick(placeId, field) {
     setInputFeedback(inputId, 'success', `${place.label} selected.`);
     refreshFareEstimate({ fitRoute: true }).catch(() => {});
   } else {
-    // No geocoded coordinates â€“ trigger geocode resolution from the text
-    setInputFeedback(inputId, 'info', 'Resolving locationâ€¦');
+    // No geocoded coordinates – trigger geocode resolution from the text
+    setInputFeedback(inputId, 'info', 'Resolving location…');
     resolveCoordinateInput(inputId, { fitRoute: true, showError: false }).catch(() => {});
   }
   updatePlaceLastUsed(placeId);
@@ -4771,7 +4616,7 @@ async function handlePlaceModalSave() {
   showPopup(`${label} saved!`);
 }
 
-// â”€â”€â”€ Schedule Ride â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Schedule Ride ─────────────────────────────────────────────────────────────
 
 function handleScheduleToggle(isScheduled) {
   scheduleState.isScheduled = isScheduled;
@@ -4961,7 +4806,7 @@ function renderScheduledRides() {
           <div class="scheduled-ride-clock">${escapeHtml(timeStr)}</div>
         </div>
         <div class="scheduled-ride-info">
-          <div class="scheduled-ride-route">${from} â†’ ${to}</div>
+          <div class="scheduled-ride-route">${from} → ${to}</div>
           <div class="scheduled-ride-meta">${escapeHtml(ride.rideType || 'Economy')}${fare ? ` Â· ${fare}` : ''}</div>
         </div>
         <div class="scheduled-ride-actions">
@@ -5008,7 +4853,7 @@ function setupScheduleRideReminders() {
       const diff = new Date(ride.scheduledAt).getTime() - now;
       if (diff > 0 && diff <= 15 * 60 * 1000) {
         const timeStr = new Date(ride.scheduledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-        showPopup(`Your ride departs at ${timeStr} â€“ 15 minutes away!`);
+        showPopup(`Your ride departs at ${timeStr} – 15 minutes away!`);
         ride.reminderSent = true;
         console.log('[Schedule] Reminder sent for ride:', ride.id);
       }
@@ -5037,7 +4882,7 @@ function setupHandlers() {
     if (event.target === event.currentTarget) setCancelModalOpen(false);
   });
 
-  // â”€â”€â”€ Promo Code Handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Promo Code Handlers ────────────────────────────────────────────────
   document.getElementById('apply-promo-button')?.addEventListener('click', () => {
     const input = document.getElementById('promo-code-input');
     handleApplyPromo(String(input?.value || '').trim().toUpperCase()).catch(() => {});
@@ -5053,7 +4898,7 @@ function setupHandlers() {
     clearPromoCode();
   });
 
-  // â”€â”€â”€ SOS Handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── SOS Handlers ───────────────────────────────────────────────────────
   document.getElementById('btn-sos')?.addEventListener('click', () => {
     handleSOSClick();
   });
@@ -5073,7 +4918,7 @@ function setupHandlers() {
     shareLocationWithAuthorities();
   });
 
-  // â”€â”€â”€ Share Trip Handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Share Trip Handlers ─────────────────────────────────────────────────
   document.getElementById('btn-share-trip')?.addEventListener('click', () => {
     handleShareTripClick();
   });
@@ -5194,7 +5039,7 @@ function setupHandlers() {
       }
       clearResolvedLocation(id);
       locationSuggestions[id] = [];
-      setInputFeedback(id, 'info', id === 'pickup-input' ? 'Searching pickup locationâ€¦' : 'Searching destinationâ€¦');
+      setInputFeedback(id, 'info', id === 'pickup-input' ? 'Searching pickup location…' : 'Searching destination…');
       queueGeocodeResolution(id, { fitRoute: true, showError: false });
       updateRideValidation(latestEstimate);
     });
@@ -5226,7 +5071,7 @@ function setupHandlers() {
     if (event.key === SHARED_RIDE_STORAGE_KEY) syncRides().catch(() => {});
   });
 
-  // â”€â”€ Schedule Ride handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Schedule Ride handlers ──────────────────────────────────────────────────
   document.getElementById('ride-now-btn')?.addEventListener('click', () => handleScheduleToggle(false));
   document.getElementById('schedule-later-btn')?.addEventListener('click', () => handleScheduleToggle(true));
   document.getElementById('schedule-date')?.addEventListener('change', () => {
@@ -5246,7 +5091,7 @@ function setupHandlers() {
     nextDayBtn.textContent = dayAfterTomorrow.toLocaleDateString([], { weekday: 'short' });
   }
 
-  // â”€â”€ Saved Places handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Saved Places handlers ───────────────────────────────────────────────────
   document.getElementById('add-place-btn')?.addEventListener('click', () => openPlaceModal(null));
   document.getElementById('place-modal-save')?.addEventListener('click', () => {
     handlePlaceModalSave().catch(() => showPopup('Unable to save place.'));
@@ -5300,7 +5145,7 @@ function setupHandlers() {
     window.setTimeout(() => document.getElementById('place-address-suggestions')?.classList.add('d-none'), SUGGESTION_HIDE_DELAY_MS);
   });
 
-  // â”€â”€ Cancel Scheduled Ride handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Cancel Scheduled Ride handlers ─────────────────────────────────────────
   document.getElementById('cancel-scheduled-confirm')?.addEventListener('click', () => {
     const rideId = pendingDeleteScheduledId;
     pendingDeleteScheduledId = null;
@@ -5318,7 +5163,7 @@ function setupHandlers() {
     }
   });
 
-  // â”€â”€ Delete Place modal handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Delete Place modal handlers ─────────────────────────────────────────────
   document.getElementById('delete-place-confirm')?.addEventListener('click', () => {
     const placeId = pendingDeletePlaceId;
     pendingDeletePlaceId = null;
@@ -5370,7 +5215,7 @@ function setupHandlers() {
     if (statusProgressionTimerId) window.clearTimeout(statusProgressionTimerId);
     if (ridePollingIntervalId) window.clearInterval(ridePollingIntervalId);
     if (estimateRetryTimerId) window.clearTimeout(estimateRetryTimerId);
-    if (driverLocationSimIntervalId) window.clearInterval(driverLocationSimIntervalId);
+
     if (realtimeSocket) {
       realtimeSocket.disconnect();
       realtimeSocket = null;

@@ -64,7 +64,7 @@ const MAX_FAVORITE_LOCATIONS = 10;
 const SHARED_RIDE_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const ETA_MINUTES_PER_MILE = 3.5;
 // Rider-facing fallback when a precise live distance isn't available yet.
-const DEFAULT_DISTANCE_AWAY_LABEL = '0.8 mi';
+const DEFAULT_DISTANCE_AWAY_LABEL = 'Calculating…';
 
 type SharedRideTokenRecord = {
   rideId: string;
@@ -743,19 +743,19 @@ function toDriverRideRequestSummary(ride: Ride) {
 function toAssignedRideDispatchSummary(ride: Ride) {
   const riderSummary = toDriverRideRequestSummary(ride);
   const fallbackDriver = {
-    driverId: ride.driverId || 'driver_demo_1',
-    name: 'John Smith',
-    rating: 4.9,
-    photoUrl: '/assets/drivers/demo-driver.png',
-    phone: '555-555-5555'
+    driverId: ride.driverId || '',
+    name: 'Driver',
+    rating: 0,
+    photoUrl: '',
+    phone: ''
   };
   const fallbackVehicle = {
-    photoUrl: '/assets/vehicles/economy-car.png',
-    make: 'Toyota',
-    model: 'Camry',
-    year: 2022,
-    color: 'White',
-    plate: 'FLP-123'
+    photoUrl: '',
+    make: '',
+    model: '',
+    year: 0,
+    color: '',
+    plate: ''
   };
   const summary = toRiderRideSummary(ride);
   const driverProfile = ride.driverId ? store.drivers.get(ride.driverId) : undefined;
@@ -784,10 +784,7 @@ function toAssignedRideDispatchSummary(ride: Ride) {
     plate: string;
     photoUrl: string;
   }>;
-  const location = summary?.location || summary?.driverLocation || {
-    lat: ride.pickupLat,
-    lng: ride.pickupLng
-  };
+  const location = summary?.location || summary?.driverLocation || null;
   return {
     rideId: ride.id,
     status: mapRideStatusForDispatch(ride.status),
@@ -808,11 +805,11 @@ function toAssignedRideDispatchSummary(ride: Ride) {
       licensePlate: sourceVehicle.plateNumber || sourceVehicle.plate || fallbackVehicle.plate,
       photoUrl: sourceVehicle.photoUrl || fallbackVehicle.photoUrl
     },
-    location: {
-      lat: Number(location?.lat ?? ride.pickupLat ?? 0),
-      lng: Number(location?.lng ?? ride.pickupLng ?? 0)
-    },
-    etaMinutes: Number(summary?.etaMinutes || ride.minutes || 4),
+    location: location ? {
+      lat: Number(location.lat),
+      lng: Number(location.lng)
+    } : null,
+    etaMinutes: Math.max(0, Number(summary?.etaMinutes ?? 0)),
     distanceAway: summary?.distanceAway != null ? `${Number(summary.distanceAway).toFixed(1)} mi` : DEFAULT_DISTANCE_AWAY_LABEL,
     riderId: riderSummary.riderId,
     pickupAddress: riderSummary.pickupAddress,
@@ -1002,6 +999,23 @@ export async function request(body: any, _params?: any, _query?: any) {
 
   const now = timestamp();
   const requestedVehicleType = normalizeRequestedVehicleType(body?.vehicleType ?? body?.rideType ?? body?.vehiclePreference);
+  if (discountCents > 0) {
+    const discountedFare = buildFareDetails(
+      estimated.route.distanceMiles,
+      estimated.route.etaMinutes,
+      {
+        surgeMultiplier: estimated.surgeMultiplier,
+        discountCents,
+        vehicleType: requestedVehicleType,
+        serviceFeePercent: getCommissionRate(requestedVehicleType)
+      }
+    );
+
+    estimated.fareEstimate = discountedFare.fareEstimate;
+    estimated.fareEstimateRange = discountedFare.fareEstimateRange;
+    estimated.fareBreakdown = discountedFare;
+  }
+
   const paymentMethod = normalizeRidePaymentMethod(body?.paymentMethod);
   const VALID_PREFERRED_GENDERS: PreferredDriverGender[] = ['male', 'female', 'no_preference'];
   const rawPreferredGender = typeof body?.preferredDriverGender === 'string' ? body.preferredDriverGender.trim().toLowerCase() : '';

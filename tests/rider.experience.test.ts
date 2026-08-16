@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
 import { createApp } from '../src/app';
 import { env } from '../src/config/env';
+import { store } from '../src/database/data.store';
 
 async function withServer(run: (baseUrl: string) => Promise<void>) {
   const { httpServer } = createApp();
@@ -71,6 +72,16 @@ test('rider-facing trip history, detail, receipt, notification, cancellation, an
     await postJson(baseUrl, '/api/admin/approve-driver', { userId: driver.user.id, approved: true }, adminToken);
     await postJson(baseUrl, '/api/drivers/location', { lat: 37.72, lng: -122.41 }, driver.accessToken);
     await postJson(baseUrl, '/api/drivers/availability', { available: true }, driver.accessToken);
+
+    // Keep this integration test isolated from seeded or concurrently-created
+    // eligible drivers so lifecycle calls use the driver token created above.
+    for (const profile of store.drivers.values()) {
+      if (profile.userId === driver.user.id) continue;
+      profile.available = false;
+      profile.isOnline = false;
+      profile.availabilityStatus = 'offline';
+      profile.currentTripId = undefined;
+    }
 
     const estimateResponse = await postJson(
       baseUrl,

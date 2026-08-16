@@ -8,6 +8,8 @@
 // - live Stripe credentials from a developer .env are hidden from the automated test suite.
 
 process.env.NODE_ENV = 'test';
+process.env.DATA_STORE_MODE = 'memory';
+process.env.DATA_STORE_FILE = '.data/test-store.json';
 process.env.STRIPE_SECRET_KEY = '';
 process.env.STRIPE_PUBLISHABLE_KEY = '';
 process.env.STRIPE_WEBHOOK_SECRET = '';

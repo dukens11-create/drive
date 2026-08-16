@@ -178,9 +178,11 @@ test('percent promo discount applies correctly', async () => {
     promoCode: 'PCT20'
   });
   assert.equal(req.ok, true);
-  const grossCents = Math.round(req.ride.fareEstimate * 100);
+  const grossFare = Number(req.ride.fareDetails?.subtotal ?? req.ride.fareEstimate);
+  const grossCents = Math.round(grossFare * 100);
   const expectedDiscount = Math.round(grossCents * 20 / 100);
   assert.equal(req.discountCents, expectedDiscount);
+  assert.equal(Math.round(req.ride.fareEstimate * 100), grossCents - expectedDiscount);
 });
 
 test('promo usage count increments on each use', async () => {

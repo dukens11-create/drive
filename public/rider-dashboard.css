@@ -3377,3 +3377,26 @@ input {
     flex-direction: row;
   }
 }
+
+
+/* Rider pricing transparency */
+.fare-formula-note {
+  margin: 6px 0 10px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  opacity: 0.72;
+}
+
+.fare-row-calculated {
+  font-weight: 700;
+}
+
+@media (max-width: 720px) {
+  .fare-formula-note {
+    font-size: 0.76rem;
+  }
+
+  .payment-method-dropdown {
+    max-width: calc(100vw - 32px);
+  }
+}

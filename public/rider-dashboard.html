@@ -308,7 +308,7 @@
 
               <div class="fare-breakdown">
                 <div class="fare-row">
-                  <span class="fare-label">Base fare</span>
+                  <span class="fare-label">Minimum fare floor</span>
                   <span class="fare-value" id="fare-base">$0.00</span>
                 </div>
                 <div class="fare-row">
@@ -319,8 +319,19 @@
                   <span class="fare-label">Time fare</span>
                   <span class="fare-value" id="fare-time-fare">$0.00</span>
                 </div>
+                <div class="fare-row fare-row-calculated">
+                  <span class="fare-label">Meter fare</span>
+                  <span class="fare-value" id="fare-meter-fare">$0.00</span>
+                </div>
                 <div class="fare-row">
-                  <span class="fare-label">Surge adjustment</span>
+                  <span class="fare-label">Service fee</span>
+                  <span class="fare-value" id="fare-service-fee">$0.00</span>
+                </div>
+                <p class="fare-formula-note" id="fare-formula-note">
+                  Distance and time build the meter fare. The minimum fare is a floor, not an extra charge.
+                </p>
+                <div class="fare-row">
+                  <span class="fare-label">Vehicle / surge adjustment</span>
                   <span class="fare-value" id="fare-surge">$0.00</span>
                 </div>
                 <div class="fare-row">
@@ -679,7 +690,7 @@
   </div>
 
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
-  
+
   <div id="cancel-modal" class="modal-overlay d-none" role="dialog" aria-modal="true" aria-labelledby="cancel-modal-title" aria-describedby="cancel-modal-description">
     <div class="modal-card">
       <h3 id="cancel-modal-title">Cancel this ride?</h3>

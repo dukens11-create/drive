@@ -785,6 +785,10 @@ export type ScheduledRide = {
   dropoffLng?: number;
   pickupAddress?: string;
   dropoffAddress?: string;
+  paymentMethod?: 'card' | 'apple_pay' | 'google_pay';
+  vehicleType?: VehicleType;
+  preferredDriverGender?: PreferredDriverGender;
+  promoCode?: string;
   scheduledAt: string;
   status: ScheduledRideStatus;
   rideId?: string;

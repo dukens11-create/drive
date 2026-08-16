@@ -7,7 +7,7 @@ import { Server } from 'socket.io';
 import path from 'path';
 import { errorHandler, wrapRouterAsyncHandlers } from './middleware';
 import { env } from './config';
-import { authRoutes, ridesRoutes, driversRoutes, deliveriesRoutes, ridersRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, searchRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes, restaurantsRoutes } from './routes';
+import { authRoutes, ridesRoutes, driversRoutes, deliveriesRoutes, ridersRoutes, paymentsRoutes, walletRoutes, kycRoutes, safetyRoutes, supportRoutes, merchantRoutes, marketplaceRoutes, adminRoutes, scheduledRoutes, searchRoutes, subscriptionRoutes, loyaltyRoutes, corporateRoutes, carpoolRoutes, fraudRoutes, analyticsRoutes, twofaRoutes, chatRoutes, notificationsRoutes, mlRoutes, i18nRoutes, restaurantsRoutes, promosRoutes } from './routes';
 import { getErrorDetails, logger } from './utils';
 import { registerTrackingSocket, registerChatSocket } from './websocket';
 import { initializeFCM } from './services/fcm.service';
@@ -179,7 +179,8 @@ export function createApp() {
       notificationsRoutes,
       mlRoutes,
       i18nRoutes,
-      restaurantsRoutes
+      restaurantsRoutes,
+      promosRoutes
     ];
     routers.forEach(wrapRouterAsyncHandlers);
 
@@ -209,6 +210,7 @@ export function createApp() {
     app.use('/api/notifications', notificationsRoutes);
     app.use('/api/ml', mlRoutes);
     app.use('/api/i18n', i18nRoutes);
+    app.use('/api/promos', promosRoutes);
     app.use('/api', restaurantsRoutes);
 
     // Fallback for SPA - serve index.html for root

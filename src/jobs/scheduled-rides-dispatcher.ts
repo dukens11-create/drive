@@ -27,6 +27,31 @@ export async function runScheduledRidesDispatcher() {
       const scheduledAtMs = new Date(scheduledRide.scheduledAt).getTime();
       if (!Number.isFinite(scheduledAtMs) || scheduledAtMs - now > DISPATCH_WINDOW_MS) continue;
 
+      // A scheduled digital-payment ride may already have a linked ride that is
+      // waiting for payment. Never create a second pending ride for the same booking.
+      if (scheduledRide.rideId) {
+        const linkedRide = store.rides.get(scheduledRide.rideId);
+
+        if (linkedRide?.paymentStatus === 'pending') {
+          scheduledRide.dispatch_failed_reason = 'Payment confirmation required before driver dispatch';
+          scheduledRide.updatedAt = timestamp();
+          store.scheduledRides.set(scheduledRide.id, scheduledRide);
+          continue;
+        }
+
+        if (linkedRide?.paymentStatus === 'paid') {
+          const paidDispatch = await ridesService.dispatchPaidRide(linkedRide.id);
+          if (paidDispatch?.ok) {
+            scheduledRide.status = 'dispatched';
+            scheduledRide.dispatch_failed_reason = undefined;
+            scheduledRide.updatedAt = timestamp();
+            dispatched += 1;
+            store.scheduledRides.set(scheduledRide.id, scheduledRide);
+            continue;
+          }
+        }
+      }
+
       const lastAttemptMs = scheduledRide.last_dispatch_attempt_at
         ? new Date(scheduledRide.last_dispatch_attempt_at).getTime()
         : 0;
@@ -53,11 +78,30 @@ export async function runScheduledRidesDispatcher() {
           dropoffLat: scheduledRide.dropoffLat,
           dropoffLng: scheduledRide.dropoffLng,
           pickupAddress: scheduledRide.pickupAddress,
-          dropoffAddress: scheduledRide.dropoffAddress
+          dropoffAddress: scheduledRide.dropoffAddress,
+          ...(scheduledRide.paymentMethod ? { paymentMethod: scheduledRide.paymentMethod } : {}),
+          vehicleType: scheduledRide.vehicleType,
+          preferredDriverGender: scheduledRide.preferredDriverGender,
+          promoCode: scheduledRide.promoCode
         });
 
         if (!result?.ok || !result?.ride?.id) {
           throw new Error(result?.error || 'Unable to create ride for scheduled dispatch');
+        }
+
+        const resultAny = result as any;
+        const paymentPending = Boolean(
+          resultAny?.paymentRequired
+          || resultAny?.dispatch?.deferred
+          || resultAny?.dispatch?.reason === 'payment_pending'
+        );
+
+        if (paymentPending) {
+          scheduledRide.rideId = result.ride.id;
+          scheduledRide.dispatch_failed_reason = 'Payment confirmation required before driver dispatch';
+          scheduledRide.updatedAt = timestamp();
+          store.scheduledRides.set(scheduledRide.id, scheduledRide);
+          continue;
         }
 
         scheduledRide.status = 'dispatched';
