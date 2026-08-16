@@ -1,57 +1,59 @@
-{
-  "name": "drive-api",
-  "version": "1.0.0",
-  "description": "This V7 package adds more missing developer pieces for a ride-share, food delivery, courier, and FlupFlap Marketplace same-day delivery platform.",
-  "main": "dist/src/server.js",
-  "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/src/server.js",
-    "dev": "tsx watch src/server.ts",
-    "test": "npm run build && node --test dist/tests/*.test.js",
-    "db:migrate": "tsx src/database/migrations/index.ts",
-    "db:seed": "tsx src/database/seeds/index.ts"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/dukens11-create/drive.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "@sendgrid/mail": "^8.1.5",
-    "@prisma/client": "^7.8.0",
-    "@rnmapbox/maps": "^10.3.1",
-    "bullmq": "^5.52.0",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.21.2",
-    "express-rate-limit": "^7.5.0",
-    "firebase-admin": "^13.5.0",
-    "helmet": "^8.1.0",
-    "ioredis": "^5.4.1",
-    "jsonwebtoken": "^9.0.2",
-    "multer": "^2.0.2",
-    "node-cron": "^4.2.1",
-    "pg": "^8.21.0",
-    "prisma": "^7.8.0",
-    "socket.io": "^4.8.1",
-    "stripe": "^16.12.0",
-    "twilio": "^5.5.0",
-    "zod": "^3.24.1"
-  },
-  "devDependencies": {
-    "@types/cors": "^2.8.17",
-    "@types/express": "^5.0.0",
-    "@types/jsonwebtoken": "^9.0.8",
-    "@types/multer": "^2.0.0",
-    "@types/node": "^22.10.2",
-    "@types/pg": "^8.20.0",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
-  },
-  "bugs": {
-    "url": "https://github.com/dukens11-create/drive/issues"
-  },
-  "homepage": "https://github.com/dukens11-create/drive#readme"
+﻿{
+    "name":  "drive-api",
+    "version":  "1.0.0",
+    "description":  "This V7 package adds more missing developer pieces for a ride-share, food delivery, courier, and FlupFlap Marketplace same-day delivery platform.",
+    "main":  "dist/src/server.js",
+    "scripts":  {
+                    "build":  "tsc -p tsconfig.json",
+                    "start":  "node dist/src/server.js",
+                    "dev":  "tsx watch src/server.ts",
+                    "test":  "npm run build \u0026\u0026 node -r ./scripts/test-runtime.cjs --test dist/tests/*.test.js",
+                    "db:migrate":  "tsx src/database/migrations/index.ts",
+                    "db:seed":  "tsx src/database/seeds/index.ts"
+                },
+    "repository":  {
+                       "type":  "git",
+                       "url":  "git+https://github.com/dukens11-create/drive.git"
+                   },
+    "keywords":  [
+
+                 ],
+    "author":  "",
+    "license":  "ISC",
+    "dependencies":  {
+                         "@sendgrid/mail":  "^8.1.5",
+                         "@prisma/client":  "^7.8.0",
+                         "@rnmapbox/maps":  "^10.3.1",
+                         "bullmq":  "^5.52.0",
+                         "cors":  "^2.8.5",
+                         "dotenv":  "^16.4.5",
+                         "express":  "^4.21.2",
+                         "express-rate-limit":  "^7.5.0",
+                         "firebase-admin":  "^13.5.0",
+                         "helmet":  "^8.1.0",
+                         "ioredis":  "^5.4.1",
+                         "jsonwebtoken":  "^9.0.2",
+                         "multer":  "^2.0.2",
+                         "node-cron":  "^4.2.1",
+                         "pg":  "^8.21.0",
+                         "prisma":  "^7.8.0",
+                         "socket.io":  "^4.8.1",
+                         "stripe":  "^16.12.0",
+                         "twilio":  "^5.5.0",
+                         "zod":  "^3.24.1"
+                     },
+    "devDependencies":  {
+                            "@types/cors":  "^2.8.17",
+                            "@types/express":  "^5.0.0",
+                            "@types/jsonwebtoken":  "^9.0.8",
+                            "@types/multer":  "^2.0.0",
+                            "@types/node":  "^22.10.2",
+                            "@types/pg":  "^8.20.0",
+                            "tsx":  "^4.19.2",
+                            "typescript":  "^5.7.2"
+                        },
+    "bugs":  {
+                 "url":  "https://github.com/dukens11-create/drive/issues"
+             },
+    "homepage":  "https://github.com/dukens11-create/drive#readme"
 }
