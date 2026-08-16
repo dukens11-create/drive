@@ -38,8 +38,6 @@ const FARE_ESTIMATE_LOW_MULTIPLIER = 0.9;
 const FARE_ESTIMATE_HIGH_MULTIPLIER = 1.15;
 const MORNING_END_HOUR = 12;
 const AFTERNOON_END_HOUR = 18;
-const MAX_SURGE_MULTIPLIER = 2.5;
-const SURGE_THRESHOLD_DOLLARS = 50;
 const MAX_DISTANCE_MILES = 1000;
 const MAX_DURATION_MINUTES = 1440;
 const ESTIMATE_RETRY_INTERVAL_MS = 3000;
@@ -68,11 +66,6 @@ const MAX_RIDE_DISTANCE_MILES = {
   COMFORT: 150,
   PREMIUM: 300
 };
-const MINIMUM_FARES = {
-  ECONOMY: 6,
-  COMFORT: 10,
-  PREMIUM: 18
-};
 const ROUTE_DASH_FRAMES = [
   [0, 4, 3],
   [0.6, 4, 2.4],
@@ -83,9 +76,9 @@ const ROUTE_DASH_FRAMES = [
 ];
 const DRIVER_MARKER_LERP_MS = 650;
 const VEHICLE_PRICING = {
-  ECONOMY: { baseFare: 2.50, perMileFare: 1.25, perMinuteFare: 0.22 },
-  COMFORT: { baseFare: 3.50, perMileFare: 1.69, perMinuteFare: 0.30 },
-  PREMIUM: { baseFare: 5.00, perMileFare: 2.63, perMinuteFare: 0.46 }
+  ECONOMY: { baseMultiplier: 1, minFare: 2.50, distanceRate: 1.90, timeRate: 0.25 },
+  COMFORT: { baseMultiplier: 1.15, minFare: 3.00, distanceRate: 2.19, timeRate: 0.29 },
+  PREMIUM: { baseMultiplier: 1.50, minFare: 5.00, distanceRate: 2.85, timeRate: 0.38 }
 };
 
 const MOCK_DRIVER_POOL = [
@@ -624,10 +617,6 @@ function getDistanceValidationMessage(distanceMiles, rideType = selectedRideType
   return 'This trip exceeds the maximum distance for on-demand rides.';
 }
 
-function getMinimumFare(rideType) {
-  return MINIMUM_FARES[String(rideType || 'ECONOMY').toUpperCase()] || MINIMUM_FARES.ECONOMY;
-}
-
 function toLocationResult(feature, fallbackLabel = '') {
   const center = Array.isArray(feature?.center) ? feature.center : null;
   const lng = Number(center?.[0]);
@@ -854,21 +843,20 @@ function buildEstimateFromRoute(route, rideType = selectedRideType, overrides = 
   const taxes = roundToTwo(Number(overrides.taxes || 0));
 
   // Realistic pricing: baseFare + (distance * perMileFare) + (duration * perMinuteFare)
-  const baseFare = roundToTwo(pricing.baseFare);
-  const distanceFare = roundToTwo(miles * pricing.perMileFare);
-  const timeFare = roundToTwo(minutes * pricing.perMinuteFare);
-  const meterFare = roundToTwo(baseFare + distanceFare + timeFare);
+  const baseFare = roundToTwo(pricing.minFare);
+  const distanceFare = roundToTwo(miles * pricing.distanceRate);
+  const timeFare = roundToTwo(minutes * pricing.timeRate);
+  const meterFare = roundToTwo(Math.max(baseFare, distanceFare + timeFare));
 
-  // Surge pricing: max 2.5x, only applied when the base trip exceeds the surge threshold.
-  const rawSurge = Math.max(1, Number(overrides.surgeMultiplier || 1));
-  const surgeMultiplier = meterFare > SURGE_THRESHOLD_DOLLARS ? Math.min(rawSurge, MAX_SURGE_MULTIPLIER) : 1;
-  const surgedMeterFare = roundToTwo(meterFare * surgeMultiplier);
-  const surgeFare = roundToTwo(Math.max(0, surgedMeterFare - meterFare));
+  const requestedSurgeMultiplier = Number(overrides.surgeMultiplier || 1);
+  const surgeMultiplier = requestedSurgeMultiplier >= 1 ? requestedSurgeMultiplier : 1;
+  const surgedMeterFare = roundToTwo(meterFare * surgeMultiplier * pricing.baseMultiplier);
+  const surgeFare = surgedMeterFare;
 
-  const serviceFee = roundToTwo((meterFare + surgeFare) * DEFAULT_SERVICE_FEE_PERCENT);
-  const subtotal = roundToTwo(meterFare + surgeFare + serviceFee);
-  const minimumFare = getMinimumFare(rideType);
-  const total = roundToTwo(Math.max(subtotal + taxes, minimumFare));
+  const serviceFee = roundToTwo(surgedMeterFare * DEFAULT_SERVICE_FEE_PERCENT);
+  const subtotal = roundToTwo(surgedMeterFare + serviceFee);
+  const minimumFare = baseFare;
+  const total = roundToTwo(Math.max(0, subtotal + taxes));
   return {
    currency: 'USD',
    fareEstimate: total,
@@ -893,7 +881,7 @@ function buildEstimateFromRoute(route, rideType = selectedRideType, overrides = 
       tips: 0,
       subtotal,
       total,
-      driverEarnings: roundToTwo(Math.max(0, meterFare + surgeFare - serviceFee)),
+      driverEarnings: roundToTwo(Math.max(0, surgeFare - serviceFee)),
       fareEstimate: total,
       fareEstimateRange: {
         low: roundToTwo(Math.max(minimumFare, total * FARE_ESTIMATE_LOW_MULTIPLIER)),
