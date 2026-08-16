@@ -2270,7 +2270,10 @@ function renderFareEstimate(estimate) {
   safeSetText('fare-base', formatCurrency(estimate.fareBreakdown.baseFare));
   safeSetText('fare-distance-fare', formatCurrency(estimate.fareBreakdown.distanceFare));
   safeSetText('fare-time-fare', formatCurrency(estimate.fareBreakdown.timeFare));
-  safeSetText('fare-surge', formatCurrency(estimate.fareBreakdown.surgeFare));
+  const surgeAdjustment = surgeActive
+    ? roundToTwo(Math.max(0, estimate.fareBreakdown.surgeFare - (estimate.fareBreakdown.surgeFare / estimate.fareBreakdown.surgeMultiplier)))
+    : 0;
+  safeSetText('fare-surge', formatCurrency(surgeAdjustment));
   safeSetText('fare-taxes', formatCurrency(estimate.fareBreakdown.taxes));
   safeSetText('fare-estimate', `${fallbackPrefix}${formatCurrency(estimate.fareEstimate)}`);
   safeSetText('fare-range', `${fallbackPrefix}${formatCurrency(estimate.fareEstimateRange.low)} - ${fallbackPrefix}${formatCurrency(estimate.fareEstimateRange.high)}`);
