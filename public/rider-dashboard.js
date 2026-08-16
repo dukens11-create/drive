@@ -1427,27 +1427,47 @@ async function requestRide(pickup, destination) {
           });
         }
       }
-      const { response, data } = await fetchJson('/api/rides', {
+
+      const primary = await fetchJson('/api/rides/request', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(requestBody)
       });
-      console.log('[Ride Booking] API response:', { status: response.status, data });
-      if (response.ok && data?.ok && data.ride) {
-        console.log(`[BOOKING] Ride created: ${data.ride.id}`);
-        console.log(`[BOOKING] Ride status: ${data.ride.status}`);
-        return upsertSharedRide({ ...baseRide, ...data.ride, fareDetails: data.ride.fareDetails || baseRide.fareDetails });
+
+      console.log('[Ride Booking] Dispatch API response:', {
+        status: primary.response.status,
+        data: primary.data
+      });
+
+      if (primary.response.ok && primary.data?.ok && primary.data.ride) {
+        console.log(`[BOOKING] Ride created: ${primary.data.ride.id}`);
+        console.log(`[BOOKING] Ride status: ${primary.data.ride.status}`);
+        return upsertSharedRide({
+          ...baseRide,
+          ...primary.data.ride,
+          fareDetails: primary.data.ride.fareDetails || baseRide.fareDetails
+        });
       }
-      const fallback = await fetchJson('/api/rides/request', {
+
+      const fallback = await fetchJson('/api/rides', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(requestBody)
       });
-      console.log('[Ride Booking] Fallback API response:', { status: fallback.response.status, data: fallback.data });
+
+      console.log('[Ride Booking] Fallback API response:', {
+        status: fallback.response.status,
+        data: fallback.data
+      });
+
       if (fallback.response.ok && fallback.data?.ok && fallback.data.ride) {
         console.log(`[BOOKING] Ride created: ${fallback.data.ride.id}`);
         console.log(`[BOOKING] Ride status: ${fallback.data.ride.status}`);
-        return upsertSharedRide({ ...baseRide, ...fallback.data.ride, fareDetails: fallback.data.ride.fareDetails || baseRide.fareDetails });
+        return upsertSharedRide({
+          ...baseRide,
+          ...fallback.data.ride,
+          fareDetails: fallback.data.ride.fareDetails || baseRide.fareDetails
+        });
       }
     } catch (_error) {
       // Fall back to local demo mode.
