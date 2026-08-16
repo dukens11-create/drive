@@ -2968,6 +2968,12 @@ function applyRealtimeRideUpdate(nextRideLike) {
   const nextRide = normalizeRide(nextRideLike);
   if (!nextRide?.id) return;
   const previousStatus = normalizeRideStatus(currentRide?.status);
+  const previousRideId = String(currentRide?.id || '');
+
+  if (previousRideId !== String(nextRide.id || '')) {
+    mapState.liveDriverEtaMinutes = null;
+    mapState.liveDriverDistanceMiles = null;
+  }
   currentRide = nextRide;
   rides = mergeRides([nextRide], readSharedRideStore().rides);
   writeSharedRideStore({ rides });
