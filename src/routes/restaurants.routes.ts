@@ -45,6 +45,12 @@ router.post('/orders/food/:orderId/refund-request', requireAuth, requireRole('ri
 
 router.use(requireAuth);
 
+router.get('/restaurants/:id/pos/status', requireRole('merchant', 'admin'), controller.pos_connection_status);
+router.put('/restaurants/:id/pos/connection', requireRole('merchant', 'admin'), validateBody(genericPassthroughSchema), controller.pos_configure_connection);
+router.delete('/restaurants/:id/pos/connection', requireRole('merchant', 'admin'), controller.pos_disconnect);
+router.post('/restaurants/:id/pos/test', requireRole('merchant', 'admin'), controller.pos_test_connection);
+router.post('/restaurants/:id/pos/menu/sync', requireRole('merchant', 'admin'), controller.pos_sync_menu);
+router.post('/restaurants/:id/pos/orders/submit', requireRole('merchant', 'admin'), validateBody(genericPassthroughSchema), controller.pos_submit_order);
 router.get('/restaurants/verify-status', requireRole('merchant'), controller.verify_status);
 router.put('/restaurants/hours', requireRole('merchant'), validateBody(genericPassthroughSchema), controller.update_hours);
 router.put('/restaurants/delivery-zones', requireRole('merchant'), validateBody(genericPassthroughSchema), controller.update_delivery_zones);

@@ -1,4 +1,5 @@
 import * as service from '../services/restaurants.service';
+import * as posService from '../services/restaurant-pos.service';
 import { discoverNearbyRestaurants } from '../services/restaurant-discovery.service';
 
 function send(res: any, payload: any) {
@@ -172,6 +173,62 @@ export async function trending_restaurants(req: any, res: any) { return send(res
 export async function restaurant_reviews(req: any, res: any) { return send(res, await service.restaurantReviews(req.params.id)); }
 export async function restaurant_menu(req: any, res: any) { return send(res, await service.publicRestaurantMenu(req.params.id)); }
 
+async function requirePosRestaurantAccess(req: any, res: any) {
+  if (String(req.user?.role || '').toLowerCase() === 'admin') return true;
+
+  const status = await service.verificationStatus(req.user) as any;
+  if (!status?.ok || status.restaurantId !== req.params.id) {
+    res.status(403).json({
+      module: 'restaurant-pos',
+      action: 'access',
+      ok: false,
+      error: 'forbidden'
+    });
+    return false;
+  }
+
+  return true;
+}
+
+function sendPos(res: any, payload: any) {
+  const statusCode = Number(payload?.statusCode);
+  if (Number.isFinite(statusCode) && statusCode >= 400) {
+    return res.status(statusCode).json(payload);
+  }
+
+  if (payload?.error) return res.status(400).json(payload);
+  return res.json(payload);
+}
+
+export async function pos_connection_status(req: any, res: any) {
+  if (!await requirePosRestaurantAccess(req, res)) return;
+  return sendPos(res, await posService.connectionStatus(req.params.id));
+}
+
+export async function pos_configure_connection(req: any, res: any) {
+  if (!await requirePosRestaurantAccess(req, res)) return;
+  return sendPos(res, await posService.configureConnection(req.params.id, req.body));
+}
+
+export async function pos_disconnect(req: any, res: any) {
+  if (!await requirePosRestaurantAccess(req, res)) return;
+  return sendPos(res, await posService.disconnect(req.params.id));
+}
+
+export async function pos_test_connection(req: any, res: any) {
+  if (!await requirePosRestaurantAccess(req, res)) return;
+  return sendPos(res, await posService.testConnection(req.params.id));
+}
+
+export async function pos_sync_menu(req: any, res: any) {
+  if (!await requirePosRestaurantAccess(req, res)) return;
+  return sendPos(res, await posService.syncMenu(req.params.id));
+}
+
+export async function pos_submit_order(req: any, res: any) {
+  if (!await requirePosRestaurantAccess(req, res)) return;
+  return sendPos(res, await posService.submitProviderOrder(req.params.id, req.body));
+}
 export async function analytics_overview(req: any, res: any) { return send(res, await service.analyticsOverview(req.params.id)); }
 export async function analytics_orders(req: any, res: any) { return send(res, await service.analyticsOrders(req.params.id)); }
 export async function analytics_items(req: any, res: any) { return send(res, await service.analyticsItems(req.params.id)); }

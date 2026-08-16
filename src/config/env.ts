@@ -131,6 +131,7 @@ export const env = {
   // Google Places API (New) server-side key for FlupFlap Eat discovery
   googlePlacesApiKey: getString('GOOGLE_PLACES_API_KEY'),
   // PostgreSQL database connection
+  posCredentialsEncryptionKey: getString('POS_CREDENTIALS_ENCRYPTION_KEY'),
   databaseUrl: getString('DATABASE_URL'),
   databasePoolMax: Number(getString('DATABASE_POOL_MAX', '10')),
   loadedEnvFilePath,
