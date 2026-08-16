@@ -4,6 +4,45 @@ import { isDriverDispatchEligibleForJob, markDriverAssigned, releaseDriverFromRi
 import { publishDispatchRideAssigned, publishDispatchRideRequest, publishDispatchRequestExpired } from './realtime-dispatch.service';
 
 const DELIVERY_REQUEST_EXPIRY_MS = 30_000;
+const PACKAGE_SIZE_FEES: Record<'small' | 'medium' | 'large', number> = {
+  small: 2.5,
+  medium: 4,
+  large: 6.5
+};
+const BASE_DELIVERY_FEE = 6;
+const PER_POUND_FEE = 0.75;
+
+function normalizePackageSize(size: unknown): 'small' | 'medium' | 'large' {
+  const normalized = String(size || 'medium').trim().toLowerCase();
+  if (normalized === 'small' || normalized === 'medium' || normalized === 'large') return normalized;
+  return 'medium';
+}
+
+function estimateDeliveryFee(body: any) {
+  const packageSize = normalizePackageSize(body?.packageSize);
+  const packageWeight = Math.max(0, Number(body?.packageWeight || 0));
+  const sizeFee = PACKAGE_SIZE_FEES[packageSize] || PACKAGE_SIZE_FEES.medium;
+  const weightFee = Math.round(packageWeight * PER_POUND_FEE * 100) / 100;
+  const subtotal = BASE_DELIVERY_FEE + sizeFee + weightFee;
+  return Math.round(subtotal * 100) / 100;
+}
+
+function parseCoordinate(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function getSenderName(body: any, actor: any) {
+  const explicitName = String(body?.senderName || '').trim();
+  if (explicitName) return explicitName;
+  const actorName = String(actor?.name || '').trim();
+  if (actorName) return actorName;
+  const email = String(actor?.email || '').trim();
+  if (!email) return 'Customer';
+  const [localPart] = email.split('@');
+  const normalized = String(localPart || '').trim();
+  return normalized || 'Customer';
+}
 
 function canAccessDelivery(actor: any, delivery: Delivery) {
   if (!actor?.id) return false;
@@ -99,26 +138,56 @@ function applyStatusTransition(delivery: Delivery, nextStatus: Delivery['status'
   return { ok: true as const };
 }
 
+export async function estimate(body: any, _params?: any, _query?: any) {
+  const packageSize = normalizePackageSize(body?.packageSize);
+  const packageWeight = Math.max(0, Number(body?.packageWeight || 0));
+  return {
+    module: 'deliveries',
+    action: 'estimate',
+    ok: true,
+    estimate: {
+      currency: 'USD',
+      packageSize,
+      packageWeight,
+      deliveryFee: estimateDeliveryFee({ packageSize, packageWeight })
+    }
+  };
+}
+
 export async function create(body: any, _params?: any, _query?: any) {
-  const customerId = body?.actor?.id || body?.customerId;
+  const actor = body?.actor;
+  const customerId = actor?.id || body?.customerId;
   if (!customerId) return { module: 'deliveries', action: 'create', error: 'customerId is required' };
+
+  const pickupAddress = String(body?.pickupAddress || '').trim();
+  const dropoffAddress = String(body?.dropoffAddress || '').trim();
+  const recipientName = String(body?.recipientName || '').trim();
+  const recipientPhone = String(body?.recipientPhone || '').trim();
+  if (!pickupAddress || !dropoffAddress || !recipientName || !recipientPhone) {
+    return { module: 'deliveries', action: 'create', error: 'pickupAddress, dropoffAddress, recipientName, and recipientPhone are required' };
+  }
+
+  const packageSize = normalizePackageSize(body?.packageSize);
+  const packageWeight = Math.max(0, Number(body?.packageWeight || 0));
+  const requestedFee = Number(body?.deliveryFee);
+  const deliveryFee = Number.isFinite(requestedFee) && requestedFee >= 0 ? requestedFee : estimateDeliveryFee({ packageSize, packageWeight });
   const now = timestamp();
   const delivery: Delivery = {
     id: makeId('delivery'),
-    senderName: String(body?.senderName || '').trim(),
-    senderPhone: String(body?.senderPhone || '').trim(),
-    pickupAddress: String(body?.pickupAddress || '').trim(),
-    pickupLat: Number(body?.pickupLat),
-    pickupLng: Number(body?.pickupLng),
-    recipientName: String(body?.recipientName || '').trim(),
-    recipientPhone: String(body?.recipientPhone || '').trim(),
-    dropoffAddress: String(body?.dropoffAddress || '').trim(),
-    dropoffLat: Number(body?.dropoffLat),
-    dropoffLng: Number(body?.dropoffLng),
-    packageType: String(body?.packageType || '').trim(),
-    packageSize: String(body?.packageSize || '').trim(),
-    packageWeight: Number(body?.packageWeight),
-    deliveryFee: Number(body?.deliveryFee),
+    senderName: getSenderName(body, actor),
+    senderPhone: String(body?.senderPhone || actor?.phone || '').trim(),
+    pickupAddress,
+    pickupLat: parseCoordinate(body?.pickupLat),
+    pickupLng: parseCoordinate(body?.pickupLng),
+    recipientName,
+    recipientPhone,
+    dropoffAddress,
+    dropoffLat: parseCoordinate(body?.dropoffLat),
+    dropoffLng: parseCoordinate(body?.dropoffLng),
+    packageType: String(body?.packageType || body?.packageDescription || 'package').trim() || 'package',
+    packageSize,
+    packageWeight,
+    deliveryFee: Math.round(Math.max(0, deliveryFee) * 100) / 100,
     status: 'requested',
     customerId,
     createdAt: now,
