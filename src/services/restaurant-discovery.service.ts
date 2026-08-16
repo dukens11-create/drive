@@ -2,10 +2,16 @@ import { env } from '../config/env';
 
 const ALLOWED_COUNTRIES = new Set(['US', 'CA', 'MX']);
 const GOOGLE_PLACES_URL = 'https://places.googleapis.com/v1/places:searchNearby';
-const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
+
+const OVERPASS_ENDPOINTS = [
+  'https://overpass.private.coffee/api/interpreter',
+  'https://overpass-api.de/api/interpreter'
+] as const;
+
 const DEFAULT_RADIUS_METERS = 12000;
 const MAX_RADIUS_METERS = 50000;
-const MAX_RESULTS = 20;
+const MAX_OSM_RADIUS_METERS = 12000;
+const MAX_RESULTS = 24;
 
 export type NearbyRestaurantPlace = {
   provider: 'google_places' | 'openstreetmap';
@@ -60,20 +66,20 @@ function validCoordinates(latInput: unknown, lngInput: unknown) {
 function isSupportedCoveragePoint(point: { lat: number; lng: number }) {
   const { lat, lng } = point;
 
-  // United States (contiguous)
-  if (lat >= 24.0 && lat <= 50.0 && lng >= -125.0 && lng <= -66.0) return true;
+  // Contiguous United States
+  if (lat >= 24 && lat <= 50 && lng >= -125 && lng <= -66) return true;
 
   // Alaska / Aleutian area
-  if (lat >= 51.0 && lat <= 72.0 && lng >= -180.0 && lng <= -129.0) return true;
+  if (lat >= 51 && lat <= 72 && lng >= -180 && lng <= -129) return true;
 
   // Hawaii
-  if (lat >= 18.0 && lat <= 23.0 && lng >= -161.0 && lng <= -154.0) return true;
+  if (lat >= 18 && lat <= 23 && lng >= -161 && lng <= -154) return true;
 
   // Canada
-  if (lat >= 41.0 && lat <= 84.0 && lng >= -142.0 && lng <= -52.0) return true;
+  if (lat >= 41 && lat <= 84 && lng >= -142 && lng <= -52) return true;
 
   // Mexico
-  if (lat >= 14.0 && lat <= 33.5 && lng >= -119.0 && lng <= -86.0) return true;
+  if (lat >= 14 && lat <= 33.5 && lng >= -119 && lng <= -86) return true;
 
   return false;
 }
@@ -99,9 +105,14 @@ function distanceMeters(
 }
 
 function addressComponent(place: any, type: string) {
-  const components = Array.isArray(place?.addressComponents) ? place.addressComponents : [];
+  const components = Array.isArray(place?.addressComponents)
+    ? place.addressComponents
+    : [];
+
   return components.find(
-    (component: any) => Array.isArray(component?.types) && component.types.includes(type)
+    (component: any) =>
+      Array.isArray(component?.types)
+      && component.types.includes(type)
   );
 }
 
@@ -156,7 +167,9 @@ function normalizeGooglePlace(
     city: googleCityName(place),
     latitude,
     longitude,
-    primaryType: place?.primaryType ? String(place.primaryType) : undefined,
+    primaryType: place?.primaryType
+      ? String(place.primaryType)
+      : undefined,
     types: Array.isArray(place?.types)
       ? place.types.map((type: unknown) => String(type))
       : [],
@@ -164,14 +177,18 @@ function normalizeGooglePlace(
     userRatingCount: userRatingCount === undefined
       ? undefined
       : Math.round(userRatingCount),
-    priceLevel: place?.priceLevel ? String(place.priceLevel) : undefined,
+    priceLevel: place?.priceLevel
+      ? String(place.priceLevel)
+      : undefined,
     businessStatus: place?.businessStatus
       ? String(place.businessStatus)
       : undefined,
     googleMapsUri: place?.googleMapsUri
       ? String(place.googleMapsUri)
       : undefined,
-    website: place?.websiteUri ? String(place.websiteUri) : undefined,
+    website: place?.websiteUri
+      ? String(place.websiteUri)
+      : undefined,
     phone: place?.nationalPhoneNumber
       ? String(place.nationalPhoneNumber)
       : undefined,
@@ -186,6 +203,7 @@ function osmCoordinate(element: any) {
   const longitude = numeric(element?.lon ?? element?.center?.lon);
 
   if (latitude === undefined || longitude === undefined) return null;
+
   return { latitude, longitude };
 }
 
@@ -203,7 +221,14 @@ function osmAddress(tags: Record<string, unknown>) {
   const country = String(tags['addr:country'] || '').trim();
 
   const streetLine = [house, street].filter(Boolean).join(' ');
-  return [streetLine, city, state, postcode, country].filter(Boolean).join(', ');
+
+  return [
+    streetLine,
+    city,
+    state,
+    postcode,
+    country
+  ].filter(Boolean).join(', ');
 }
 
 function normalizeOsmPlace(
@@ -227,11 +252,16 @@ function normalizeOsmPlace(
 
   const types = [
     amenity,
-    ...cuisine.split(';').map(value => value.trim().toLowerCase()).filter(Boolean)
+    ...cuisine
+      .split(';')
+      .map(value => value.trim().toLowerCase())
+      .filter(Boolean)
   ].filter(Boolean);
 
   let primaryType = amenity || 'restaurant';
-  if (cuisine) primaryType = cuisine.split(';')[0].trim() || primaryType;
+  if (cuisine) {
+    primaryType = cuisine.split(';')[0].trim() || primaryType;
+  }
 
   const website = String(
     tags.website
@@ -248,7 +278,8 @@ function normalizeOsmPlace(
 
   return {
     provider: 'openstreetmap',
-    providerPlaceId: `osm:${String(element?.type || 'element')}:${String(element?.id || '')}`,
+    providerPlaceId:
+      `osm:${String(element?.type || 'element')}:${String(element?.id || '')}`,
     name,
     address: osmAddress(tags),
     countryCode: ALLOWED_COUNTRIES.has(countryTag)
@@ -323,11 +354,14 @@ async function discoverWithGoogle(
 
   if (!response.ok) {
     const upstreamMessage = String(
-      payload?.error?.message || payload?.message || ''
+      payload?.error?.message
+      || payload?.message
+      || ''
     ).trim();
 
     throw new Error(
-      upstreamMessage || 'Google Places restaurant discovery request failed'
+      upstreamMessage
+      || `Google Places returned HTTP ${response.status}`
     );
   }
 
@@ -344,48 +378,80 @@ async function discoverWithGoogle(
     .slice(0, MAX_RESULTS);
 }
 
-async function discoverWithOpenStreetMap(
+function buildOverpassQuery(
   coordinates: { lat: number; lng: number },
   radiusMeters: number
 ) {
-  // Public Overpass is intentionally used only as a no-key fallback.
-  // Limit the search radius and result count to be considerate of shared service.
-  const overpassRadius = Math.min(radiusMeters, 15000);
-
-  const query = [
-    '[out:json][timeout:18];',
+  return [
+    '[out:json][timeout:12];',
     '(',
-    `nwr["amenity"~"^(restaurant|fast_food|cafe)$"](around:${overpassRadius},${coordinates.lat},${coordinates.lng});`,
+    `node["amenity"~"^(restaurant|fast_food|cafe)$"](around:${radiusMeters},${coordinates.lat},${coordinates.lng});`,
+    `way["amenity"~"^(restaurant|fast_food|cafe)$"](around:${radiusMeters},${coordinates.lat},${coordinates.lng});`,
+    `relation["amenity"~"^(restaurant|fast_food|cafe)$"](around:${radiusMeters},${coordinates.lat},${coordinates.lng});`,
     ');',
-    'out center;'
+    'out center tags;'
   ].join('\n');
+}
 
-  const response = await fetch(OVERPASS_URL, {
+async function queryOverpassEndpoint(
+  endpoint: string,
+  coordinates: { lat: number; lng: number },
+  radiusMeters: number
+) {
+  const query = buildOverpassQuery(coordinates, radiusMeters);
+
+  const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
+      'Accept': 'application/json',
       'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-      'User-Agent': 'FlupFlap-Eat/1.0 restaurant-discovery'
+      'User-Agent': 'FlupFlap-Eat/1.0 (restaurant discovery)'
     },
     body: new URLSearchParams({ data: query }).toString(),
-    signal: AbortSignal.timeout(20000)
+    signal: AbortSignal.timeout(18000)
   });
 
-  const payload = await response.json().catch(() => null) as any;
+  const raw = await response.text();
 
   if (!response.ok) {
+    const detail = raw
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 220);
+
     throw new Error(
-      String(payload?.remark || payload?.message || '').trim()
-      || 'OpenStreetMap restaurant discovery request failed'
+      `${endpoint} returned HTTP ${response.status}`
+      + (detail ? `: ${detail}` : '')
     );
   }
 
-  const normalized = (Array.isArray(payload?.elements) ? payload.elements : [])
+  let payload: any;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      `${endpoint} returned a non-JSON response`
+    );
+  }
+
+  return Array.isArray(payload?.elements)
+    ? payload.elements
+    : [];
+}
+
+function normalizeOsmElements(
+  elements: any[],
+  coordinates: { lat: number; lng: number },
+  radiusMeters: number
+) {
+  const normalized = elements
     .map((element: any) => normalizeOsmPlace(element, coordinates))
     .filter(
       (place: NearbyRestaurantPlace | null): place is NearbyRestaurantPlace =>
         Boolean(place)
     )
-    .filter(place => place.distanceMeters <= overpassRadius)
+    .filter(place => place.distanceMeters <= radiusMeters)
     .sort(
       (a: NearbyRestaurantPlace, b: NearbyRestaurantPlace) =>
         a.distanceMeters - b.distanceMeters
@@ -411,6 +477,59 @@ async function discoverWithOpenStreetMap(
   return unique;
 }
 
+async function discoverWithOpenStreetMap(
+  coordinates: { lat: number; lng: number },
+  requestedRadiusMeters: number
+) {
+  const initialRadius = Math.min(
+    Math.max(1000, requestedRadiusMeters),
+    MAX_OSM_RADIUS_METERS
+  );
+
+  const radiusAttempts = Array.from(
+    new Set([
+      initialRadius,
+      Math.min(initialRadius, 8000),
+      Math.min(initialRadius, 5000)
+    ])
+  ).filter(radius => radius >= 1000);
+
+  const errors: string[] = [];
+
+  for (const radiusMeters of radiusAttempts) {
+    for (const endpoint of OVERPASS_ENDPOINTS) {
+      try {
+        const elements = await queryOverpassEndpoint(
+          endpoint,
+          coordinates,
+          radiusMeters
+        );
+
+        const restaurants = normalizeOsmElements(
+          elements,
+          coordinates,
+          radiusMeters
+        );
+
+        return {
+          restaurants,
+          endpoint,
+          radiusMeters
+        };
+      } catch (error: any) {
+        errors.push(
+          String(error?.message || `${endpoint} request failed`)
+        );
+      }
+    }
+  }
+
+  throw new Error(
+    'All OpenStreetMap restaurant discovery servers failed. '
+    + errors.slice(-4).join(' | ')
+  );
+}
+
 export async function discoverNearbyRestaurants(query: {
   lat?: unknown;
   lng?: unknown;
@@ -430,7 +549,8 @@ export async function discoverNearbyRestaurants(query: {
     return {
       ok: false as const,
       statusCode: 400,
-      error: 'FlupFlap Eat live discovery is currently limited to the United States, Canada, and Mexico'
+      error:
+        'FlupFlap Eat live discovery is currently limited to the United States, Canada, and Mexico'
     };
   }
 
@@ -438,7 +558,10 @@ export async function discoverNearbyRestaurants(query: {
 
   try {
     if (env.googlePlacesApiKey) {
-      const restaurants = await discoverWithGoogle(coordinates, radiusMeters);
+      const restaurants = await discoverWithGoogle(
+        coordinates,
+        radiusMeters
+      );
 
       return {
         ok: true as const,
@@ -450,7 +573,7 @@ export async function discoverNearbyRestaurants(query: {
       };
     }
 
-    const restaurants = await discoverWithOpenStreetMap(
+    const osm = await discoverWithOpenStreetMap(
       coordinates,
       radiusMeters
     );
@@ -458,10 +581,11 @@ export async function discoverNearbyRestaurants(query: {
     return {
       ok: true as const,
       provider: 'openstreetmap' as const,
+      providerEndpoint: osm.endpoint,
       coverageCountries: ['US', 'CA', 'MX'] as const,
-      radiusMeters: Math.min(radiusMeters, 15000),
+      radiusMeters: osm.radiusMeters,
       origin: coordinates,
-      restaurants
+      restaurants: osm.restaurants
     };
   } catch (error: any) {
     return {
