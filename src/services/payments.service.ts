@@ -4,6 +4,7 @@ import { makeId, markStoreDirty, store, timestamp, type Payment, type PaymentMet
 import { applyCaptureLedger, applyRefundLedger } from '../utils/payment.records';
 import { sendEmail } from './email.service';
 import { emailTemplates } from '../utils/email-templates';
+import { dispatchPaidRide } from './rides.service';
 import { createStripeIdempotencyKey, getOrCreateStripeCustomerId, getStripeClient, isStripeEnabled } from './stripe-client';
 import { constructStripeEvent, getStripeSignatureHeader } from '../utils/stripe-signature';
 import { getErrorDetails, logger } from '../utils';
@@ -214,8 +215,7 @@ export async function create_intent(body: any, _params?: any, _query?: any) {
     return { module: 'payments', action: 'create-intent', ok: false, error: 'stripe_unavailable', message: 'Payment processing unavailable. Try again later.' };
   }
 }
-
-export async function create_ride_payment(body: any, _params?: any, _query?: any) {
+ export async function create_ride_payment(body: any, _params?: any, _query?: any) {
   const rideId = typeof body?.rideId === 'string' ? body.rideId.trim() : '';
   const riderId = typeof body?.riderId === 'string' ? body.riderId.trim() : '';
   if (!rideId || !riderId) {
@@ -262,6 +262,124 @@ export async function create_ride_payment(body: any, _params?: any, _query?: any
     action: 'create-ride-payment',
     amountCents: expectedAmountCents
   };
+}
+
+export async function confirm_ride_payment(body: any, _params?: any, _query?: any) {
+  const rideId = typeof body?.rideId === 'string' ? body.rideId.trim() : '';
+  const paymentIntentId = typeof body?.paymentIntentId === 'string' ? body.paymentIntentId.trim() : '';
+  const actorId = typeof body?.actorId === 'string' ? body.actorId.trim() : '';
+
+  if (!rideId || !paymentIntentId || !actorId) {
+    return {
+      module: 'payments',
+      action: 'confirm-ride-payment',
+      ok: false,
+      error: 'rideId, paymentIntentId and authenticated rider are required'
+    };
+  }
+
+  const ride = store.rides.get(rideId);
+  if (!ride) {
+    return { module: 'payments', action: 'confirm-ride-payment', ok: false, error: 'ride not found' };
+  }
+
+  if (ride.riderId !== actorId) {
+    return { module: 'payments', action: 'confirm-ride-payment', ok: false, error: 'forbidden' };
+  }
+
+  if (ride.paymentIntentId !== paymentIntentId) {
+    return { module: 'payments', action: 'confirm-ride-payment', ok: false, error: 'payment intent mismatch' };
+  }
+
+  const payment = Array.from(store.payments.values()).find(
+    item => item.providerIntentId === paymentIntentId && item.rideId === rideId
+  );
+
+  if (!payment) {
+    return { module: 'payments', action: 'confirm-ride-payment', ok: false, error: 'payment not found' };
+  }
+
+  if (payment.riderId !== ride.riderId) {
+    return { module: 'payments', action: 'confirm-ride-payment', ok: false, error: 'payment owner mismatch' };
+  }
+
+  if (!isStripeEnabled() || payment.provider !== 'stripe') {
+    return { module: 'payments', action: 'confirm-ride-payment', ok: false, error: 'stripe unavailable' };
+  }
+
+  try {
+    const intent = await getStripeClient().paymentIntents.retrieve(paymentIntentId);
+
+    if (intent.status !== 'succeeded') {
+      return {
+        module: 'payments',
+        action: 'confirm-ride-payment',
+        ok: false,
+        error: 'payment_not_completed',
+        status: intent.status
+      };
+    }
+
+    if (
+      intent.metadata?.rideId !== rideId ||
+      intent.metadata?.riderId !== ride.riderId ||
+      intent.metadata?.type !== 'ride_payment'
+    ) {
+      return { module: 'payments', action: 'confirm-ride-payment', ok: false, error: 'stripe metadata mismatch' };
+    }
+
+    const expectedAmountCents = Math.max(
+      MIN_RIDE_PAYMENT_AMOUNT_CENTS,
+      Math.round(Number(ride.fareDetails?.total ?? ride.fareEstimate ?? 0) * 100)
+    );
+
+    if (Math.abs(intent.amount - expectedAmountCents) > AMOUNT_TOLERANCE_CENTS) {
+      return { module: 'payments', action: 'confirm-ride-payment', ok: false, error: 'stripe amount mismatch' };
+    }
+
+    if (payment.status !== 'captured') {
+      payment.status = 'captured';
+      payment.capturedAt = timestamp();
+      payment.updatedAt = timestamp();
+      payment.threeDSecureAuthenticated = true;
+      payment.stripeChargeId =
+        typeof intent.latest_charge === 'string'
+          ? intent.latest_charge
+          : payment.stripeChargeId;
+
+      applyCaptureLedger(payment);
+    }
+
+    ride.paymentStatus = 'paid';
+    ride.paymentIntentId = paymentIntentId;
+    ride.updatedAt = timestamp();
+    markStoreDirty();
+
+    const dispatch = await dispatchPaidRide(rideId);
+
+    return {
+      module: 'payments',
+      action: 'confirm-ride-payment',
+      ok: true,
+      paymentStatus: ride.paymentStatus,
+      paymentIntentId,
+      ride,
+      dispatch
+    };
+  } catch (error: any) {
+    logger.error('Stripe ride payment verification failed', {
+      rideId,
+      paymentIntentId,
+      error: getErrorDetails(error)
+    });
+
+    return {
+      module: 'payments',
+      action: 'confirm-ride-payment',
+      ok: false,
+      error: 'stripe_verification_failed'
+    };
+  }
 }
 
 export async function capture(body: any, _params?: any, _query?: any) {

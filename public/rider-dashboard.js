@@ -64,7 +64,8 @@ const MINIMUM_STRIPE_AMOUNT_CENTS = 50;
 const MAX_RIDE_DISTANCE_MILES = {
   ECONOMY: 80,
   COMFORT: 150,
-  PREMIUM: 300
+  PREMIUM: 300,
+  XL: 300
 };
 const ROUTE_DASH_FRAMES = [
   [0, 4, 3],
@@ -78,7 +79,8 @@ const DRIVER_MARKER_LERP_MS = 650;
 const VEHICLE_PRICING = {
   ECONOMY: { baseMultiplier: 1, minFare: 2.50, distanceRate: 1.90, timeRate: 0.25 },
   COMFORT: { baseMultiplier: 1.15, minFare: 3.00, distanceRate: 2.19, timeRate: 0.29 },
-  PREMIUM: { baseMultiplier: 1.50, minFare: 5.00, distanceRate: 2.85, timeRate: 0.38 }
+  PREMIUM: { baseMultiplier: 1.50, minFare: 5.00, distanceRate: 2.85, timeRate: 0.38 },
+  XL: { baseMultiplier: 1.75, minFare: 6.00, distanceRate: 3.33, timeRate: 0.44 }
 };
 
 const MOCK_DRIVER_POOL = [
@@ -205,7 +207,8 @@ const rideValidationState = {
   availableRideTypes: {
     ECONOMY: true,
     COMFORT: true,
-    PREMIUM: true
+    PREMIUM: true,
+    XL: true
   },
   isLongDistance: false
 };
@@ -1726,7 +1729,7 @@ function renderLongDistanceBanner(message = '') {
 }
 
 function updateRideTypeAvailability(distanceMiles = 0, blocked = false) {
-  const rideTypes = ['ECONOMY', 'COMFORT', 'PREMIUM'];
+  const rideTypes = ['ECONOMY', 'COMFORT', 'PREMIUM', 'XL'];
   rideTypes.forEach(rideType => {
     const button = document.querySelector(`[data-ride-type="${rideType}"]`);
     if (!button) return;
@@ -1770,10 +1773,6 @@ function deriveRideValidation(estimate) {
     disabledReason = pickupValue ? 'Please enter a valid pickup location.' : 'Enter a valid pickup location.';
   } else if (!destinationValue || !destination) {
     disabledReason = destinationValue ? 'Please enter a valid destination.' : 'Enter a valid destination.';
-  } else if (inputFeedbackState['pickup-input']?.type === 'error') {
-    disabledReason = inputFeedbackState['pickup-input'].text || 'Location not found.';
-  } else if (inputFeedbackState['destination-input']?.type === 'error') {
-    disabledReason = inputFeedbackState['destination-input'].text || 'Location not found.';
   } else if (internationalBlocked) {
     disabledReason = 'International ride requests are currently unavailable.';
   } else if (!selectedRideTypeAllowed) {
@@ -1869,7 +1868,7 @@ const PAYMENT_METHOD_OPTIONS = [
   { id: 'card', label: 'Card', icon: '💳', requiresStripe: true },
   { id: 'apple_pay', label: 'Apple Pay', icon: '🍎', requiresStripe: true },
   { id: 'google_pay', label: 'Google Pay', icon: '🔵', requiresStripe: true },
-  { id: 'cash', label: 'Cash', icon: '💵', requiresStripe: false }
+
 ];
 
 function getSelectedPaymentConfig() {
@@ -1941,12 +1940,12 @@ function getPaymentAmountCents(ride) {
 async function initializeStripe() {
   if (stripe) return stripe;
   if (typeof window.Stripe !== 'function') {
-    setPaymentMessage('Stripe.js is unavailable right now. Please choose Cash or try again later.', 'error');
+    setPaymentMessage('Secure card payments are unavailable right now. Please try again later.', 'error');
     return null;
   }
   const publishableKey = await getStripePublishableKey();
   if (!publishableKey) {
-    setPaymentMessage('Secure card payments are temporarily unavailable. Please choose Cash.', 'warning');
+    setPaymentMessage('Secure card payments are temporarily unavailable. Please try again later.', 'warning');
     return null;
   }
   stripe = window.Stripe(publishableKey);
@@ -1975,7 +1974,8 @@ async function ensurePaymentElement() {
     appearance,
     mode: 'payment',
     currency: 'usd',
-    amount: amountCents
+    amount: amountCents,
+    paymentMethodTypes: ['card']
   });
   paymentElement = stripeElements.create('payment');
   paymentElement.mount('#payment-element');
@@ -2268,7 +2268,8 @@ function updateRideTypePricing(estimate) {
   Object.entries({
     economy: 'ECONOMY',
     comfort: 'COMFORT',
-    premium: 'PREMIUM'
+    premium: 'PREMIUM',
+    xl: 'XL'
   }).forEach(([id, rideType]) => {
     const nextEstimate = rideType === selectedRideType
       ? estimate
@@ -2940,7 +2941,7 @@ function selectCurrentRide() {
     return;
   }
   const active = riderRides.find(ride => ACTIVE_RIDE_STATUSES.includes(ride.status));
-  currentRide = active || riderRides[0];
+  currentRide = active || null;
 }
 
 async function syncRides() {
@@ -3156,7 +3157,7 @@ async function createRidePaymentIntent(ride) {
   return stripeClientSecret;
 }
 
-async function confirmStripeRidePayment() {
+async function confirmStripeRidePayment(ride) {
   if (!stripe || !stripeElements || !stripeClientSecret) return false;
   setPaymentStatus('Processing payment...', 'pending');
   const { error, paymentIntent } = await stripe.confirmPayment({
@@ -3174,8 +3175,29 @@ async function confirmStripeRidePayment() {
     return false;
   }
   const status = String(paymentIntent?.status || '').toLowerCase();
-  if (status === 'succeeded' || status === 'processing' || status === 'requires_capture') {
-    setPaymentStatus('Payment authorized', 'authorized');
+  if (status === 'succeeded') {
+    const paymentIntentId = String(paymentIntent?.id || ride?.paymentIntentId || '').trim();
+    if (!ride?.id || !paymentIntentId) {
+      setPaymentStatus('Payment verification failed', 'failed');
+      return false;
+    }
+
+    const { response, data } = await fetchJson('/api/payments/confirm-ride-payment', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ rideId: ride.id, paymentIntentId })
+    });
+
+    if (!response.ok || !data?.ok || data?.paymentStatus !== 'paid') {
+      const message = data?.message || data?.error || 'Server could not verify payment.';
+      setPaymentStatus(`Payment verification failed: ${message}`, 'failed');
+      showToast(`Payment verification failed: ${message}`, 'error');
+      return false;
+    }
+
+    if (data.ride) Object.assign(ride, data.ride);
+    ride.paymentStatus = 'paid';
+    setPaymentStatus('Payment confirmed', 'authorized');
     showToast('Payment successful!', 'success');
     return true;
   }
@@ -3216,14 +3238,25 @@ async function handleRequestRide() {
   setButtonLoading('request-ride-button', true);
   setPaymentStatus();
   try {
+    if (getSelectedPaymentConfig().requiresStripe) {
+      const stripeReady = await ensurePaymentElement();
+      if (!stripeReady) throw new Error('Secure payments are currently unavailable. Please try again later.');
+      const { error: submitError } = await stripeElements.submit();
+      if (submitError) throw new Error(submitError.message || 'Check your card information.');
+    }
     const ride = await requestRide(pickup, destination);
     if (getSelectedPaymentConfig().requiresStripe) {
       const stripeReady = await ensurePaymentElement();
       if (!stripeReady) {
-        throw new Error('Secure payments are currently unavailable. Please choose Cash.');
+        throw new Error('Secure payments are currently unavailable. Please try again later.');
+      }
+      const { error: submitError } = await stripeElements.submit();
+      if (submitError) {
+        setPaymentStatus('Payment failed: ' + (submitError.message || 'Check your card information.'), 'failed');
+        throw new Error(submitError.message || 'Check your card information.');
       }
       await createRidePaymentIntent(ride);
-      const paymentSucceeded = await confirmStripeRidePayment();
+      const paymentSucceeded = await confirmStripeRidePayment(ride);
       if (!paymentSucceeded) {
         if (ride?.id && accessToken) {
           await cancelRide(ride.id).catch(error => {
@@ -3234,8 +3267,6 @@ async function handleRequestRide() {
         }
         throw new Error('Payment failed. Ride cancelled.');
       }
-    } else {
-      setPaymentStatus('Payment: Cash', 'authorized');
     }
     currentRide = normalizeRide(ride);
     rides = mergeRides([currentRide], readSharedRideStore().rides);
@@ -3743,9 +3774,9 @@ function simulateDriverAssignment(rideId, pickupLat, pickupLng) {
 // ─── Promo Code ─────────────────────────────────────────────────────────────
 
 const MOCK_PROMO_CODES = {
-  SAVE15: { type: 'percentage', value: 15, maxDiscount: 50, description: '15% off your next ride', validUntil: '2027-12-31T23:59:59Z', minFare: 10, applicableRideTypes: ['ECONOMY', 'COMFORT', 'PREMIUM'] },
-  SAVE5: { type: 'fixed', value: 5, description: '$5 off your next ride', validUntil: '2027-12-31T23:59:59Z', minFare: 8, applicableRideTypes: ['ECONOMY', 'COMFORT', 'PREMIUM'] },
-  DRIVE10: { type: 'percentage', value: 10, maxDiscount: 20, description: '10% off any ride', validUntil: '2027-12-31T23:59:59Z', minFare: 0, applicableRideTypes: ['ECONOMY', 'COMFORT', 'PREMIUM'] }
+  SAVE15: { type: 'percentage', value: 15, maxDiscount: 50, description: '15% off your next ride', validUntil: '2027-12-31T23:59:59Z', minFare: 10, applicableRideTypes: ['ECONOMY', 'COMFORT', 'PREMIUM', 'XL'] },
+  SAVE5: { type: 'fixed', value: 5, description: '$5 off your next ride', validUntil: '2027-12-31T23:59:59Z', minFare: 8, applicableRideTypes: ['ECONOMY', 'COMFORT', 'PREMIUM', 'XL'] },
+  DRIVE10: { type: 'percentage', value: 10, maxDiscount: 20, description: '10% off any ride', validUntil: '2027-12-31T23:59:59Z', minFare: 0, applicableRideTypes: ['ECONOMY', 'COMFORT', 'PREMIUM', 'XL'] }
 };
 
 function validatePromoCode(code, rideType, fare) {

@@ -1,0 +1,152 @@
+* { box-sizing: border-box; }
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #151515;
+  background: #f7f7f4;
+}
+body { margin: 0; background: #f7f7f4; color: #151515; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+.eat-shell { min-height: 100vh; display: grid; grid-template-columns: 220px minmax(0, 1fr); }
+.eat-sidebar {
+  position: sticky; top: 0; height: 100vh; padding: 24px 18px;
+  background: #111; color: #fff; display: flex; flex-direction: column;
+}
+.eat-brand { color: #fff; text-decoration: none; display: flex; align-items: center; gap: 12px; }
+.eat-brand-mark {
+  width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center;
+  background: #32c759; font-size: 20px;
+}
+.eat-brand strong, .eat-brand small { display: block; }
+.eat-brand strong { font-size: 20px; line-height: 1; }
+.eat-brand small { color: #9ce8af; margin-top: 4px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.eat-nav { margin-top: 42px; display: grid; gap: 8px; }
+.eat-nav a {
+  color: #c9c9c9; text-decoration: none; display: flex; gap: 12px; align-items: center;
+  padding: 12px 14px; border-radius: 12px; font-weight: 700;
+}
+.eat-nav a:hover, .eat-nav a.active { color: #fff; background: #242424; }
+.eat-nav a.active i { color: #48d66a; }
+.eat-sidebar-footer { margin-top: auto; }
+.eat-sidebar-footer a { color: #aaa; text-decoration: none; font-size: 14px; }
+.eat-main { padding: 30px 34px 48px; min-width: 0; }
+.eat-header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
+.eyebrow { margin: 0 0 6px; text-transform: uppercase; letter-spacing: .11em; font-size: 12px; font-weight: 900; color: #18823a; }
+.eat-header h1 { margin: 0; font-size: clamp(30px, 4vw, 48px); line-height: 1.04; }
+.eat-header p:not(.eyebrow) { margin: 10px 0 0; color: #666; max-width: 660px; }
+.delivery-pill {
+  background: #fff; border: 1px solid #e7e7e1; border-radius: 16px; padding: 12px 15px;
+  display: flex; align-items: center; gap: 10px; min-width: 210px; box-shadow: 0 8px 30px rgba(0,0,0,.04);
+}
+.delivery-pill i { color: #24a548; font-size: 20px; }
+.delivery-pill span, .delivery-pill strong { display: block; }
+.delivery-pill span { color: #777; font-size: 12px; }
+.delivery-pill strong { font-size: 14px; margin-top: 2px; }
+.search-section { margin: 28px 0; display: flex; gap: 12px; }
+.search-box {
+  flex: 1; min-height: 58px; background: #fff; border: 1px solid #e2e2dc; border-radius: 16px;
+  display: flex; align-items: center; gap: 12px; padding: 0 18px;
+}
+.search-box i { color: #777; font-size: 20px; }
+.search-box input { width: 100%; border: 0; outline: 0; font-size: 16px; background: transparent; }
+.location-button {
+  border: 0; border-radius: 16px; padding: 0 18px; background: #111; color: #fff; font-weight: 800;
+  display: flex; align-items: center; gap: 8px;
+}
+.section-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 14px; }
+.section-heading h2, .cart-heading h2 { margin: 0; font-size: 24px; }
+.result-count { color: #777; font-size: 14px; }
+.category-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; }
+.category-chip {
+  white-space: nowrap; border: 1px solid #dadad4; background: #fff; color: #222;
+  border-radius: 999px; padding: 10px 16px; font-weight: 800;
+}
+.category-chip.active { background: #111; color: #fff; border-color: #111; }
+.eat-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; margin-top: 28px; }
+.restaurant-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.restaurant-card {
+  overflow: hidden; border-radius: 20px; background: #fff; border: 1px solid #e9e9e3;
+  box-shadow: 0 12px 30px rgba(0,0,0,.045); transition: transform .18s ease, box-shadow .18s ease;
+}
+.restaurant-card:hover { transform: translateY(-2px); box-shadow: 0 18px 38px rgba(0,0,0,.08); }
+.restaurant-visual { height: 150px; display: grid; place-items: center; font-size: 56px; color: rgba(0,0,0,.72); }
+.visual-burger { background: linear-gradient(135deg, #ffd56a, #ff9d57); }
+.visual-pizza { background: linear-gradient(135deg, #ff9270, #ffd76d); }
+.visual-chicken { background: linear-gradient(135deg, #ffc16b, #ff715c); }
+.visual-haitian { background: linear-gradient(135deg, #68c5ff, #ef7373); }
+.visual-grocery { background: linear-gradient(135deg, #9ce7a8, #e4f59d); }
+.visual-taco { background: linear-gradient(135deg, #ffd46d, #78d887); }
+.restaurant-body { padding: 16px; }
+.restaurant-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.restaurant-title-row h3 { margin: 0; font-size: 18px; }
+.rating { font-size: 13px; font-weight: 800; }
+.rating i { color: #f5b700; }
+.restaurant-body > p { color: #707070; margin: 7px 0 12px; }
+.restaurant-meta { display: flex; justify-content: space-between; gap: 12px; color: #555; font-size: 13px; }
+.add-demo-item {
+  width: 100%; border: 0; border-radius: 12px; margin-top: 14px; padding: 11px 12px;
+  background: #f0f7f1; color: #146b2d; font-weight: 900;
+}
+.add-demo-item:hover { background: #ddf2e2; }
+.cart-panel {
+  align-self: start; position: sticky; top: 24px; background: #fff; border: 1px solid #e6e6e0;
+  border-radius: 20px; padding: 20px; box-shadow: 0 14px 40px rgba(0,0,0,.06);
+}
+.cart-heading { display: flex; justify-content: space-between; align-items: center; }
+.cart-count { min-width: 32px; height: 32px; border-radius: 50%; background: #111; color: #fff; display: grid; place-items: center; font-weight: 900; }
+.cart-empty { text-align: center; padding: 34px 10px; color: #777; }
+.cart-empty i { font-size: 36px; color: #aaa; }
+.cart-empty p { margin: 10px 0 4px; color: #333; font-weight: 800; }
+.cart-empty span { font-size: 13px; }
+.cart-items { display: grid; gap: 10px; }
+.cart-item { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid #eee; }
+.cart-item-name { font-weight: 800; }
+.cart-item-price { font-weight: 800; }
+.cart-item button { border: 0; background: transparent; color: #c33; padding: 0; margin-top: 3px; font-size: 12px; }
+.cart-summary { margin-top: 18px; display: grid; gap: 10px; font-size: 14px; }
+.cart-summary > div { display: flex; justify-content: space-between; gap: 12px; }
+.cart-total { border-top: 1px solid #ddd; padding-top: 12px; font-size: 17px; }
+.checkout-button { width: 100%; border: 0; border-radius: 14px; margin-top: 18px; padding: 14px; background: #111; color: #fff; font-weight: 900; }
+.checkout-button:disabled { background: #c8c8c5; cursor: not-allowed; }
+.order-status-card { margin-top: 16px; border-radius: 14px; background: #f4f8f5; padding: 13px; display: flex; gap: 11px; }
+.order-status-card i { color: #1f9d45; font-size: 22px; }
+.order-status-card strong, .order-status-card span { display: block; }
+.order-status-card span { margin-top: 3px; color: #666; font-size: 12px; line-height: 1.4; }
+.no-results { text-align: center; padding: 50px 20px; background: #fff; border-radius: 18px; }
+.no-results i { font-size: 34px; }
+.no-results h3 { margin-bottom: 6px; }
+.no-results p { margin: 0; color: #777; }
+.hidden { display: none !important; }
+.eat-toast {
+  position: fixed; right: 24px; bottom: 24px; background: #111; color: #fff; padding: 13px 16px;
+  border-radius: 12px; opacity: 0; transform: translateY(10px); pointer-events: none; transition: .2s ease; z-index: 100;
+}
+.eat-toast.show { opacity: 1; transform: translateY(0); }
+@media (max-width: 1050px) {
+  .eat-shell { grid-template-columns: 84px minmax(0, 1fr); }
+  .eat-brand span:not(.eat-brand-mark), .eat-nav span, .eat-sidebar-footer { display: none; }
+  .eat-nav a { justify-content: center; }
+  .eat-layout { grid-template-columns: 1fr; }
+  .cart-panel { position: static; }
+}
+@media (max-width: 720px) {
+  .eat-shell { display: block; }
+  .eat-sidebar { height: auto; position: static; padding: 12px 16px; flex-direction: row; align-items: center; justify-content: space-between; }
+  .eat-brand span:not(.eat-brand-mark) { display: block; }
+  .eat-nav { margin: 0; display: flex; }
+  .eat-nav span { display: none; }
+  .eat-sidebar-footer { display: none; }
+  .eat-main { padding: 22px 16px 40px; }
+  .eat-header { display: block; }
+  .delivery-pill { margin-top: 16px; min-width: 0; }
+  .search-section { display: grid; }
+  .location-button { min-height: 50px; justify-content: center; }
+  .restaurant-grid { grid-template-columns: 1fr; }
+}
+
+.restaurant-photo {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}

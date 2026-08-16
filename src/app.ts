@@ -44,7 +44,7 @@ export function createApp() {
         directives: {
           scriptSrc: ["'self'", 'https://api.mapbox.com', 'https://js.stripe.com'],
           styleSrc: ["'self'", "'unsafe-inline'", 'https://cdn.jsdelivr.net', 'https://api.mapbox.com'],
-          imgSrc: ["'self'", 'data:', 'blob:', 'https://api.mapbox.com', 'https://*.tiles.mapbox.com', 'https://*.stripe.com'],
+          imgSrc: ["'self'", 'data:', 'blob:', 'https://api.mapbox.com', 'https://*.tiles.mapbox.com', 'https://*.stripe.com', 'https://images.unsplash.com', 'https://unsplash.com'],
           workerSrc: ["'self'", 'blob:'],
           frameSrc: ["'self'", 'https://js.stripe.com', 'https://hooks.stripe.com'],
           connectSrc: [

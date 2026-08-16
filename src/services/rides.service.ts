@@ -53,8 +53,13 @@ const DEFAULT_SERVICE_FEE_PERCENT = 0.12;
 const DEFAULT_WAIT_TIMEOUT_SECONDS = 5 * 60;
 const DEFAULT_CANCELLATION_FEE_CENTS = 400;
 const DEFAULT_NO_SHOW_FEE_CENTS = 500;
-const RIDE_REQUEST_EXPIRY_MS = 30_000;
+const RIDE_REQUEST_EXPIRY_MS = 45_000;
 const RIDE_REQUEST_EXPIRY_DELAY_BUFFER_MS = 20;
+const RIDE_REQUEST_INITIAL_RADIUS_MILES = 5;
+const RIDE_REQUEST_EXPANSION_STAGES = [
+  { delayMs: 15_000, radiusMiles: 7 },
+  { delayMs: 30_000, radiusMiles: 10 }
+] as const;
 const MAX_FAVORITE_LOCATIONS = 10;
 const SHARED_RIDE_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const ETA_MINUTES_PER_MILE = 3.5;
@@ -71,6 +76,7 @@ type SharedRideTokenRecord = {
 
 const sharedRideTokens = new Map<string, SharedRideTokenRecord>();
 const rideRequestExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const rideRequestExpansionTimers = new Map<string, ReturnType<typeof setTimeout>[]>();
 
 function clearRideRequestExpiryTimer(requestId: string) {
   const timer = rideRequestExpiryTimers.get(requestId);
@@ -78,12 +84,15 @@ function clearRideRequestExpiryTimer(requestId: string) {
     clearTimeout(timer);
     rideRequestExpiryTimers.delete(requestId);
   }
+  const expansionTimers = rideRequestExpansionTimers.get(requestId) || [];
+  expansionTimers.forEach(clearTimeout);
+  rideRequestExpansionTimers.delete(requestId);
 }
 
 function scheduleRideRequestExpiry(request: RideRequest) {
   clearRideRequestExpiryTimer(request.id);
   const expiresInMs = Math.max(0, new Date(request.expiresAt).getTime() - Date.now());
-  const timer = setTimeout(() => {
+  const timer = setTimeout(async () => {
     rideRequestExpiryTimers.delete(request.id);
     const latestRequest = store.rideRequests.get(request.id);
     if (!latestRequest) return;
@@ -105,20 +114,103 @@ function scheduleRideRequestExpiry(request: RideRequest) {
         ride,
         'dispatch_expired',
         'Driver search expired',
-        'No driver accepted your request in time. Please try requesting again.',
+        'No driver accepted your request in time.',
         'system'
       );
+
+      const wasPaid = ride.paymentStatus === 'paid';
+      let refundSucceeded = !wasPaid;
+
+      if (wasPaid) {
+        const payment = Array.from(store.payments.values()).find(
+          item => item.rideId === ride.id && item.status === 'captured'
+        );
+
+        if (payment) {
+          try {
+            const paymentsService = await import('./payments.service');
+            const refundResult = await paymentsService.refund({
+              paymentId: payment.id,
+              destination: 'original_payment_method',
+              reason: 'requested_by_customer',
+              idempotencyKey: `no-driver-${ride.id}`
+            });
+            refundSucceeded = Boolean(refundResult?.ok);
+          } catch (error: any) {
+            logger.error('No-driver automatic refund failed', {
+              rideId: ride.id,
+              error: error?.message
+            });
+          }
+        } else {
+          logger.error('No-driver refund payment record not found', { rideId: ride.id });
+        }
+      }
+
+      const canceledAt = timestamp();
+      setCancellationDetails(ride, 'system', 'no_driver_available', canceledAt, 0);
+      ride.paymentStatus = wasPaid
+        ? (refundSucceeded ? 'refunded' : 'refund_pending')
+        : 'not_charged';
+      ride.updatedAt = canceledAt;
+      markStoreDirty();
+
+      if (refundSucceeded && wasPaid) {
+        appendRideEvent(
+          ride,
+          'payment_refunded',
+          'Payment refunded',
+          'No driver was available, so your payment was refunded to the original payment method.',
+          'system'
+        );
+      }
+
       publishDispatchRequestRejected(ride.riderId, {
         rideId: ride.id,
         requestId: latestRequest.id,
-        reason: 'request_expired',
-        status: 'SEARCHING',
-        updatedAt: latestRequest.updatedAt
+        reason: 'no_driver_available',
+        status: 'CANCELED',
+        updatedAt: ride.updatedAt
       });
-      publishRideRealtimeUpdate(ride, 'ride_request_expired');
+      publishRideRealtimeUpdate(ride, 'ride_no_driver_available');
     }
   }, expiresInMs + RIDE_REQUEST_EXPIRY_DELAY_BUFFER_MS);
   rideRequestExpiryTimers.set(request.id, timer);
+
+  const expansionTimers = RIDE_REQUEST_EXPANSION_STAGES.map(stage =>
+    setTimeout(async () => {
+      try {
+        const latestRequest = store.rideRequests.get(request.id);
+        if (!latestRequest) return;
+        syncRideRequestState(latestRequest);
+        if (latestRequest.status !== 'broadcasting') return;
+
+        const ride = store.rides.get(latestRequest.rideId);
+        if (!ride || ride.driverId || ride.status !== 'requested') return;
+
+        const dispatch = await dispatchRide({
+          id: ride.id,
+          pickupLat: ride.pickupLat,
+          pickupLng: ride.pickupLng,
+          vehicleType: ride.vehicleType,
+          preferredDriverGender: ride.preferredDriverGender,
+          radiusMiles: stage.radiusMiles
+        });
+
+        const added = await broadcastRideRequestCandidates(latestRequest, ride, dispatch.candidates);
+        if (added > 0) {
+          publishRideRealtimeUpdate(ride, 'ride_search_radius_expanded');
+        }
+      } catch (error: any) {
+        logger.warn('Ride search radius expansion failed', {
+          requestId: request.id,
+          radiusMiles: stage.radiusMiles,
+          error: error?.message
+        });
+      }
+    }, stage.delayMs)
+  );
+  rideRequestExpansionTimers.set(request.id, expansionTimers);
 }
 
 function normalizeRequestedVehicleType(input: unknown): VehicleType | null {
@@ -152,6 +244,95 @@ async function pushRideNotification(
   }
 }
 
+async function broadcastRideRequestCandidates(
+  request: RideRequest,
+  ride: Ride,
+  candidates: Array<{ driverId: string }>
+) {
+  const newCandidates = candidates.filter(
+    candidate => candidate?.driverId && !request.broadcastedDrivers.includes(candidate.driverId)
+  );
+  if (newCandidates.length === 0) return 0;
+
+  const now = timestamp();
+  for (const candidate of newCandidates) {
+    request.broadcastedDrivers.push(candidate.driverId);
+    request.responses.push({
+      driverId: candidate.driverId,
+      status: 'broadcasted',
+      respondedAt: now
+    });
+
+    const requestTemplate = notificationTemplates.RIDE_REQUEST({
+      rideId: ride.id,
+      pickupAddress: ride.pickupAddress,
+      pickupLat: ride.pickupLat,
+      pickupLng: ride.pickupLng,
+      fareEstimate: amountToCents(ride.fareEstimate)
+    });
+
+    await pushRideNotification(
+      candidate.driverId,
+      'new_rides',
+      requestTemplate.title,
+      requestTemplate.body,
+      'ride_request',
+      requestTemplate.data
+    );
+
+    publishDispatchRideRequest(candidate.driverId, {
+      requestId: request.id,
+      rideId: ride.id,
+      expiresAt: request.expiresAt,
+      timeLeft: Math.max(0, Math.ceil((new Date(request.expiresAt).getTime() - Date.now()) / 1000)),
+      ride: {
+        id: ride.id,
+        rideId: ride.id,
+        riderId: ride.riderId,
+        riderName: 'Rider',
+        passengerName: 'Rider',
+        pickupAddress: ride.pickupAddress || '',
+        dropoffAddress: ride.dropoffAddress || '',
+        destinationAddress: ride.dropoffAddress || '',
+        pickupLat: ride.pickupLat,
+        pickupLng: ride.pickupLng,
+        dropoffLat: ride.dropoffLat,
+        dropoffLng: ride.dropoffLng,
+        fareEstimate: ride.fareEstimate,
+        distance: ride.miles,
+        minutes: ride.minutes,
+        etaMinutes: Math.max(1, Math.round(Number(ride.minutes || 0))),
+        status: 'requested',
+        createdAt: ride.createdAt
+      },
+      updatedAt: now
+    });
+
+    const candidateUser = store.users.get(candidate.driverId);
+    if (candidateUser?.phone) {
+      try {
+        await sendSMS(
+          candidateUser.phone,
+          smsTemplates.RIDE_REQUEST({
+            pickupStreet: `${ride.pickupLat}, ${ride.pickupLng}`,
+            fareEstimate: amountToCents(ride.fareEstimate)
+          }),
+          { template: 'ride_request_alert', userId: candidateUser.id }
+        );
+      } catch (error: any) {
+        logger.warn('Ride request SMS failed', {
+          rideId: ride.id,
+          driverId: candidate.driverId,
+          error: error?.message
+        });
+      }
+    }
+  }
+
+  request.updatedAt = timestamp();
+  markStoreDirty();
+  return newCandidates.length;
+}
 function maskPhone(phone: string | undefined) {
   if (!phone) return 'hidden';
   const digits = phone.replace(/\D/g, '');
@@ -442,7 +623,12 @@ function setCancellationDetails(
   ride.cancellationReason = reason;
   ride.cancellationActorRole = actorRole;
   ride.cancellationFeeCents = cancellationFeeCents;
-  ride.paymentStatus = cancellationFeeCents > 0 ? 'settled_internal' : 'not_charged';
+  const hasRefundedPayment = Array.from(store.payments.values()).some(payment => payment.rideId === ride.id && payment.status === 'refunded');
+  if (hasRefundedPayment) {
+    ride.paymentStatus = 'refunded';
+  } else if (ride.paymentStatus !== 'refunded' && ride.paymentStatus !== 'refund_pending') {
+    ride.paymentStatus = cancellationFeeCents > 0 ? 'settled_internal' : 'not_charged';
+  }
   ride.updatedAt = canceledAt;
   markStoreDirty();
 }
@@ -876,12 +1062,19 @@ export async function request(body: any, _params?: any, _query?: any) {
       riderProfile.favoriteLocations = [{ label, lat: pickupLat, lng: pickupLng }, ...riderProfile.favoriteLocations].slice(0, MAX_FAVORITE_LOCATIONS);
     }
   }
+  if (paymentMethod !== 'cash' && ride.paymentStatus !== 'paid') {
+    markStoreDirty();
+    publishRideRealtimeUpdate(ride, 'ride_payment_pending');
+    const riderRide = toRiderRideSummary(ride);
+    return { module: 'rides', action: 'request', ok: true, ride: riderRide, rideId: ride.id, status: mapRideStatusForDispatch(ride.status), riderId: ride.riderId, pickupAddress: ride.pickupAddress || '', pickupLat: ride.pickupLat, pickupLng: ride.pickupLng, destinationAddress: ride.dropoffAddress || '', destinationLat: ride.dropoffLat, destinationLng: ride.dropoffLng, rideType: String(ride.vehicleType || 'economy').toUpperCase(), fareEstimate: ride.fareEstimate, distance: ride.miles, duration: ride.minutes, paymentMethod: ride.paymentMethod || 'card', paymentStatus: ride.paymentStatus, createdAt: ride.createdAt, request: null, dispatch: { candidates: [], selected: null, deferred: true, reason: 'payment_pending' }, discountCents, paymentRequired: true, availableActions: getRideAvailableActions(ride) };
+  }
   const dispatch = await dispatchRide({
     id: ride.id,
     pickupLat: ride.pickupLat,
     pickupLng: ride.pickupLng,
     vehicleType: ride.vehicleType,
-    preferredDriverGender: ride.preferredDriverGender
+    preferredDriverGender: ride.preferredDriverGender,
+    radiusMiles: 5
   });
   const expiresAt = new Date(Date.now() + RIDE_REQUEST_EXPIRY_MS).toISOString();
   const rideRequest: RideRequest = {
@@ -1035,6 +1228,50 @@ export async function request(body: any, _params?: any, _query?: any) {
     discountCents,
     availableActions: getRideAvailableActions(ride)
   };
+}
+
+export async function dispatchPaidRide(rideId: string) {
+  const ride = store.rides.get(rideId);
+  if (!ride) return { module: 'rides', action: 'dispatch-paid-ride', ok: false, error: 'ride not found' };
+  if (ride.paymentStatus !== 'paid') return { module: 'rides', action: 'dispatch-paid-ride', ok: false, error: 'payment not paid' };
+
+  const existing = Array.from(store.rideRequests.values()).find(request =>
+    request.rideId === ride.id && (request.status === 'broadcasting' || request.status === 'accepted')
+  );
+  if (existing) return { module: 'rides', action: 'dispatch-paid-ride', ok: true, ride: toRiderRideSummary(ride), request: syncRideRequestState(existing), idempotent: true };
+
+  const now = timestamp();
+  const dispatch = await dispatchRide({
+    id: ride.id,
+    pickupLat: ride.pickupLat,
+    pickupLng: ride.pickupLng,
+    vehicleType: ride.vehicleType,
+    preferredDriverGender: ride.preferredDriverGender,
+    radiusMiles: 5
+  });
+  const rideRequest: RideRequest = {
+    id: makeId('request'),
+    rideId: ride.id,
+    riderId: ride.riderId,
+    pickupLat: ride.pickupLat,
+    pickupLng: ride.pickupLng,
+    dropoffLat: ride.dropoffLat,
+    dropoffLng: ride.dropoffLng,
+    fareEstimate: ride.fareEstimate,
+    broadcastedDrivers: [],
+    responses: [],
+    expiresAt: new Date(Date.now() + RIDE_REQUEST_EXPIRY_MS).toISOString(),
+    status: 'broadcasting',
+    ...(ride.preferredDriverGender ? { preferredDriverGender: ride.preferredDriverGender } : {}),
+    createdAt: now,
+    updatedAt: now
+  };
+  store.rideRequests.set(rideRequest.id, rideRequest);
+  await broadcastRideRequestCandidates(rideRequest, ride, dispatch.candidates);
+  scheduleRideRequestExpiry(rideRequest);
+  publishRideRealtimeUpdate(ride, 'ride_payment_confirmed');
+  markStoreDirty();
+  return { module: 'rides', action: 'dispatch-paid-ride', ok: true, ride: toRiderRideSummary(ride), request: syncRideRequestState(rideRequest), dispatch };
 }
 
 export async function getDriverRideRequests(body: any, _params?: any, query?: any) {

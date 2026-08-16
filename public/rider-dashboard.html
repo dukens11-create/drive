@@ -39,6 +39,10 @@
           <i class="bi bi-person-check"></i>
           <span>Rider</span>
         </a>
+        <a href="/eat-dashboard.html" class="nav-item">
+          <i class="bi bi-bag-heart-fill"></i>
+          <span>FlupFlap Eat</span>
+        </a>
         <a href="/driver-dashboard.html" class="nav-item">
           <i class="bi bi-car-front"></i>
           <span>Driver</span>
@@ -220,7 +224,7 @@
 
               <div class="ride-types" id="ride-types">
                 <button type="button" class="ride-type-btn is-active" data-ride-type="ECONOMY">
-                  <div class="ride-type-hero ride-type-hero--economy">🚗</div>
+                  <div class="ride-type-hero ride-type-hero--economy" style="width:84px;height:60px;background:transparent;"><img src="/assets/vehicles/economy-car.webp" alt="Economy car" loading="lazy" style="width:100%;height:100%;object-fit:contain;border-radius:14px;display:block;"></div>
                   <div class="ride-type-copy">
                     <div class="ride-type-name">Economy</div>
                     <div class="ride-type-description">Affordable daily ride</div>
@@ -232,7 +236,7 @@
                 </button>
 
                 <button type="button" class="ride-type-btn" data-ride-type="COMFORT">
-                  <div class="ride-type-hero ride-type-hero--comfort">💼</div>
+                  <div class="ride-type-hero ride-type-hero--comfort" style="width:84px;height:60px;background:transparent;"><img src="/assets/vehicles/comfort-car.webp" alt="Comfort car" loading="lazy" style="width:100%;height:100%;object-fit:contain;border-radius:14px;display:block;"></div>
                   <div class="ride-type-copy">
                     <div class="ride-type-name">Comfort</div>
                     <div class="ride-type-description">Extra room and quiet ride</div>
@@ -244,7 +248,7 @@
                 </button>
 
                 <button type="button" class="ride-type-btn" data-ride-type="PREMIUM">
-                  <div class="ride-type-hero ride-type-hero--premium">👑</div>
+                  <div class="ride-type-hero ride-type-hero--premium" style="width:84px;height:60px;background:transparent;"><img src="/assets/vehicles/premium-car.webp" alt="Premium car" loading="lazy" style="width:100%;height:100%;object-fit:contain;border-radius:14px;display:block;"></div>
                   <div class="ride-type-copy">
                     <div class="ride-type-name">Premium</div>
                     <div class="ride-type-description">Luxury ride with top drivers</div>
@@ -252,6 +256,17 @@
                   <div class="ride-type-pricing">
                     <div class="ride-type-price" id="price-premium">--</div>
                     <div class="ride-type-delta">Top-tier experience</div>
+                  </div>
+                </button>
+                <button type="button" class="ride-type-btn" data-ride-type="XL">
+                  <div class="ride-type-hero ride-type-hero--xl" style="width:84px;height:60px;background:transparent;"><img src="/assets/vehicles/minivan-car.webp" alt="XL minivan" loading="lazy" style="width:100%;height:100%;object-fit:contain;border-radius:14px;display:block;"></div>
+                  <div class="ride-type-copy">
+                    <div class="ride-type-name">XL</div>
+                    <div class="ride-type-description">Minivan for up to 6 riders</div>
+                  </div>
+                  <div class="ride-type-pricing">
+                    <div class="ride-type-price" id="price-xl">--</div>
+                    <div class="ride-type-delta">More space</div>
                   </div>
                 </button>
               </div>
@@ -580,17 +595,13 @@
                       <span class="payment-option-icon" aria-hidden="true">💳</span>
                       <span>Card</span>
                     </button>
-                    <button type="button" class="payment-option" data-payment-method="apple_pay" role="option" aria-selected="false">
+                    <button type="button" id="payment-opt-apple-pay" class="payment-option" data-payment-method="apple_pay" role="option" aria-selected="false">
                       <span class="payment-option-icon" aria-hidden="true">🍎</span>
                       <span>Apple Pay</span>
                     </button>
-                    <button type="button" class="payment-option" data-payment-method="google_pay" role="option" aria-selected="false">
+                    <button type="button" id="payment-opt-google-pay" class="payment-option" data-payment-method="google_pay" role="option" aria-selected="false">
                       <span class="payment-option-icon" aria-hidden="true">🔵</span>
                       <span>Google Pay</span>
-                    </button>
-                    <button type="button" class="payment-option" data-payment-method="cash" role="option" aria-selected="false">
-                      <span class="payment-option-icon" aria-hidden="true">💵</span>
-                      <span>Cash</span>
                     </button>
                   </div>
                 </div>

@@ -26,7 +26,7 @@ export function rankDrivers(candidates: Candidate[]) {
   return candidates.map(d => ({ ...d, score: scoreDriver(d) })).sort((a, b) => b.score - a.score);
 }
 
-export async function findNearbyDrivers(lat: number, lng: number) {
+export async function findNearbyDrivers(lat: number, lng: number, radiusMiles = 10) {
   const drivers = Array.from(store.drivers.values())
     .filter(d => isDriverDispatchEligible(d))
     .map(d => ({
@@ -39,13 +39,14 @@ export async function findNearbyDrivers(lat: number, lng: number) {
       gender: d.gender
     }));
 
-  return drivers.sort((a, b) => a.distanceMiles - b.distanceMiles).slice(0, 30);
+  return drivers.filter(driver => driver.distanceMiles <= radiusMiles).sort((a, b) => a.distanceMiles - b.distanceMiles).slice(0, 30);
 }
 
 export async function dispatchRide(ride: any) {
   const requestedVehicleType = typeof ride?.vehicleType === 'string' ? ride.vehicleType.trim().toLowerCase() : '';
   const preferredDriverGender: string = typeof ride?.preferredDriverGender === 'string' ? ride.preferredDriverGender.trim().toLowerCase() : '';
-  const nearbyCandidates = await findNearbyDrivers(Number(ride.pickupLat), Number(ride.pickupLng));
+  const radiusMiles = Math.max(0.1, Math.min(10, Number(ride?.radiusMiles ?? 10)));
+  const nearbyCandidates = await findNearbyDrivers(Number(ride.pickupLat), Number(ride.pickupLng), radiusMiles);
 
   // Filter by vehicle type first
   let candidates = nearbyCandidates.filter(candidate => {
