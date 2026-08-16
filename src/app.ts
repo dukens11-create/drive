@@ -111,6 +111,7 @@ export function createApp() {
     app.get('/readyz', (_, res) => res.json({ ok: true, uptimeSeconds: parseFloat(process.uptime().toFixed(3)) }));
     app.get('/api/config', (_, res) => res.json({
       stripePublishableKey: env.stripePublishableKey || '',
+      mapboxPublicToken: env.mapboxPublicToken || '',
       ok: true
     }));
     app.get(

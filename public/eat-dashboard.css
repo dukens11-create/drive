@@ -150,3 +150,154 @@ button { cursor: pointer; }
   display: block;
   object-fit: cover;
 }
+
+/* Real API-driven Eat states */
+.eat-loading-card,
+.eat-api-message,
+.menu-toolbar,
+.menu-item-card,
+.order-live-panel {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(0,0,0,.045);
+}
+
+.eat-loading-card,
+.eat-api-message {
+  grid-column: 1 / -1;
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  color: #666;
+}
+
+.eat-loading-card strong,
+.eat-api-message strong {
+  color: #222;
+}
+
+.menu-toolbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+}
+
+.menu-toolbar > div > div {
+  margin-top: 4px;
+  color: #707070;
+  font-size: 13px;
+}
+
+.menu-item-card {
+  padding: 18px;
+  display: grid;
+  gap: 10px;
+}
+
+.menu-item-card h3,
+.menu-item-card p {
+  margin: 0;
+}
+
+.menu-item-card p {
+  min-height: 22px;
+  color: #707070;
+}
+
+.menu-item-card button,
+.menu-toolbar button,
+.cart-quantity button,
+.order-live-panel button {
+  border: 0;
+  border-radius: 12px;
+  padding: 9px 12px;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.menu-item-card button {
+  margin-top: 4px;
+  background: #111;
+  color: #fff;
+}
+
+.menu-toolbar button,
+.cart-quantity button {
+  background: #f0f7f1;
+  color: #146b2d;
+}
+
+.cart-quantity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.cart-quantity button {
+  min-width: 32px;
+  padding: 5px 8px;
+}
+
+.order-live-panel {
+  margin-top: 16px;
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.order-live-panel[data-state="completed"] {
+  border-color: rgba(22, 163, 74, 0.35);
+}
+
+.order-live-panel[data-state="canceled"],
+.order-live-panel[data-state="rejected"],
+.order-live-panel[data-state="refunded"] {
+  border-color: rgba(220, 38, 38, 0.30);
+}
+
+.restaurant-card button[data-action="view-menu"] {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  margin-top: 14px;
+  padding: 11px 12px;
+  background: #f0f7f1;
+  color: #146b2d;
+  font-weight: 900;
+}
+
+.restaurant-card button[data-action="view-menu"]:hover {
+  background: #ddf2e2;
+}
+
+.visual-chinese {
+  background: linear-gradient(135deg, #ffd7a6, #ef8f8f);
+}
+
+.restaurant-visual.api-fallback {
+  background: linear-gradient(135deg, #dff3e4, #f5e7a5);
+}
+
+.restaurant-visual.api-fallback i {
+  color: #177d37;
+}
+
+.rating.verified {
+  color: #177d37;
+}
+
+@media (max-width: 760px) {
+  .menu-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

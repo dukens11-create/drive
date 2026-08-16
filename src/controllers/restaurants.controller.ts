@@ -62,16 +62,73 @@ export async function order_history(req: any, res: any) { return send(res, await
 export async function active_orders(req: any, res: any) { return send(res, await service.activeOrders(req.params.id)); }
 export async function refund_order(req: any, res: any) { return send(res, await service.refundOrder(req.params.id, req.params.orderId, req.body?.reason || 'refund')); }
 
-export async function create_food_order(req: any, res: any) { return send(res, await service.createFoodOrder(req.body)); }
-export async function get_food_order(req: any, res: any) { return send(res, await service.getFoodOrder(req.params.orderId)); }
-export async function list_food_orders_by_user(req: any, res: any) { return send(res, await service.listFoodOrdersByUser(req.params.userId, req.query)); }
-export async function cancel_food_order(req: any, res: any) { return send(res, await service.updateFoodOrderStatus(req.params.orderId, 'canceled')); }
-export async function update_food_order_status(req: any, res: any) { return send(res, await service.updateFoodOrderStatus(req.params.orderId, req.body?.status)); }
-export async function track_food_order(req: any, res: any) { return send(res, await service.trackFoodOrder(req.params.orderId)); }
-export async function rate_food_order(req: any, res: any) { return send(res, await service.rateFoodOrder(req.params.orderId, req.body)); }
-export async function food_order_receipt(req: any, res: any) { return send(res, await service.foodOrderReceipt(req.params.orderId)); }
-export async function refund_request(req: any, res: any) { return send(res, await service.requestFoodOrderRefund(req.params.orderId, req.body)); }
-export async function active_food_orders(req: any, res: any) { return send(res, await service.activeFoodOrders(req.query?.userId)); }
+async function requireFoodOrderOwner(req: any, res: any) {
+  const result = await service.getFoodOrder(req.params.orderId) as any;
+  if (!result?.ok) {
+    send(res, result);
+    return null;
+  }
+  if (!req.user?.id || result.order?.userId !== req.user.id) {
+    res.status(403).json({ module: 'restaurants', action: 'food-order-owner', error: 'forbidden' });
+    return null;
+  }
+  return result.order;
+}
+
+export async function create_food_order(req: any, res: any) {
+  return send(res, await service.createFoodOrder({ ...req.body, userId: req.user.id }));
+}
+
+export async function get_food_order(req: any, res: any) {
+  const order = await requireFoodOrderOwner(req, res);
+  if (!order) return;
+  return res.json({ module: 'restaurants', action: 'food-order-get', ok: true, order });
+}
+
+export async function list_food_orders_by_user(req: any, res: any) {
+  if (!req.user?.id || req.params.userId !== req.user.id) {
+    return res.status(403).json({ module: 'restaurants', action: 'food-order-user-list', error: 'forbidden' });
+  }
+  return send(res, await service.listFoodOrdersByUser(req.user.id, req.query));
+}
+
+export async function cancel_food_order(req: any, res: any) {
+  const order = await requireFoodOrderOwner(req, res);
+  if (!order) return;
+  return send(res, await service.updateFoodOrderStatus(req.params.orderId, 'canceled'));
+}
+
+export async function update_food_order_status(req: any, res: any) {
+  return send(res, await service.updateFoodOrderStatus(req.params.orderId, req.body?.status));
+}
+
+export async function track_food_order(req: any, res: any) {
+  const order = await requireFoodOrderOwner(req, res);
+  if (!order) return;
+  return send(res, await service.trackFoodOrder(req.params.orderId));
+}
+
+export async function rate_food_order(req: any, res: any) {
+  const order = await requireFoodOrderOwner(req, res);
+  if (!order) return;
+  return send(res, await service.rateFoodOrder(req.params.orderId, req.body));
+}
+
+export async function food_order_receipt(req: any, res: any) {
+  const order = await requireFoodOrderOwner(req, res);
+  if (!order) return;
+  return send(res, await service.foodOrderReceipt(req.params.orderId));
+}
+
+export async function refund_request(req: any, res: any) {
+  const order = await requireFoodOrderOwner(req, res);
+  if (!order) return;
+  return send(res, await service.requestFoodOrderRefund(req.params.orderId, req.body));
+}
+
+export async function active_food_orders(req: any, res: any) {
+  return send(res, await service.activeFoodOrders(req.user.id));
+}
 
 export async function search_restaurants(req: any, res: any) { return send(res, await service.searchRestaurants(req.query)); }
 export async function nearby_restaurants(req: any, res: any) { return send(res, await service.nearbyRestaurants(req.query)); }

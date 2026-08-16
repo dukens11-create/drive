@@ -1,11 +1,9 @@
 // ─── Constants ────────────────────────────────────────────────────────────────
 const API_BASE_URL = '';
+const DRIVER_DEMO_MODE = new URLSearchParams(window.location.search).get('demo') === '1';
 
-// ─── Shared Rider ↔ Driver Demo-Mode Keys ─────────────────────────────────────
-// These two keys sync state between rider-dashboard.html and driver-dashboard.html
-// via localStorage + window storage events.
-// [REALTIME] Replace both with Firebase Realtime Database refs or Supabase channels
-// when moving to a production backend:
+// ─── Legacy local demo adapters ────────────────────────────────────────────────
+// Disabled in production. Append ?demo=1 only for isolated browser demonstrations.
 //   - SHARED_PENDING_RIDES_KEY → firebase.database().ref('pendingRides')
 //   - SHARED_RIDE_STATUS_KEY   → firebase.database().ref('rideStatus')
 const SHARED_PENDING_RIDES_KEY = 'drive_shared_pending_rides';   // rider → driver
@@ -111,75 +109,6 @@ function getStoredUserPayload() {
   return userPayload;
 }
 
-function redirectToDriverLogin(message = AUTH_REQUIRED_MESSAGE) {
-  console.warn('[AUTH] Redirecting to driver login', { message });
-  const alertDiv = document.getElementById('driver-alert');
-  if (alertDiv) {
-    alertDiv.className = 'alert alert-warning floating-alert';
-    alertDiv.classList.remove('d-none');
-    alertDiv.textContent = message;
-  }
-  sessionStorage.setItem('authRedirectMessage', message);
-  window.setTimeout(() => {
-    window.location.replace(LOGIN_REDIRECT_PATH);
-  }, AUTH_REDIRECT_DELAY_MS);
-}
-
-function setupSession() {
-  logAuthStorageState();
-  accessToken = getAuthToken() || null;
-  refreshToken = getStoredRefreshToken() || null;
-  const userStr = getStoredUserPayload();
-
-  console.log('[AUTH] Session validation starting', {
-    hasToken: Boolean(accessToken),
-    tokenLength: accessToken?.length || 0,
-    hasRefreshToken: Boolean(refreshToken),
-    hasUser: Boolean(userStr)
-  });
-
-  if (!accessToken) {
-    redirectToDriverLogin(AUTH_REQUIRED_MESSAGE);
-    return false;
-  }
-
-  if (!userStr) {
-    redirectToDriverLogin(AUTH_REQUIRED_MESSAGE);
-    return false;
-  }
-
-  try {
-    currentUser = JSON.parse(userStr);
-  } catch (error) {
-    console.error('[AUTH] Unable to parse stored driver session', { error, userStr });
-    redirectToDriverLogin(AUTH_REQUIRED_MESSAGE);
-    return false;
-  }
-
-  const role = String(currentUser?.role || '').toLowerCase();
-  console.log('[AUTH] Session user parsed', {
-    userId: currentUser?.id || null,
-    role
-  });
-
-  if (!currentUser?.id || role !== 'driver') {
-    console.warn('[AUTH] Invalid driver session role payload', { user: currentUser });
-    redirectToDriverLogin(AUTH_REQUIRED_MESSAGE);
-    return false;
-  }
-
-  if (!localStorage.getItem('accessToken')) localStorage.setItem('accessToken', accessToken);
-  if (refreshToken && !localStorage.getItem('refreshToken')) localStorage.setItem('refreshToken', refreshToken);
-  if (!localStorage.getItem('user')) localStorage.setItem('user', userStr);
-
-  console.log('[AUTH] Session setup complete', {
-    userId: currentUser.id,
-    tokenLength: accessToken.length,
-    hasRefreshToken: Boolean(refreshToken)
-  });
-  return true;
-}
-
 document.addEventListener('DOMContentLoaded', () => {
   const ok = setupSession();
   console.log('[AUTH] DOMContentLoaded setup complete', { ok });
@@ -219,18 +148,18 @@ const MIN_SCALE_MULTIPLIER = 0.25;
 const MAX_SCALE_MULTIPLIER = 64;
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
-const MOCK_COMPLETED_RIDES = [
+const MOCK_COMPLETED_RIDES = DRIVER_DEMO_MODE ? [
   { id: 'ride_hist_101', pickupLat: 37.775, pickupLng: -122.418, dropoffLat: 37.789, dropoffLng: -122.401, fareEstimate: 24.5, minutes: 21, passengerRating: 4.9, completedAt: '2026-05-31T10:12:00.000Z' },
   { id: 'ride_hist_102', pickupLat: 37.764, pickupLng: -122.431, dropoffLat: 37.752, dropoffLng: -122.447, fareEstimate: 18.75, minutes: 16, passengerRating: 4.7, completedAt: '2026-05-30T18:42:00.000Z' },
   { id: 'ride_hist_103', pickupLat: 37.781, pickupLng: -122.406, dropoffLat: 37.794, dropoffLng: -122.392, fareEstimate: 31.2, minutes: 27, passengerRating: 5, completedAt: '2026-05-29T07:58:00.000Z' }
-];
-const MOCK_NEARBY_REQUESTS = [
+] : [];
+const MOCK_NEARBY_REQUESTS = DRIVER_DEMO_MODE ? [
   { id: 'ride_live_201', pickupLat: 37.776, pickupLng: -122.419, dropoffLat: 37.792, dropoffLng: -122.408, fareEstimate: 22.4, minutes: 19, status: 'requested', passengerName: 'Ava J.', passengerRating: 4.8 },
   { id: 'ride_live_202', pickupLat: 37.771, pickupLng: -122.414, dropoffLat: 37.759, dropoffLng: -122.436, fareEstimate: 17.35, minutes: 14, status: 'requested', passengerName: 'Liam R.', passengerRating: 4.6 }
-];
+] : [];
 
 // Simulation waypoints (San Francisco loop)
-const SIMULATION_WAYPOINTS = [
+const SIMULATION_WAYPOINTS = DRIVER_DEMO_MODE ? [
   { lat: 37.7749, lng: -122.4194 },
   { lat: 37.7761, lng: -122.4180 },
   { lat: 37.7775, lng: -122.4165 },
@@ -243,7 +172,7 @@ const SIMULATION_WAYPOINTS = [
   { lat: 37.7762, lng: -122.4105 },
   { lat: 37.7749, lng: -122.4120 },
   { lat: 37.7749, lng: -122.4194 },
-];
+] : [];
 
 // ─── App State ────────────────────────────────────────────────────────────────
 let currentUser = null;
@@ -1261,6 +1190,7 @@ function emitRideRequestAction(action, ride, extra = {}) {
  * [REALTIME] Replace with: firebase.database().ref('pendingRides').once('value')
  */
 function getSharedPendingRides() {
+  if (!DRIVER_DEMO_MODE) return [];
   try {
     const raw = localStorage.getItem(SHARED_PENDING_RIDES_KEY);
     const parsed = JSON.parse(raw || '[]');
@@ -1275,6 +1205,7 @@ function getSharedPendingRides() {
  * or: supabase.channel('ride-status').send({ type: 'broadcast', event: 'status-update', payload: entry })
  */
 function publishSharedRideStatus(rideId, status, extra = {}) {
+  if (!DRIVER_DEMO_MODE) return;
   try {
     const map = JSON.parse(localStorage.getItem(SHARED_RIDE_STATUS_KEY) || '{}');
     map[rideId] = {
@@ -3508,6 +3439,10 @@ async function ensureDriverLocation() {
 // ─── GPS Simulation ───────────────────────────────────────────────────────────
 function toggleGpsSimulation() {
   const btn = document.getElementById('simulate-gps-button');
+  if (!DRIVER_DEMO_MODE) {
+    showAlert('warning', 'GPS simulation is disabled in production.');
+    return;
+  }
   if (gpsSimulationIntervalId !== null) {
     window.clearInterval(gpsSimulationIntervalId);
     gpsSimulationIntervalId = null;
@@ -6116,4 +6051,10 @@ window.addEventListener('load', async () => {
   initSosHandlers();
   // Start heatmap refresh after map is ready (delay to allow map initialization)
   setTimeout(() => startHeatmapRefresh(), 3000);
+});
+
+
+document.addEventListener('DOMContentLoaded', () => {
+  const simulateButton = document.getElementById('simulate-gps-button');
+  if (simulateButton) simulateButton.hidden = !DRIVER_DEMO_MODE;
 });

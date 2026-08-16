@@ -38,7 +38,7 @@ test('restaurant auth + menu + food-order flow works', async () => {
   await withServer(async baseUrl => {
     const register = await json(baseUrl, '/api/restaurants/register', 'POST', {
       email: email('merchant'),
-      password: 'Secret123!',
+      password: 'Secret123!Drive',
       name: 'Nile Bites'
     });
 
@@ -64,17 +64,18 @@ test('restaurant auth + menu + food-order flow works', async () => {
 
     const riderSignup = await json(baseUrl, '/api/auth/signup', 'POST', {
       email: email('rider'),
-      password: 'Secret123!',
+      password: 'Secret123!Drive',
       role: 'rider'
     });
     assert.equal(riderSignup.status, 200);
     const riderId = riderSignup.body.user.id as string;
+    const riderToken = riderSignup.body.accessToken as string;
 
     const order = await json(baseUrl, '/api/orders/food', 'POST', {
       restaurantId,
       userId: riderId,
       items: [{ itemId: item.body.item.id, quantity: 2 }]
-    });
+    }, riderToken);
     assert.equal(order.status, 200);
     assert.equal(order.body.order.status, 'pending');
 
@@ -82,7 +83,7 @@ test('restaurant auth + menu + food-order flow works', async () => {
     assert.equal(accept.status, 200);
     assert.equal(accept.body.order.status, 'accepted');
 
-    const track = await json(baseUrl, `/api/orders/food/${order.body.order.id}/track`);
+    const track = await json(baseUrl, `/api/orders/food/${order.body.order.id}/track`, 'GET', undefined, riderToken);
     assert.equal(track.status, 200);
     assert.equal(track.body.status, 'accepted');
   });
@@ -92,7 +93,7 @@ test('restaurant search/discovery endpoints return created restaurant', async ()
   await withServer(async baseUrl => {
     const register = await json(baseUrl, '/api/restaurants/register', 'POST', {
       email: email('merchant-search'),
-      password: 'Secret123!',
+      password: 'Secret123!Drive',
       name: 'Lagos Kitchen'
     });
     assert.equal(register.status, 200);
@@ -126,7 +127,7 @@ test('admin restaurant endpoints require admin and can verify restaurant', async
   await withServer(async baseUrl => {
     const register = await json(baseUrl, '/api/restaurants/register', 'POST', {
       email: email('merchant-admin'),
-      password: 'Secret123!',
+      password: 'Secret123!Drive',
       name: 'Abuja Grill'
     });
     assert.equal(register.status, 200);
@@ -135,14 +136,14 @@ test('admin restaurant endpoints require admin and can verify restaurant', async
     const adminEmail = email('admin');
     const adminSignup = await json(baseUrl, '/api/auth/signup', 'POST', {
       email: adminEmail,
-      password: 'Secret123!'
+      password: 'Secret123!Drive'
     });
     assert.equal(adminSignup.status, 200);
     const adminId = adminSignup.body.user.id as string;
     const adminRecord = store.users.get(adminId);
     assert.ok(adminRecord);
     adminRecord!.role = 'admin';
-    const adminLogin = await json(baseUrl, '/api/auth/login', 'POST', { email: adminEmail, password: 'Secret123!' });
+    const adminLogin = await json(baseUrl, '/api/auth/login', 'POST', { email: adminEmail, password: 'Secret123!Drive' });
     assert.equal(adminLogin.status, 200);
     const adminToken = adminLogin.body.accessToken as string;
 

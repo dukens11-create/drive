@@ -36,7 +36,7 @@ export const menuItemSchema = z.object({
 
 export const foodOrderSchema = z.object({
   restaurantId: z.string().min(1),
-  userId: z.string().min(1),
+  userId: z.string().min(1).optional(),
   items: z.array(
     z.object({ itemId: z.string().min(1), quantity: z.number().int().positive().default(1) }).passthrough()
   ).min(1)

@@ -31,16 +31,16 @@ router.get('/restaurants/trending', controller.trending_restaurants);
 router.get('/restaurants/:id/reviews', controller.restaurant_reviews);
 router.get('/restaurants/:id/menu', controller.restaurant_menu);
 
-router.post('/orders/food', validateBody(foodOrderSchema), controller.create_food_order);
-router.get('/orders/food/active', controller.active_food_orders);
-router.get('/orders/food/:orderId', controller.get_food_order);
-router.get('/orders/food/user/:userId', controller.list_food_orders_by_user);
-router.put('/orders/food/:orderId/cancel', validateBody(genericPassthroughSchema), controller.cancel_food_order);
-router.put('/orders/food/:orderId/status', validateBody(genericPassthroughSchema), controller.update_food_order_status);
-router.get('/orders/food/:orderId/track', controller.track_food_order);
-router.post('/orders/food/:orderId/rate', validateBody(genericPassthroughSchema), controller.rate_food_order);
-router.get('/orders/food/:orderId/receipt', controller.food_order_receipt);
-router.post('/orders/food/:orderId/refund-request', validateBody(genericPassthroughSchema), controller.refund_request);
+router.post('/orders/food', requireAuth, requireRole('rider'), validateBody(foodOrderSchema), controller.create_food_order);
+router.get('/orders/food/active', requireAuth, requireRole('rider'), controller.active_food_orders);
+router.get('/orders/food/:orderId', requireAuth, requireRole('rider'), controller.get_food_order);
+router.get('/orders/food/user/:userId', requireAuth, requireRole('rider'), controller.list_food_orders_by_user);
+router.put('/orders/food/:orderId/cancel', requireAuth, requireRole('rider'), validateBody(genericPassthroughSchema), controller.cancel_food_order);
+router.put('/orders/food/:orderId/status', requireAuth, requireRole('admin'), validateBody(genericPassthroughSchema), controller.update_food_order_status);
+router.get('/orders/food/:orderId/track', requireAuth, requireRole('rider'), controller.track_food_order);
+router.post('/orders/food/:orderId/rate', requireAuth, requireRole('rider'), validateBody(genericPassthroughSchema), controller.rate_food_order);
+router.get('/orders/food/:orderId/receipt', requireAuth, requireRole('rider'), controller.food_order_receipt);
+router.post('/orders/food/:orderId/refund-request', requireAuth, requireRole('rider'), validateBody(genericPassthroughSchema), controller.refund_request);
 
 router.use(requireAuth);
 
