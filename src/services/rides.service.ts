@@ -229,7 +229,6 @@ function getDriverDisplayName(userId?: string) {
   if (!user) return 'Driver';
   return user.email?.split('@')[0] || user.phone || 'Driver';
 }
-
 function buildAssignedDriverDetails(ride: Ride) {
   if (!ride.driverId) return null;
   const driverId = ride.driverId;
@@ -250,7 +249,22 @@ function buildAssignedDriverDetails(ride: Ride) {
     phone: user?.phone,
     rating: Number(profile?.rating || 5),
     profilePhotoUrl: profile?.profilePhotoUrl,
-    eta: Math.max(1, Math.round(Number(ride.minutes || 0))),
+    eta: (() => {
+      const driverLat = Number(profile?.lat);
+      const driverLng = Number(profile?.lng);
+      const pickupLat = Number(ride.pickupLat);
+      const pickupLng = Number(ride.pickupLng);
+      if (
+        Number.isFinite(driverLat) &&
+        Number.isFinite(driverLng) &&
+        Number.isFinite(pickupLat) &&
+        Number.isFinite(pickupLng)
+      ) {
+        const distanceMiles = estimateRouteDistanceMiles(driverLat, driverLng, pickupLat, pickupLng);
+        return Math.max(1, Math.round(distanceMiles * ETA_MINUTES_PER_MILE));
+      }
+      return 2;
+    })(),
     vehicle: {
       make,
       model,
