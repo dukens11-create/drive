@@ -22,6 +22,7 @@ router.post('/restaurants/verify-email', validateBody(genericPassthroughSchema),
 router.post('/restaurants/refresh-token', validateBody(genericPassthroughSchema), controller.refresh_token);
 router.post('/restaurants/logout', validateBody(genericPassthroughSchema), controller.logout);
 
+router.get('/restaurants/discovery/nearby', controller.discover_nearby_restaurants);
 router.get('/restaurants/search', controller.search_restaurants);
 router.get('/restaurants/nearby', controller.nearby_restaurants);
 router.get('/restaurants/featured', controller.featured_restaurants);

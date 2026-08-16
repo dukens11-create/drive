@@ -1,4 +1,5 @@
 import * as service from '../services/restaurants.service';
+import { discoverNearbyRestaurants } from '../services/restaurant-discovery.service';
 
 function send(res: any, payload: any) {
   if (payload?.error) return res.status(400).json(payload);
@@ -128,6 +129,38 @@ export async function refund_request(req: any, res: any) {
 
 export async function active_food_orders(req: any, res: any) {
   return send(res, await service.activeFoodOrders(req.user.id));
+}
+
+export async function discover_nearby_restaurants(req: any, res: any) {
+  try {
+    const result = await discoverNearbyRestaurants({
+      lat: req.query?.lat,
+      lng: req.query?.lng,
+      radiusMeters: req.query?.radiusMeters
+    });
+
+    if (!result.ok) {
+      return res.status(result.statusCode).json({
+        module: 'restaurants',
+        action: 'discover-nearby',
+        ...result
+      });
+    }
+
+    return res.json({
+      module: 'restaurants',
+      action: 'discover-nearby',
+      ...result
+    });
+  } catch (error: any) {
+    return res.status(502).json({
+      module: 'restaurants',
+      action: 'discover-nearby',
+      error: error?.name === 'TimeoutError'
+        ? 'restaurant discovery provider timed out'
+        : String(error?.message || 'restaurant discovery failed')
+    });
+  }
 }
 
 export async function search_restaurants(req: any, res: any) { return send(res, await service.searchRestaurants(req.query)); }

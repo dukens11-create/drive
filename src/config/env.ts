@@ -128,6 +128,8 @@ export const env = {
     'pk.eyJ1IjoiZmx1cGZsYXAiLCJhIjoiY21wMjI3M3dpMDN5eTJycHMyeG8yaDZ3OCJ9.VUXlzIoU5Gxfj6-BVjnxag'
   ),
   mapboxApiKey: getString('MAPBOX_API_KEY'),
+  // Google Places API (New) server-side key for FlupFlap Eat discovery
+  googlePlacesApiKey: getString('GOOGLE_PLACES_API_KEY'),
   // PostgreSQL database connection
   databaseUrl: getString('DATABASE_URL'),
   databasePoolMax: Number(getString('DATABASE_POOL_MAX', '10')),

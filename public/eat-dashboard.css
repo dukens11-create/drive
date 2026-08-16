@@ -301,3 +301,67 @@ button { cursor: pointer; }
     flex-direction: column;
   }
 }
+
+/* Live restaurant discovery: USA / Canada / Mexico */
+.discovery-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.discovery-badge.partner {
+  background: #e8f7ec;
+  color: #177d37;
+}
+
+.discovery-badge.nearby {
+  background: #f1f1ee;
+  color: #555;
+}
+
+.nearby-address {
+  min-height: 38px;
+  margin: 7px 0 12px;
+  color: #676767;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.partner-order-button,
+.not-orderable-button {
+  width: 100%;
+  border-radius: 12px;
+  margin-top: 14px;
+  padding: 11px 12px;
+  font-weight: 900;
+}
+
+.partner-order-button {
+  border: 0;
+  background: #111;
+  color: #fff;
+}
+
+.partner-order-button:hover {
+  background: #252525;
+}
+
+.not-orderable-button {
+  border: 1px solid #dfdfda;
+  background: #f7f7f4;
+  color: #777;
+  cursor: default;
+}
+
+.discovery-coverage {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+  color: #777;
+  font-size: 11px;
+  line-height: 1.45;
+}
