@@ -32,6 +32,9 @@ type PosConnection = {
 
 type SquareCredentials = {
   accessToken: string;
+  refreshToken?: string;
+  expiresAt?: string;
+  merchantId?: string;
   locationId: string;
   environment?: 'sandbox' | 'production';
 };
@@ -569,6 +572,247 @@ async function providerMenu(connection: PosConnection) {
   return cloverMenu(decrypt<CloverCredentials>(connection.encryptedCredentials));
 }
 
+const SQUARE_OAUTH_SCOPES = [
+  'MERCHANT_PROFILE_READ',
+  'ITEMS_READ',
+  'ORDERS_READ',
+  'ORDERS_WRITE',
+  'INVENTORY_READ'
+] as const;
+
+function squareOAuthBase() {
+  return env.squareEnvironment === 'sandbox'
+    ? 'https://connect.squareupsandbox.com/oauth2'
+    : 'https://connect.squareup.com/oauth2';
+}
+
+function squareApiBase() {
+  return env.squareEnvironment === 'sandbox'
+    ? 'https://connect.squareupsandbox.com'
+    : 'https://connect.squareup.com';
+}
+
+function squareOAuthConfigured() {
+  return Boolean(
+    env.squareApplicationId &&
+    env.squareApplicationSecret &&
+    env.squareOauthRedirectUri
+  );
+}
+
+function signSquareState(restaurantId: string) {
+  const payload = Buffer.from(JSON.stringify({
+    restaurantId,
+    expiresAt: Date.now() + 10 * 60 * 1000,
+    nonce: crypto.randomUUID()
+  }), 'utf8').toString('base64url');
+
+  const signature = crypto
+    .createHmac('sha256', encryptionSecret())
+    .update(payload)
+    .digest('base64url');
+
+  return `${payload}.${signature}`;
+}
+
+function verifySquareState(stateInput: unknown) {
+  const state = String(stateInput || '');
+  const [payload, signature] = state.split('.');
+
+  if (!payload || !signature) throw new Error('invalid Square OAuth state');
+
+  const expected = crypto
+    .createHmac('sha256', encryptionSecret())
+    .update(payload)
+    .digest();
+
+  const actual = Buffer.from(signature, 'base64url');
+
+  if (
+    actual.length !== expected.length ||
+    !crypto.timingSafeEqual(actual, expected)
+  ) {
+    throw new Error('invalid Square OAuth state');
+  }
+
+  const parsed = JSON.parse(
+    Buffer.from(payload, 'base64url').toString('utf8')
+  );
+
+  if (
+    !parsed?.restaurantId ||
+    Number(parsed?.expiresAt) < Date.now()
+  ) {
+    throw new Error('Square OAuth state expired or is invalid');
+  }
+
+  return String(parsed.restaurantId);
+}
+
+async function squareLocationForToken(accessToken: string) {
+  const data = await fetchJson(`${squareApiBase()}/v2/locations`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Square-Version': '2026-07-15'
+    }
+  });
+
+  const locations = Array.isArray(data?.locations) ? data.locations : [];
+  const selected =
+    locations.find((location: any) =>
+      String(location?.status || '').toUpperCase() === 'ACTIVE'
+    ) || locations[0];
+
+  const locationId = String(selected?.id || '').trim();
+  if (!locationId) throw new Error('Square did not return a usable location');
+
+  return {
+    locationId,
+    locationName: String(selected?.name || '').trim() || undefined
+  };
+}
+
+export async function squareOAuthStart(restaurantId: string) {
+  try {
+    await ensureRestaurantExists(restaurantId);
+
+    if (!squareOAuthConfigured()) {
+      return err(
+        'square-oauth-start',
+        'Square OAuth is not configured on the FlupFlap server',
+        503
+      );
+    }
+
+    const url = new URL(`${squareOAuthBase()}/authorize`);
+    url.searchParams.set('client_id', String(env.squareApplicationId));
+    url.searchParams.set('scope', SQUARE_OAUTH_SCOPES.join(' '));
+    url.searchParams.set('state', signSquareState(restaurantId));
+    url.searchParams.set('session', 'false');
+    url.searchParams.set('redirect_uri', String(env.squareOauthRedirectUri));
+
+    return ok('square-oauth-start', {
+      authorizationUrl: url.toString(),
+      environment: env.squareEnvironment,
+      scopes: [...SQUARE_OAUTH_SCOPES]
+    });
+  } catch (error: any) {
+    return err(
+      'square-oauth-start',
+      String(error?.message || 'could not start Square OAuth'),
+      400
+    );
+  }
+}
+
+export async function squareOAuthCallback(query: any) {
+  try {
+    if (!squareOAuthConfigured()) {
+      return err(
+        'square-oauth-callback',
+        'Square OAuth is not configured on the FlupFlap server',
+        503
+      );
+    }
+
+    if (query?.error) {
+      return err(
+        'square-oauth-callback',
+        String(query?.error_description || query?.error),
+        400
+      );
+    }
+
+    const code = String(query?.code || '').trim();
+    if (!code) {
+      return err(
+        'square-oauth-callback',
+        'Square authorization code is missing',
+        400
+      );
+    }
+
+    const restaurantId = verifySquareState(query?.state);
+    await ensureRestaurantExists(restaurantId);
+
+    const tokenData = await fetchJson(`${squareOAuthBase()}/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Square-Version': '2026-07-15'
+      },
+      body: JSON.stringify({
+        client_id: env.squareApplicationId,
+        client_secret: env.squareApplicationSecret,
+        code,
+        grant_type: 'authorization_code',
+        redirect_uri: env.squareOauthRedirectUri
+      })
+    });
+
+    const accessToken = String(tokenData?.access_token || '').trim();
+    if (!accessToken) {
+      throw new Error('Square token exchange did not return an access token');
+    }
+
+    const location = await squareLocationForToken(accessToken);
+    const existing = connections.get(restaurantId);
+    const timestamp = now();
+
+    const credentials: SquareCredentials = {
+      accessToken,
+      refreshToken: tokenData?.refresh_token
+        ? String(tokenData.refresh_token)
+        : undefined,
+      expiresAt: tokenData?.expires_at
+        ? String(tokenData.expires_at)
+        : undefined,
+      merchantId: tokenData?.merchant_id
+        ? String(tokenData.merchant_id)
+        : undefined,
+      locationId: location.locationId,
+      environment: env.squareEnvironment
+    };
+
+    const connection: PosConnection = {
+      restaurantId,
+      provider: 'square',
+      encryptedCredentials: encrypt(credentials),
+      createdAt: existing?.createdAt || timestamp,
+      updatedAt: timestamp,
+      lastTestAt: timestamp,
+      lastTestOk: true,
+      lastSyncAt: existing?.provider === 'square'
+        ? existing.lastSyncAt
+        : undefined,
+      itemMap: existing?.provider === 'square'
+        ? existing.itemMap
+        : {},
+      categoryMap: existing?.provider === 'square'
+        ? existing.categoryMap
+        : {}
+    };
+
+    connections.set(restaurantId, connection);
+    persistConnections();
+
+    return ok('square-oauth-callback', {
+      restaurantId,
+      provider: 'square',
+      merchantId: credentials.merchantId,
+      locationId: location.locationId,
+      locationName: location.locationName,
+      environment: env.squareEnvironment,
+      connection: connectionSummary(connection)
+    });
+  } catch (error: any) {
+    return err(
+      'square-oauth-callback',
+      String(error?.message || 'Square OAuth connection failed'),
+      502
+    );
+  }
+}
 export async function configureConnection(
   restaurantId: string,
   body: any

@@ -22,6 +22,7 @@ router.post('/restaurants/verify-email', validateBody(genericPassthroughSchema),
 router.post('/restaurants/refresh-token', validateBody(genericPassthroughSchema), controller.refresh_token);
 router.post('/restaurants/logout', validateBody(genericPassthroughSchema), controller.logout);
 
+router.get('/restaurants/pos/square/oauth/callback', controller.pos_square_oauth_callback);
 router.get('/restaurants/discovery/nearby', controller.discover_nearby_restaurants);
 router.get('/restaurants/search', controller.search_restaurants);
 router.get('/restaurants/nearby', controller.nearby_restaurants);
@@ -45,6 +46,7 @@ router.post('/orders/food/:orderId/refund-request', requireAuth, requireRole('ri
 
 router.use(requireAuth);
 
+router.get('/restaurants/:id/pos/square/oauth/start', requireRole('merchant', 'admin'), controller.pos_square_oauth_start);
 router.get('/restaurants/:id/pos/status', requireRole('merchant', 'admin'), controller.pos_connection_status);
 router.put('/restaurants/:id/pos/connection', requireRole('merchant', 'admin'), validateBody(genericPassthroughSchema), controller.pos_configure_connection);
 router.delete('/restaurants/:id/pos/connection', requireRole('merchant', 'admin'), controller.pos_disconnect);

@@ -200,6 +200,39 @@ function sendPos(res: any, payload: any) {
   return res.json(payload);
 }
 
+export async function pos_square_oauth_start(req: any, res: any) {
+  if (!await requirePosRestaurantAccess(req, res)) return;
+
+  const result = await posService.squareOAuthStart(req.params.id) as any;
+  if (!result?.ok || !result?.authorizationUrl) {
+    return sendPos(res, result);
+  }
+
+  return res.redirect(result.authorizationUrl);
+}
+
+export async function pos_square_oauth_callback(req: any, res: any) {
+  const result = await posService.squareOAuthCallback(req.query) as any;
+
+  if (!result?.ok) {
+    return res
+      .status(Number(result?.statusCode) || 400)
+      .type('html')
+      .send('<h1>Square connection failed</h1><p>' +
+        String(result?.error || 'Square OAuth failed')
+          .replace(/[&<>"']/g, '') +
+        '</p><p><a href="/eat-dashboard.html">Return to FlupFlap</a></p>');
+  }
+
+  return res
+    .status(200)
+    .type('html')
+    .send(
+      '<h1>Square is connected to FlupFlap</h1>' +
+      '<p>Authorization completed successfully.</p>' +
+      '<p><a href="/eat-dashboard.html">Return to FlupFlap</a></p>'
+    );
+}
 export async function pos_connection_status(req: any, res: any) {
   if (!await requirePosRestaurantAccess(req, res)) return;
   return sendPos(res, await posService.connectionStatus(req.params.id));

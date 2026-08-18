@@ -131,7 +131,13 @@ export const env = {
   // Google Places API (New) server-side key for FlupFlap Eat discovery
   googlePlacesApiKey: getString('GOOGLE_PLACES_API_KEY'),
   // PostgreSQL database connection
-  posCredentialsEncryptionKey: getString('POS_CREDENTIALS_ENCRYPTION_KEY'),
+  squareApplicationId: getString('SQUARE_APPLICATION_ID'),
+  squareApplicationSecret: getString('SQUARE_APPLICATION_SECRET'),
+  squareEnvironment: getString('SQUARE_ENVIRONMENT', 'sandbox') === 'production' ? 'production' as const : 'sandbox' as const,
+  squareOauthRedirectUri: getString(
+    'SQUARE_OAUTH_REDIRECT_URI',
+    'http://localhost:8080/api/restaurants/pos/square/oauth/callback'
+  ),  posCredentialsEncryptionKey: getString('POS_CREDENTIALS_ENCRYPTION_KEY'),
   databaseUrl: getString('DATABASE_URL'),
   databasePoolMax: Number(getString('DATABASE_POOL_MAX', '10')),
   loadedEnvFilePath,
