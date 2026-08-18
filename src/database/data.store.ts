@@ -126,6 +126,8 @@ export type Ride = {
   platformFeePercent?: number;  // Commission rate (0.08, 0.10, 0.12)
   driverPayout?: number;        // Amount driver keeps (cents)
   payoutStatus?: 'pending' | 'processed' | 'failed';
+  stripeTransferId?: string;
+  payoutFailureReason?: string;
   preferredDriverGender?: PreferredDriverGender;
   createdAt: string;
   updatedAt: string;
@@ -286,6 +288,11 @@ export type DriverProfile = {
   profilePhotoUrl?: string;
   vehicle?: DriverVehicleProfile;
   gender?: DriverGender;
+  stripeConnectedAccountId?: string;
+  stripeConnectOnboardingComplete?: boolean;
+  stripeChargesEnabled?: boolean;
+  stripePayoutsEnabled?: boolean;
+  stripeConnectUpdatedAt?: string;
 };
 
 export type KycSessionStatus = 'pending' | 'completed' | 'approved' | 'rejected' | 'expired' | 'pending_review';

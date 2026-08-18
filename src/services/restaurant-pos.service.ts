@@ -54,6 +54,34 @@ type CloverCredentials = {
 };
 
 const connections = new Map<string, PosConnection>();
+export function exportRestaurantPosSnapshot() {
+  return {
+    version: 1,
+    connections: Array.from(connections.entries())
+  };
+}
+
+export function importRestaurantPosSnapshot(snapshot: any) {
+  if (!snapshot || snapshot.version !== 1) {
+    throw new Error('Unsupported restaurant POS snapshot');
+  }
+
+  connections.clear();
+  for (const [restaurantId, raw] of Array.isArray(snapshot.connections) ? snapshot.connections : []) {
+    if (
+      raw &&
+      ['square', 'toast', 'clover'].includes(raw.provider) &&
+      typeof raw.encryptedCredentials === 'string'
+    ) {
+      connections.set(String(restaurantId), {
+        ...raw,
+        restaurantId: String(restaurantId),
+        itemMap: raw.itemMap || {},
+        categoryMap: raw.categoryMap || {}
+      });
+    }
+  }
+}
 
 function now() {
   return new Date().toISOString();
@@ -116,7 +144,7 @@ function decrypt<T>(payload: string): T {
 }
 
 function persistConnections() {
-  if (env.nodeEnv === 'test') return;
+  if (env.nodeEnv === 'test' || env.dataStoreMode === 'postgres') return;
 
   const file = storePath();
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -128,7 +156,7 @@ function persistConnections() {
 }
 
 function hydrateConnections() {
-  if (env.nodeEnv === 'test') return;
+  if (env.nodeEnv === 'test' || env.dataStoreMode === 'postgres') return;
 
   const file = storePath();
   if (!fs.existsSync(file)) return;

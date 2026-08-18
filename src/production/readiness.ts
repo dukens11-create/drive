@@ -53,6 +53,13 @@ export function inspectProductionConfiguration() {
       issues.push({ level: 'error', key: 'CORS_ALLOWED_ORIGINS', message: 'Production CORS must list only real HTTPS FlupFlap origins.' });
     }
 
+    if (!env.posCredentialsEncryptionKey) {
+      issues.push({
+        level: 'error',
+        key: 'POS_CREDENTIALS_ENCRYPTION_KEY',
+        message: 'A unique POS credential encryption key is required before storing restaurant Square/Toast/Clover credentials.'
+      });
+    }
     if (!env.redisUrl) {
       issues.push({ level: 'warning', key: 'REDIS_URL', message: 'Redis is recommended before horizontal scaling and durable queue rollout.' });
     }

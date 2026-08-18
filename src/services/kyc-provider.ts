@@ -85,27 +85,97 @@ function findSessionForWebhook(payload: any) {
 }
 
 export function verifyKycWebhookSignature(rawBody: string, signature?: string) {
-  if (!env.kycProviderWebhookSecret) return true;
+  if (!env.kycProviderWebhookSecret) return env.nodeEnv !== 'production';
   if (!signature) return false;
-  const expected = createHmac('sha256', env.kycProviderWebhookSecret).update(rawBody).digest('hex');
-  const left = Buffer.from(expected);
-  const right = Buffer.from(String(signature).trim());
-  if (left.length !== right.length) return false;
-  return timingSafeEqual(left, right);
+
+  for (const group of String(signature).trim().split(/\s+/).filter(Boolean)) {
+    const values = Object.fromEntries(group.split(',').map(part => {
+      const index = part.indexOf('=');
+      return index > 0 ? [part.slice(0, index), part.slice(index + 1)] : [part, ''];
+    }));
+    const webhookTimestamp = String(values.t || '');
+    const provided = String(values.v1 || '');
+    const timestampSeconds = Number(webhookTimestamp);
+    if (!webhookTimestamp || !provided || !Number.isFinite(timestampSeconds)) continue;
+    if (Math.abs(Date.now() / 1000 - timestampSeconds) > 300) continue;
+
+    const expected = createHmac('sha256', env.kycProviderWebhookSecret)
+      .update(`${webhookTimestamp}.${rawBody}`)
+      .digest('hex');
+    const left = Buffer.from(expected, 'utf8');
+    const right = Buffer.from(provided, 'utf8');
+    if (left.length === right.length && timingSafeEqual(left, right)) return true;
+  }
+  return false;
+}
+
+async function personaRequest(pathname: string, init: RequestInit) {
+  const baseUrl = String(env.kycProviderBaseUrl || 'https://api.withpersona.com').replace(/\/+$/, '');
+  const response = await fetch(`${baseUrl}${pathname}`, {
+    ...init,
+    signal: AbortSignal.timeout(15_000),
+    headers: {
+      Authorization: `Bearer ${env.kycProviderApiKey}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'Persona-Version': '2023-01-05',
+      ...(init.headers || {})
+    }
+  });
+  const raw = await response.text();
+  let payload: any = {};
+  try { payload = raw ? JSON.parse(raw) : {}; } catch { payload = { raw }; }
+  if (!response.ok) {
+    const detail = payload?.errors?.[0]?.detail || payload?.errors?.[0]?.title || payload?.error || `Persona returned HTTP ${response.status}`;
+    throw new Error(String(detail));
+  }
+  return payload;
 }
 
 export async function createKycSession(userId: string, documentType = 'driver_license', country = 'US') {
-  const providerSessionId = makeId('persona');
   const createdAt = timestamp();
   const expiresAt = new Date(Date.now() + KYC_SESSION_EXPIRY_MS).toISOString();
+  const personaConfigured = Boolean(env.kycProvider === 'persona' && env.kycProviderApiKey && env.kycTemplateId && env.kycProviderWebhookSecret);
+
+  if (!personaConfigured) {
+    if (env.nodeEnv === 'production') {
+      throw new Error('Real KYC is required in production. Configure Persona API, template, and webhook credentials.');
+    }
+    const providerSessionId = makeId('persona_dev');
+    const session: KycSession = {
+      id: makeId('kyc_session'), userId, provider: `${env.kycProvider}_development`, documentType, country,
+      sessionId: providerSessionId, sessionUrl: getSessionUrl(providerSessionId), status: 'pending', createdAt, expiresAt
+    };
+    store.kycSessions.set(session.id, session);
+    store.kycStatus.set(userId, 'pending');
+    return session;
+  }
+
+  const createPayload = await personaRequest('/api/v1/inquiries', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': `flupflap-kyc-${userId}` },
+    body: JSON.stringify({ data: { attributes: { 'inquiry-template-id': env.kycTemplateId, 'reference-id': userId } } })
+  });
+  const inquiryId = String(createPayload?.data?.id || '').trim();
+  if (!inquiryId.startsWith('inq_')) throw new Error('Persona did not return a valid inquiry ID');
+
+  let oneTimeLink = String(createPayload?.meta?.['one-time-link'] || createPayload?.meta?.oneTimeLink || '').trim();
+  if (!oneTimeLink) {
+    const linkPayload = await personaRequest(`/api/v1/inquiries/${encodeURIComponent(inquiryId)}/generate-one-time-link`, {
+      method: 'POST', headers: { 'Idempotency-Key': `flupflap-kyc-link-${inquiryId}` }, body: JSON.stringify({})
+    });
+    oneTimeLink = String(linkPayload?.meta?.['one-time-link'] || linkPayload?.meta?.oneTimeLink || '').trim();
+  }
+  if (!oneTimeLink.startsWith('https://')) throw new Error('Persona did not return a secure inquiry URL');
+
   const session: KycSession = {
     id: makeId('kyc_session'),
     userId,
-    provider: env.kycProvider,
+    provider: 'persona',
     documentType,
     country,
-    sessionId: providerSessionId,
-    sessionUrl: getSessionUrl(providerSessionId),
+    sessionId: inquiryId,
+    sessionUrl: oneTimeLink,
     status: 'pending',
     createdAt,
     expiresAt

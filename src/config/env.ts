@@ -106,7 +106,7 @@ export const env = {
   kycProviderApiKey: getString('KYC_PROVIDER_API_KEY'),
   kycProviderWebhookSecret: getString('KYC_PROVIDER_WEBHOOK_SECRET'),
   kycTemplateId: getString('KYC_TEMPLATE_ID'),
-  kycProviderBaseUrl: getString('KYC_PROVIDER_BASE_URL', 'https://verify.drive.local'),
+  kycProviderBaseUrl: getString('KYC_PROVIDER_BASE_URL', 'https://api.withpersona.com'),
   dataStoreMode,
   dataStoreFile: getString('DATA_STORE_FILE', '.data/store.json'),
   corsAllowedOrigins: getString('CORS_ALLOWED_ORIGINS', 'http://localhost:8080,http://127.0.0.1:8080'),

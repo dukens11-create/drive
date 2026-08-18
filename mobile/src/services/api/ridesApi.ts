@@ -1,7 +1,46 @@
 import { apiClient } from './client';
 import type { ApiEnvelope, RideEvent, RideSummary } from '../../types/api';
 
+export type DriverRideRequestSummary = {
+  requestId?: string;
+  rideId: string;
+  riderId: string;
+  riderName?: string;
+  riderPhone?: string;
+  riderRating?: number;
+  pickupAddress?: string;
+  pickupLat?: number;
+  pickupLng?: number;
+  dropoffAddress?: string;
+  dropoffLat?: number;
+  dropoffLng?: number;
+  destinationAddress?: string;
+  destinationLat?: number;
+  destinationLng?: number;
+  rideType?: string;
+  fareEstimate?: number;
+  distance?: number;
+  minutes?: number;
+  duration?: number;
+  etaMinutes?: number;
+  paymentMethod?: string;
+  status?: string;
+  expiresAt?: string;
+  timeLeft?: number;
+  createdAt?: string;
+};
 export const ridesApi = {
+  openRequests(limit = 20) {
+    const boundedLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+    return apiClient.get<ApiEnvelope<{
+      rides: DriverRideRequestSummary[];
+      requests: DriverRideRequestSummary[];
+      rideRequests: DriverRideRequestSummary[];
+    }>>(
+      `/api/driver/ride-requests?status=SEARCHING&limit=${boundedLimit}`,
+      { auth: true }
+    );
+  },
   history() {
     return apiClient.get<ApiEnvelope<{ rides: RideSummary[] }>>('/api/rides/history', { auth: true });
   },
@@ -12,6 +51,17 @@ export const ridesApi = {
 
   accept(rideId: string) {
     return apiClient.post<ApiEnvelope<{ ride: RideSummary }>>('/api/rides/accept', { rideId }, { auth: true });
+  },
+  decline(rideId: string, reason?: string) {
+    return apiClient.post<ApiEnvelope<{
+      rideId?: string;
+      status?: string;
+      ride?: RideSummary;
+    }>>(
+      `/api/rides/${encodeURIComponent(rideId)}/decline`,
+      { reason },
+      { auth: true }
+    );
   },
 
   arrive(rideId: string) {

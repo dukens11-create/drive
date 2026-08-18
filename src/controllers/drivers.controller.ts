@@ -1,5 +1,6 @@
 import * as service from '../services/drivers.service';
 import * as kycService from '../services/kyc.service';
+import * as payoutService from '../services/driver-payouts.service';
 export function health(_req:any,res:any){res.json({module:'drivers',ok:true})}
 export async function register(req:any,res:any){res.json(await service.register(req.body, req.params, req.query));}
 export async function apply(req:any,res:any){res.json(await service.apply({ ...req.body, actor: req.user }, req.params, req.query));}
@@ -39,3 +40,16 @@ export async function getVehicleProfile(req:any,res:any){res.json(await service.
 export async function uploadVehiclePhoto(req:any,res:any){res.json(await service.uploadVehiclePhoto({ ...req.body, actor: req.user, file: req.file }, req.params, req.query));}
 export async function create_kyc_session(req:any,res:any){res.json(await kycService.create_session({ ...req.body, actor: req.user }, req.params, req.query));}
 export async function kyc_status(req:any,res:any){res.json(await kycService.status({ ...req.body, actor: req.user }, req.params, req.query));}
+
+export async function connectPayoutStatus(req:any,res:any){
+  const result = await payoutService.connectStatus(req.user?.id);
+  res.status(result?.error ? 400 : 200).json(result);
+}
+export async function connectPayoutOnboarding(req:any,res:any){
+  const result = await payoutService.createOnboardingLink(req.user?.id);
+  res.status(result?.error ? 400 : 200).json(result);
+}
+export async function connectPayoutDashboard(req:any,res:any){
+  const result = await payoutService.createDashboardLink(req.user?.id);
+  res.status(result?.error ? 400 : 200).json(result);
+}

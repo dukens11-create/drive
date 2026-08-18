@@ -67,6 +67,9 @@ Thumbs.db
 *.tmp
 *.temp
 .tmp/
+.*-backup/
+.npm-cache/
+production-blocker-scan.txt
 
 # Data stores and caches
 .data/

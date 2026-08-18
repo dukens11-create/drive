@@ -1,3 +1,4 @@
+import { env } from '../config/env';
 import { getWalletBalanceCents, makeId, markStoreDirty, pushWalletTx, store, timestamp, type BankAccount, type BankAccountType, type PayoutRequest, type PayoutStatus } from '../database/data.store';
 import { sendPayoutConfirmation } from './drivers.service';
 
@@ -155,6 +156,13 @@ export async function set_default_bank_account(body: any, _params?: any, _query?
 }
 
 export async function withdraw(body: any, _params?: any, _query?: any) {
+  if (env.nodeEnv === 'production') {
+    return {
+      module: 'wallet',
+      action: 'withdraw',
+      error: 'Legacy direct-bank withdrawal is disabled in production. Complete Stripe Connect onboarding to receive driver payouts.'
+    };
+  }
   const userId = body?.userId;
   const amountCents = Number(body?.amountCents || 0);
   if (!userId) return { module: 'wallet', action: 'withdraw', error: 'userId is required' };

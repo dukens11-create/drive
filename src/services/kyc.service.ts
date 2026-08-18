@@ -45,8 +45,8 @@ export async function status(body: any, _params?: any, _query?: any) {
 
 export async function webhook(body: any, _params?: any, _query?: any) {
   const event = body?.event || body;
-  const signature = body?.signature || body?.headers?.['x-kyc-signature'];
-  const result = await processKycProviderWebhook(event, signature);
+  const signature = body?.signature || body?.headers?.['persona-signature'] || body?.headers?.['x-kyc-signature'];
+  const result = await processKycProviderWebhook(event, signature, body?.rawBody);
   const userId = result?.result?.userId;
   const outcome = result?.result?.status;
   if (userId && (outcome === 'verified' || outcome === 'rejected' || outcome === 'pending')) {

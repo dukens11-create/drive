@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import { Linking, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import { useEffect, useState } from 'react';
 
 import { TEXT_SCALE_OPTIONS, useAccessibilitySettings } from '../../src/context/AccessibilityContext';
@@ -261,6 +261,17 @@ export default function ProfileScreen() {
             <Text className="text-center font-semibold text-white" maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('common.continueOnboarding')}</Text>
           </Pressable>
         ) : null}
+        <View className="mt-4 flex-row flex-wrap gap-2">
+          <Pressable className="rounded-xl bg-zinc-200 px-3 py-2 dark:bg-zinc-800" onPress={() => void Linking.openURL('https://app.flupflap.com/privacy.html')} accessibilityRole="link">
+            <Text className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">Privacy</Text>
+          </Pressable>
+          <Pressable className="rounded-xl bg-zinc-200 px-3 py-2 dark:bg-zinc-800" onPress={() => void Linking.openURL('https://app.flupflap.com/terms.html')} accessibilityRole="link">
+            <Text className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">Terms</Text>
+          </Pressable>
+          <Pressable className="rounded-xl bg-rose-100 px-3 py-2 dark:bg-rose-950" onPress={() => void Linking.openURL('https://app.flupflap.com/account-deletion.html')} accessibilityRole="link" accessibilityLabel="Request account deletion">
+            <Text className="text-xs font-semibold text-rose-700 dark:text-rose-200">Request account deletion</Text>
+          </Pressable>
+        </View>
         <Pressable className={`mt-4 rounded-2xl px-4 py-3 ${highContrastEnabled ? 'border border-white bg-black' : 'bg-zinc-200 dark:bg-zinc-800'}`} onPress={() => void handleSignOut()} accessibilityRole="button" accessibilityLabel="Sign out">
           <Text className={`text-center font-semibold ${highContrastEnabled ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`} maxFontSizeMultiplier={maxFontSizeMultiplier}>{t('common.signOut')}</Text>
         </Pressable>

@@ -1,5 +1,6 @@
 import { markStoreDirty, store, timestamp } from '../database/data.store';
 import { applyCaptureLedger, applyRefundLedger } from './payment.records';
+import { syncConnectedAccountFromWebhook } from '../services/driver-payouts.service';
 
 function findPaymentForEvent(event: any) {
   const paymentId = event?.data?.object?.metadata?.paymentId;
@@ -65,8 +66,10 @@ export async function handleStripeWebhook(event: any) {
       markStoreDirty();
       return { handled: true, action: 'mark_payment_failed', payment };
     }
-    case 'account.updated':
-      return { handled: true, action: 'update_driver_connect_status' };
+    case 'account.updated': {
+      const result = await syncConnectedAccountFromWebhook(event?.data?.object);
+      return { handled: true, action: 'update_driver_connect_status', result };
+    }
     case 'charge.dispute.created':
       return { handled: true, action: 'flag_for_fraud_review' };
     case 'payment_method.attached':

@@ -3,6 +3,7 @@ import { env } from './config';
 import { getErrorDetails, logger } from './utils';
 import { startJobRunner, stopJobRunner } from './jobs';
 import { initializePostgresStorePersistence, flushPostgresStorePersistence } from './database/postgres-snapshot';
+import { initializeRestaurantStorePersistence, flushRestaurantStorePersistence } from './services/restaurant-store-persistence.service';
 import { closePool } from './database/postgres';
 import { inspectProductionConfiguration } from './production/readiness';
 
@@ -66,6 +67,8 @@ async function main() {
 
     const persistence = await initializePostgresStorePersistence();
     logger.info('store persistence initialized', persistence);
+    const restaurantPersistence = await initializeRestaurantStorePersistence();
+    logger.info('restaurant persistence initialized', restaurantPersistence);
 
     const { httpServer } = createApp();
   const host = env.host;
@@ -100,7 +103,10 @@ async function main() {
   server.on('close', () => {
     stopJobRunner();
     isListening = false;
-    void flushPostgresStorePersistence().finally(() => closePool()).catch(() => undefined);
+    void flushRestaurantStorePersistence()
+      .then(() => flushPostgresStorePersistence())
+      .finally(() => closePool())
+      .catch(() => undefined);
   });
 
   server.on('error', (error: unknown) => {
@@ -129,6 +135,7 @@ async function main() {
       nodeEnv: env.nodeEnv,
       loadedEnvFilePath: env.loadedEnvFilePath ?? null
     });
+    try { await flushRestaurantStorePersistence(); } catch {}
     try { await flushPostgresStorePersistence(); } catch {}
     try { await closePool(); } catch {}
     exitProcess(1);

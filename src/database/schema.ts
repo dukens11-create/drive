@@ -140,6 +140,14 @@ CREATE TABLE IF NOT EXISTS drivers (
   verification_review      JSONB
 );
 
+ALTER TABLE drivers ADD COLUMN IF NOT EXISTS stripe_connected_account_id TEXT;
+ALTER TABLE drivers ADD COLUMN IF NOT EXISTS stripe_connect_onboarding_complete BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE drivers ADD COLUMN IF NOT EXISTS stripe_charges_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE drivers ADD COLUMN IF NOT EXISTS stripe_payouts_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE drivers ADD COLUMN IF NOT EXISTS stripe_connect_updated_at TIMESTAMPTZ;
+
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS stripe_transfer_id TEXT;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS payout_failure_reason TEXT;
 -- ─── Riders ──────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS riders (
   user_id                  TEXT PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,

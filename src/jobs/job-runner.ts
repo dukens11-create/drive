@@ -3,11 +3,13 @@ import type { ScheduledTask } from 'node-cron';
 import { runScheduledRidesDispatcher } from './scheduled-rides-dispatcher';
 import { runAnalyticsAggregator } from './analytics-aggregator';
 import { runFraudMonitor } from './fraud-monitor';
+import { runDriverPayoutReconciler } from './driver-payout-reconciler';
 import { logger } from '../utils/logger';
 
 let scheduledRidesTask: ScheduledTask | null = null;
 let analyticsTask: ScheduledTask | null = null;
 let fraudMonitorTask: ScheduledTask | null = null;
+let payoutReconcilerTask: ScheduledTask | null = null;
 
 export function startJobRunner() {
   if (scheduledRidesTask) return;
@@ -35,6 +37,15 @@ export function startJobRunner() {
     }
   });
 
+  // Retry pending Stripe Connect ride transfers every minute.
+  payoutReconcilerTask = cron.schedule('* * * * *', async () => {
+    const result = await runDriverPayoutReconciler();
+    if (result?.ok === false) {
+      logger.warn('driver payout reconciler run failed', {
+        error: 'error' in result ? result.error : 'unknown reconciliation error'
+      });
+    }
+  });
   logger.info('background job runner started', {
     scheduledRidesCron: '*/30 * * * * *',
     analyticsCron: '0 * * * *',
@@ -50,4 +61,6 @@ export function stopJobRunner() {
   analyticsTask = null;
   fraudMonitorTask?.stop();
   fraudMonitorTask = null;
+  payoutReconcilerTask?.stop();
+  payoutReconcilerTask = null;
 }

@@ -10,7 +10,9 @@
         "test": "npm run build && node -r ./scripts/test-runtime.cjs --test dist/tests/*.test.js",
         "db:migrate": "tsx src/database/migrations/index.ts",
         "db:seed": "tsx src/database/seeds/index.ts",
-        "prod:check": "tsx scripts/production-readiness.ts"
+        "prod:check": "tsx scripts/production-readiness.ts",
+        "smoke:prod": "tsx scripts/production-smoke.ts",
+        "load:staging": "tsx scripts/staging-load-smoke.ts"
     },
     "repository": {
         "type": "git",

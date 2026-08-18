@@ -91,6 +91,83 @@ type FoodOrder = RestaurantOrder & {
 const restaurants = new Map<string, Restaurant>();
 const restaurantByUserId = new Map<string, string>();
 const foodOrders = new Map<string, FoodOrder>();
+function encodeRestaurantForPersistence(restaurant: Restaurant) {
+  return {
+    ...restaurant,
+    documents: Array.from(restaurant.documents.entries()),
+    menuCategories: Array.from(restaurant.menuCategories.entries()),
+    menuItems: Array.from(restaurant.menuItems.entries()),
+    orders: Array.from(restaurant.orders.entries()),
+    staff: Array.from(restaurant.staff.entries()),
+    promotions: Array.from(restaurant.promotions.entries()),
+    reviews: Array.from(restaurant.reviews.entries()),
+    feedback: Array.from(restaurant.feedback.entries()),
+    webhooks: Array.from(restaurant.webhooks.entries())
+  };
+}
+
+function decodeRestaurantFromPersistence(raw: any): Restaurant {
+  return {
+    ...raw,
+    documents: new Map(raw?.documents || []),
+    menuCategories: new Map(raw?.menuCategories || []),
+    menuItems: new Map(raw?.menuItems || []),
+    orders: new Map(raw?.orders || []),
+    staff: new Map(raw?.staff || []),
+    promotions: new Map(raw?.promotions || []),
+    reviews: new Map(raw?.reviews || []),
+    feedback: new Map(raw?.feedback || []),
+    webhooks: new Map(raw?.webhooks || [])
+  } as Restaurant;
+}
+
+export function exportRestaurantStoreSnapshot() {
+  return {
+    version: 1,
+    restaurants: Array.from(restaurants.values()).map(encodeRestaurantForPersistence),
+    restaurantByUserId: Array.from(restaurantByUserId.entries()),
+    foodOrders: Array.from(foodOrders.entries())
+  };
+}
+
+export function importRestaurantStoreSnapshot(snapshot: any) {
+  if (!snapshot || snapshot.version !== 1) {
+    throw new Error('Unsupported restaurant store snapshot');
+  }
+
+  restaurants.clear();
+  restaurantByUserId.clear();
+  foodOrders.clear();
+
+  for (const raw of Array.isArray(snapshot.restaurants) ? snapshot.restaurants : []) {
+    const restaurant = decodeRestaurantFromPersistence(raw);
+    if (restaurant?.id) restaurants.set(restaurant.id, restaurant);
+  }
+
+  for (const [userId, restaurantId] of Array.isArray(snapshot.restaurantByUserId) ? snapshot.restaurantByUserId : []) {
+    restaurantByUserId.set(String(userId), String(restaurantId));
+  }
+
+  // Repair user index if an older snapshot omitted it.
+  for (const restaurant of restaurants.values()) {
+    if (!restaurantByUserId.has(restaurant.userId)) {
+      restaurantByUserId.set(restaurant.userId, restaurant.id);
+    }
+  }
+
+  for (const [orderId, order] of Array.isArray(snapshot.foodOrders) ? snapshot.foodOrders : []) {
+    foodOrders.set(String(orderId), order as FoodOrder);
+  }
+}
+
+export function restaurantStoreCounts() {
+  return {
+    restaurants: restaurants.size,
+    foodOrders: foodOrders.size,
+    menuItems: Array.from(restaurants.values())
+      .reduce((sum, restaurant) => sum + restaurant.menuItems.size, 0)
+  };
+}
 
 function ok(action: string, payload: Record<string, unknown> = {}) {
   return { module: 'restaurants', action, ok: true, ...payload };

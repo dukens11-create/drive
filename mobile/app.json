@@ -1,72 +1,72 @@
 {
-  "expo": {
-    "name": "Drive Home",
-    "slug": "drive-home",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "userInterfaceStyle": "automatic",
-    "scheme": "drivehome",
-    "plugins": [
-      "expo-router",
-      [
-        "expo-location",
-        {
-          "isAndroidBackgroundLocationEnabled": true,
-          "isIosBackgroundLocationEnabled": true
-        }
-      ],
-      [
-        "expo-notifications",
-        {
-          "sounds": [
-            "./assets/sounds/incoming_request.wav"
-          ]
-        }
-      ],
-      "expo-av",
-      "expo-font",
-      "expo-secure-store"
-    ],
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.dukens11.drivehome",
-      "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Drive Home needs your location to track live trips and nearby riders.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Drive Home uses your location in the background so trip updates stay responsive while you are online.",
-        "UIBackgroundModes": [
-          "location"
-        ]
-      }
-    },
-    "android": {
-      "package": "com.dukens11.drivehome",
-      "permissions": [
-        "POST_NOTIFICATIONS",
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
-        "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION"
-      ],
-      "config": {
-        "googleMaps": {
-          "apiKey": ""
-        }
-      }
-    },
-    "extra": {
-      "apiBaseUrl": "http://localhost:3000",
-      "emergencyNumber": "911",
-      "mapboxToken": "pk.eyJ1IjoiZmx1cGZsYXAiLCJhIjoiY21wMjI3M3dpMDN5eTJycHMyeG8yaDZ3OCJ9.VUXlzIoU5Gxfj6-BVjnxag",
-      "firebase": {
-        "apiKey": "",
-        "authDomain": "",
-        "projectId": "",
-        "databaseURL": "",
-        "storageBucket": "",
-        "messagingSenderId": "",
-        "appId": ""
-      }
-    }
-  }
+    "expo":  {
+                 "name":  "FlupFlap Driver",
+                 "slug":  "flupflap-driver",
+                 "version":  "1.0.0",
+                 "orientation":  "portrait",
+                 "userInterfaceStyle":  "automatic",
+                 "scheme":  "flupflapdriver",
+                 "plugins":  [
+                                 "expo-router",
+                                 [
+                                     "expo-location",
+                                     {
+                                         "isAndroidBackgroundLocationEnabled":  true,
+                                         "isIosBackgroundLocationEnabled":  true
+                                     }
+                                 ],
+                                 [
+                                     "expo-notifications",
+                                     {
+                                         "sounds":  [
+                                                        "./assets/sounds/incoming_request.wav"
+                                                    ]
+                                     }
+                                 ],
+                                 "expo-av",
+                                 "expo-font",
+                                 "expo-secure-store"
+                             ],
+                 "ios":  {
+                             "supportsTablet":  true,
+                             "bundleIdentifier":  "com.flupflap.driver",
+                             "infoPlist":  {
+                                               "NSLocationWhenInUseUsageDescription":  "FlupFlap Driver uses your location to receive nearby ride requests, navigate to riders, and share trip progress.",
+                                               "NSLocationAlwaysAndWhenInUseUsageDescription":  "When you choose to go online, FlupFlap Driver uses background location so riders can receive accurate pickup and trip progress even while the app is minimized.",
+                                               "UIBackgroundModes":  [
+                                                                         "location"
+                                                                     ]
+                                           }
+                         },
+                 "android":  {
+                                 "package":  "com.flupflap.driver",
+                                 "permissions":  [
+                                                     "POST_NOTIFICATIONS",
+                                                     "ACCESS_FINE_LOCATION",
+                                                     "ACCESS_COARSE_LOCATION",
+                                                     "ACCESS_BACKGROUND_LOCATION",
+                                                     "FOREGROUND_SERVICE",
+                                                     "FOREGROUND_SERVICE_LOCATION"
+                                                 ],
+                                 "config":  {
+                                                "googleMaps":  {
+                                                                   "apiKey":  ""
+                                                               }
+                                            }
+                             },
+                 "extra":  {
+                               "apiBaseUrl":  "https://api.flupflap.com",
+                               "emergencyNumber":  "911",
+                               "mapboxToken":  "pk.eyJ1IjoiZmx1cGZsYXAiLCJhIjoiY21wMjI3M3dpMDN5eTJycHMyeG8yaDZ3OCJ9.VUXlzIoU5Gxfj6-BVjnxag",
+                               "firebase":  {
+                                                "apiKey":  "",
+                                                "authDomain":  "",
+                                                "projectId":  "",
+                                                "databaseURL":  "",
+                                                "storageBucket":  "",
+                                                "messagingSenderId":  "",
+                                                "appId":  ""
+                                            }
+                           }
+             }
 }

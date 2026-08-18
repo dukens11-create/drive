@@ -46,6 +46,7 @@ import { notificationTemplates } from '../utils/fcm-templates';
 import { getPricingForVehicleType } from '../utils/vehicle-pricing';
 import { emailTemplates } from '../utils/email-templates';
 import { smsTemplates } from '../utils/sms-templates';
+import { transferRideEarnings } from './driver-payouts.service';
 
 
 const CURRENCY = 'USD';
@@ -1017,6 +1018,13 @@ export async function request(body: any, _params?: any, _query?: any) {
   }
 
   const paymentMethod = normalizeRidePaymentMethod(body?.paymentMethod);
+  if (env.nodeEnv === 'production' && paymentMethod === 'cash') {
+    return {
+      module: 'rides',
+      action: 'request',
+      error: 'Cash ride payments are not supported. Use card, Apple Pay, or Google Pay.'
+    };
+  }
   const VALID_PREFERRED_GENDERS: PreferredDriverGender[] = ['male', 'female', 'no_preference'];
   const rawPreferredGender = typeof body?.preferredDriverGender === 'string' ? body.preferredDriverGender.trim().toLowerCase() : '';
   const preferredDriverGender: PreferredDriverGender | undefined = (VALID_PREFERRED_GENDERS as string[]).includes(rawPreferredGender) && rawPreferredGender !== 'no_preference'
@@ -1721,7 +1729,19 @@ export async function complete(body: any, _params?: any, _query?: any) {
   ride.platformFee = amountToCents(ride.fareDetails.serviceFee);
   ride.platformFeePercent = commissionRate;
   ride.driverPayout = amountToCents(ride.fareDetails.driverEarnings);
-  ride.payoutStatus = 'processed';
+  ride.payoutStatus = 'pending';
+
+  let stripeTransferResult: Awaited<ReturnType<typeof transferRideEarnings>> | null = null;
+  if (ride.driverId) {
+    stripeTransferResult = await transferRideEarnings(ride);
+    if (!stripeTransferResult.ok && env.nodeEnv === 'production') {
+      logger.warn('Driver earnings remain pending in Stripe Connect reconciliation', {
+        rideId: ride.id,
+        driverId: ride.driverId,
+        reason: stripeTransferResult.reason
+      });
+    }
+  }
 
   const request = getRideRequestByRideId(ride.id);
   if (request) syncRideRequestState(request, 'completed');

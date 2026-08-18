@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import { Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 
 import { apiBaseUrl } from '../config/apiConfig';
 import { sessionStorage } from '../storage/sessionStorage';
@@ -9,6 +9,18 @@ export const DRIVER_BACKGROUND_LOCATION_TASK = 'drive-home-driver-background-loc
 const LOCATION_UPDATE_INTERVAL_MS = 4000;
 const LOCATION_UPDATE_DISTANCE_METERS = 8;
 
+const showBackgroundLocationDisclosure = () =>
+  new Promise<boolean>((resolve) => {
+    Alert.alert(
+      'Background location',
+      'FlupFlap Driver collects location data in the background, including when the app is closed or not in use, to keep you available for ride requests and to share live trip progress with riders while you choose to be online. This location is not used solely for advertising.',
+      [
+        { text: 'Not now', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Continue', onPress: () => resolve(true) }
+      ],
+      { cancelable: false }
+    );
+  });
 type LocationTaskData = {
   locations?: Location.LocationObject[];
 };
@@ -73,9 +85,15 @@ export const syncDriverLocationInBackground = async (enabled: boolean) => {
     return;
   }
 
-  const backgroundPermission = await Location.requestBackgroundPermissionsAsync();
-  if (backgroundPermission.status !== Location.PermissionStatus.GRANTED) {
-    return;
+  const existingBackgroundPermission = await Location.getBackgroundPermissionsAsync();
+  if (existingBackgroundPermission.status !== Location.PermissionStatus.GRANTED) {
+    const continueToPermission = await showBackgroundLocationDisclosure();
+    if (!continueToPermission) return;
+
+    const backgroundPermission = await Location.requestBackgroundPermissionsAsync();
+    if (backgroundPermission.status !== Location.PermissionStatus.GRANTED) {
+      return;
+    }
   }
 
   if (started) {
@@ -90,7 +108,7 @@ export const syncDriverLocationInBackground = async (enabled: boolean) => {
     ...(Platform.OS === 'android'
       ? {
           foregroundService: {
-            notificationTitle: 'Drive Home is keeping you online',
+            notificationTitle: 'FlupFlap Driver is keeping you online',
             notificationBody: 'Location updates stay active so requests and trip progress remain timely.',
           },
         }
