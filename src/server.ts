@@ -2,6 +2,9 @@ import { createApp } from './app';
 import { env } from './config';
 import { getErrorDetails, logger } from './utils';
 import { startJobRunner, stopJobRunner } from './jobs';
+import { initializePostgresStorePersistence, flushPostgresStorePersistence } from './database/postgres-snapshot';
+import { closePool } from './database/postgres';
+import { inspectProductionConfiguration } from './production/readiness';
 
 type ExitFn = (code: number) => never;
 
@@ -48,8 +51,23 @@ process.on('unhandledRejection', (reason) => {
   shutdownServer(exitProcess, closeServer);
 });
 
-try {
-  const { httpServer } = createApp();
+async function main() {
+  try {
+    const configReadiness = inspectProductionConfiguration();
+    if (env.nodeEnv === 'production' && !configReadiness.ok) {
+      throw new Error(
+        'Production configuration is not launch-safe: ' +
+        configReadiness.issues
+          .filter(issue => issue.level === 'error')
+          .map(issue => `${issue.key}: ${issue.message}`)
+          .join('; ')
+      );
+    }
+
+    const persistence = await initializePostgresStorePersistence();
+    logger.info('store persistence initialized', persistence);
+
+    const { httpServer } = createApp();
   const host = env.host;
   logger.info(`Starting listen on ${host}:${env.port}`);
   closeServer = httpServer.close.bind(httpServer);
@@ -82,6 +100,7 @@ try {
   server.on('close', () => {
     stopJobRunner();
     isListening = false;
+    void flushPostgresStorePersistence().finally(() => closePool()).catch(() => undefined);
   });
 
   server.on('error', (error: unknown) => {
@@ -103,12 +122,17 @@ try {
   });
 
   logger.info('server startup completed');
-} catch (err) {
-  logger.error('server startup failed', {
-    ...getErrorDetails(err),
-    port: env.port,
-    nodeEnv: env.nodeEnv,
-    loadedEnvFilePath: env.loadedEnvFilePath ?? null
-  });
-  exitProcess(1);
+  } catch (err) {
+    logger.error('server startup failed', {
+      ...getErrorDetails(err),
+      port: env.port,
+      nodeEnv: env.nodeEnv,
+      loadedEnvFilePath: env.loadedEnvFilePath ?? null
+    });
+    try { await flushPostgresStorePersistence(); } catch {}
+    try { await closePool(); } catch {}
+    exitProcess(1);
+  }
 }
+
+void main();

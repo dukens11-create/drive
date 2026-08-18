@@ -15,6 +15,7 @@ import { stripeWebhookHandler } from './webhooks/stripe.webhook';
 import { requireAuth, requireRole } from './middleware/auth.middleware';
 import * as ridesController from './controllers/rides.controller';
 import { store } from './database/data.store';
+import { productionReadiness } from './production/readiness';
 
 export function createApp() {
   try {
@@ -108,7 +109,13 @@ export function createApp() {
 
     app.get('/health', (_, res) => res.json({ ok: true, service: 'drive-api' }));
     app.get('/livez', (_, res) => res.json({ ok: true }));
-    app.get('/readyz', (_, res) => res.json({ ok: true, uptimeSeconds: parseFloat(process.uptime().toFixed(3)) }));
+    app.get('/readyz', async (_, res) => {
+      const readiness = await productionReadiness();
+      res.status(readiness.ok ? 200 : 503).json({
+        ...readiness,
+        uptimeSeconds: parseFloat(process.uptime().toFixed(3))
+      });
+    });
     app.get('/api/config', (_, res) => res.json({
       stripePublishableKey: env.stripePublishableKey || '',
       mapboxPublicToken: env.mapboxPublicToken || '',

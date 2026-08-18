@@ -81,7 +81,13 @@ function getStripeConfig() {
   return { secretKey, publishableKey, webhookSecret };
 }
 
-const dataStoreMode = getString('DATA_STORE_MODE', 'memory') === 'file' ? 'file' : 'memory';
+const rawDataStoreMode = getString('DATA_STORE_MODE', 'memory')?.toLowerCase();
+const dataStoreMode: 'memory' | 'file' | 'postgres' =
+  rawDataStoreMode === 'postgres'
+    ? 'postgres'
+    : rawDataStoreMode === 'file'
+      ? 'file'
+      : 'memory';
 const stripe = getStripeConfig();
 
 export const env = {
@@ -138,6 +144,7 @@ export const env = {
     'SQUARE_OAUTH_REDIRECT_URI',
     'http://localhost:8080/api/restaurants/pos/square/oauth/callback'
   ),  posCredentialsEncryptionKey: getString('POS_CREDENTIALS_ENCRYPTION_KEY'),
+  redisUrl: getString('REDIS_URL'),
   databaseUrl: getString('DATABASE_URL'),
   databasePoolMax: Number(getString('DATABASE_POOL_MAX', '10')),
   loadedEnvFilePath,
